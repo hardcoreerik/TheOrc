@@ -1,10 +1,12 @@
 # Project Truth
 
-> Snapshot date: 2026-08-16 America/Los_Angeles (Phase 3 frozen; Phase 4 implemented pending independent freeze review)
+> Snapshot date: 2026-08-18 America/Los_Angeles (Phase 4 formally frozen; Phase 5A real-model correctness verified, composition with Phase 4 now the active gate per OE-ADR-026)
 >
-> Repository snapshot: `F:\Ai\OrchestratorIDE-phase4-bookend-virtualization`
+> Active worktree snapshot: `F:\Ai\OrchestratorIDE-phase5a-kv-cache` @ branch `feat/orcengine-phase5a-kv-cache`, HEAD `0a80477d`
 >
-> Product baseline: `origin/master`
+> Frozen parent (distinct from the active worktree above): `F:\Ai\OrchestratorIDE-phase4-bookend-virtualization` @ branch `feat/orcengine-phase4-bookend-virtualization`, tag `orcengine-phase4-freeze` -> `944f07b86428ec53d46ca19dc66c3d0d5b1e207d`
+>
+> Product baseline (TheOrc's own integration state, unrelated to OrcEngine's research branches): `origin/master`
 >
 > Verified product commit: `6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7`
 >
@@ -381,13 +383,66 @@ composition is not) and the absence of any independent (non-self-authored)
 review. No `orcengine-phase5a-freeze` tag exists; the branch remains
 unpushed pending that review.
 
+## OE-ADR-026: composition is now the active gate, 2026-08-18
+
+**DECIDED:** per the maintainer's explicit direction after reviewing the
+above, Phase 5A will **not** freeze as a correctness-only, fully-resident
+implementation -- OE-ADR-024 already made bounded weight residency an
+inherited Phase-5A invariant, and freezing on top of a known violation of
+it would let Phase 5B/5C/6 build on an architecture already known to be
+wrong. The existing fully-resident cached implementation is **retained**
+(not deleted) as a semantic oracle: it isolates cache-math correctness
+from residency architecture, which is exactly what a `resident cached vs
+virtualized cached` differential needs going forward. The active
+completion gate is now: compose persistent KV/context state with Phase-4's
+transient, per-layer-materialized weight architecture, and prove the two
+implementations agree on complete logits, before independent freeze
+review is requested. Full context, the rejected "defer to Phase 5D"
+alternative, and the acceptance trigger are in `DECISION_LOG.md`
+OE-ADR-026. `PHASE5A_KV_CACHE_SPEC.md`'s "Active Phase-5A completion gate
+after real-model audit" section is the current, binding definition of
+done -- its earlier synthetic-only gate is retained for historical
+accuracy but is no longer the active gate.
+
+## OE-ADR-027: composition implemented and verified equivalent, 2026-08-18
+
+**VERIFIED:** `VirtualizedCachedModel` (Reference Path C) is implemented
+using Phase 3/4's own public `ModelSource`/`TensorMaterializer`/
+`TensorRowRegionMaterializer`/`ResidencyLedger` contracts -- no frozen
+Phase 1/3/4 file was modified. It is proven **bit-identical** to Reference
+Path B (the fully-resident cached oracle, retained per OE-ADR-026) on
+synthetic Fixture C (9/9 steps) and the real pinned SmolLM2-135M (4/4
+steps), and bit-identical to frozen Phase-4's own virtualized full-prefix
+reference on the real model as well. `peak_resident_weight_bytes` measures
+at 14,162,688 bytes -- matching Phase 4's documented frozen peak exactly.
+`peak_active_layers==1` holds at every step, and the underlying
+`ResidencyLedger::enter_layer` guard was directly proven to reject a
+second concurrently-resident layer, not merely assumed correct. Real KV
+cache content is numerically cross-checked against HF's own independently
+constructed cache at 5 layer/head/position combinations (max_abs 1e-7 to
+2.4e-5). Backing I/O is measured, not assumed: transformer weight bytes
+read are effectively identical between cached and full-prefix execution
+(caching does not reduce weight rereads per token under this
+architecture), while embedding backing bytes ARE measurably reduced. The
+real composed KV/weight crossover, from Reference Path C's own measured
+peak, is 308 tokens. Full validation matrix (Debug/Release/strict/ASan)
+is 18/18 across all four lanes, zero warnings, zero memory-safety
+findings. Full detail, the updated 20-item gate (19 satisfied, 1
+partial), and the proposed verdict are in `PHASE5A_KV_CACHE_SPEC.md`'s
+"Composition implementation results" section and `DECISION_LOG.md`
+OE-ADR-027.
+
+**Proposed verdict: `READY FOR INDEPENDENT FREEZE REVIEW`** -- a
+recommendation, not a self-authorization. No `orcengine-phase5a-freeze`
+tag has been created; the branch remains unpushed pending that review.
+
 ## Current blockers
 
 None remaining for Phase 4, which is formally frozen. Phase 5A's
-correctness gate (synthetic + real-model) is now satisfied; its remaining
-blockers are the Phase-4 composition question and independent review, per
-`PHASE5A_KV_CACHE_SPEC.md`'s results section above. See `DECISION_LOG.md`
-OE-ADR-022 through OE-ADR-024 for the full record.
+correctness gate (synthetic + real-model) and its composition gate
+(OE-ADR-026/027) are both satisfied. The sole remaining blocker before a
+freeze tag is independent (non-self-authored) review. See
+`DECISION_LOG.md` OE-ADR-022 through OE-ADR-027 for the full record.
 
 ## How to update this document
 

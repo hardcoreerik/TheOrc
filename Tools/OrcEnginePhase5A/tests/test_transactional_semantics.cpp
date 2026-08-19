@@ -58,16 +58,14 @@ int main(int argc, char** argv) {
 
         // --- Trusted baseline: correct prefill + correct first decode, never touched by any fault. ---
         ContiguousAttentionKVStore baseline_cache(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-        forward_cached_step(fx.model, baseline_cache, prefill.new_tokens, 0);
-        baseline_cache.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+        forward_cached_step(fx.model, baseline_cache, prefill.new_tokens, 0);  // auto-commits on success
         CachedStepResult baseline_result = forward_cached_step(fx.model, baseline_cache, first_decode.new_tokens,
                                                                 first_decode.start_position);
         std::vector<float> baseline_logits(baseline_result.logits.end() - cfg.vocab, baseline_result.logits.end());
 
         // --- Fault scenario: corrupt layer 1's w_v with NaN, attempt the SAME decode step. ---
         ContiguousAttentionKVStore cache(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-        forward_cached_step(fx.model, cache, prefill.new_tokens, 0);
-        cache.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+        forward_cached_step(fx.model, cache, prefill.new_tokens, 0);  // auto-commits on success
         const int64_t committed_before_failure = cache.current_length();
 
         std::vector<float> saved_w_v = fx.model.layers[1].w_v.raw();
@@ -98,9 +96,7 @@ int main(int argc, char** argv) {
         // --- Restore weights, retry at the SAME start_position: must succeed and match the untouched baseline. ---
         mutable_w_v = saved_w_v;
         CachedStepResult retry_result = forward_cached_step(fx.model, cache, first_decode.new_tokens,
-                                                             first_decode.start_position);
-        cache.set_current_length(first_decode.start_position +
-                                  static_cast<int64_t>(first_decode.new_tokens.size()));
+                                                             first_decode.start_position);  // auto-commits on success
         std::vector<float> retry_logits(retry_result.logits.end() - cfg.vocab, retry_result.logits.end());
         check(max_abs_diff(retry_logits, baseline_logits) == 0.0f,
               "retry at the same position after a failure overwrites the poison and matches the untouched baseline bit-exactly");
@@ -111,6 +107,15 @@ int main(int argc, char** argv) {
             if (std::isnan(healed_v[d])) { healed = false; break; }
         }
         check(healed, "retry overwrote the poisoned cache slot -- no NaN survives a successful retry");
+
+        // Commit-API audit fix, end to end: the successful retry's own
+        // internal auto-commit (not a manual caller call -- none exists in
+        // this test anymore) DID advance current_length(), proving
+        // "successful decode advances logical length; failure does not" is
+        // enforced by the function itself, not by caller discipline.
+        check(cache.current_length() == first_decode.start_position +
+                  static_cast<int64_t>(first_decode.new_tokens.size()),
+              "successful retry's own auto-commit advanced current_length() (no manual caller call exists in this test)");
 
         std::printf("\n=== Summary ===\n");
         if (g_failures == 0) { std::printf("TRANSACTIONAL SEMANTICS HOLD\n"); return 0; }

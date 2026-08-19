@@ -21,6 +21,124 @@ void check_finite(const std::string& name, const std::vector<float>& data) {
 
 }  // namespace
 
+std::vector<float> execute_cached_transformer_layer(
+    const std::vector<float>& x, int64_t new_len, int64_t start_position,
+    const LayerWeights& lw, const ModelConfig& cfg, int64_t layer,
+    const std::vector<std::vector<float>>& cos_by_pos,
+    const std::vector<std::vector<float>>& sin_by_pos,
+    ContiguousAttentionKVStore& cache) {
+    const int64_t hidden = cfg.hidden;
+    const int64_t group_size = cfg.group_size();
+    const float scale = 1.0f / std::sqrt(static_cast<float>(cfg.head_dim));
+
+    std::vector<float> a = ops::rmsnorm(x, new_len, hidden, lw.attn_norm_weight.raw(), cfg.rmsnorm_epsilon);
+    check_finite("layer" + std::to_string(layer) + ".a", a);
+
+    const int64_t q_dim = cfg.n_q_heads * cfg.head_dim;
+    const int64_t kv_dim = cfg.n_kv_heads * cfg.head_dim;
+    std::vector<float> q_flat = ops::linear_no_bias(a, new_len, hidden, lw.w_q.raw(), q_dim);
+    std::vector<float> k_flat_new = ops::linear_no_bias(a, new_len, hidden, lw.w_k.raw(), kv_dim);
+    std::vector<float> v_flat_new = ops::linear_no_bias(a, new_len, hidden, lw.w_v.raw(), kv_dim);
+
+    // q_rope: [n_q_heads][new_len][head_dim] (only this step's new query positions).
+    std::vector<float> q_rope(static_cast<size_t>(cfg.n_q_heads * new_len * cfg.head_dim));
+    for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
+        for (int64_t i = 0; i < new_len; ++i) {
+            std::vector<float> vec(static_cast<size_t>(cfg.head_dim));
+            for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                vec[static_cast<size_t>(d)] = q_flat[static_cast<size_t>(i * q_dim + h * cfg.head_dim + d)];
+            }
+            std::vector<float> rotated = ops::apply_rope(vec, cos_by_pos[static_cast<size_t>(i)],
+                                                           sin_by_pos[static_cast<size_t>(i)]);
+            for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                q_rope[static_cast<size_t>((h * new_len + i) * cfg.head_dim + d)] = rotated[static_cast<size_t>(d)];
+            }
+        }
+    }
+
+    // Compute this step's new K (with RoPE) and V (no RoPE), then write into the cache
+    // at absolute positions [start_position, start_position+new_len) for this layer.
+    for (int64_t h = 0; h < cfg.n_kv_heads; ++h) {
+        for (int64_t i = 0; i < new_len; ++i) {
+            std::vector<float> k_vec(static_cast<size_t>(cfg.head_dim));
+            for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                k_vec[static_cast<size_t>(d)] = k_flat_new[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
+            }
+            std::vector<float> k_rotated = ops::apply_rope(k_vec, cos_by_pos[static_cast<size_t>(i)],
+                                                            sin_by_pos[static_cast<size_t>(i)]);
+            cache.write_k(layer, h, start_position + i, k_rotated.data());
+
+            std::vector<float> v_vec(static_cast<size_t>(cfg.head_dim));
+            for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                v_vec[static_cast<size_t>(d)] = v_flat_new[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
+            }
+            cache.write_v(layer, h, start_position + i, v_vec.data());
+        }
+    }
+
+    // Attention: query position (start_position + qi) attends to key positions
+    // [0, start_position + qi] inclusive -- prior cache content plus this step's
+    // own new keys up to and including its own position (rectangular causal mask).
+    std::vector<float> context_heads(static_cast<size_t>(cfg.n_q_heads * new_len * cfg.head_dim));
+    for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
+        const int64_t kv_h = h / group_size;
+        for (int64_t qi = 0; qi < new_len; ++qi) {
+            const int64_t query_abs = start_position + qi;
+            const int64_t key_count = query_abs + 1;  // keys [0, query_abs] inclusive
+            std::vector<float> scores(static_cast<size_t>(key_count));
+            for (int64_t ki = 0; ki < key_count; ++ki) {
+                const float* k_row = cache.k_row(layer, kv_h, ki);
+                ops::AccumT acc = ops::AccumT(0);
+                for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                    acc += static_cast<ops::AccumT>(q_rope[static_cast<size_t>((h * new_len + qi) * cfg.head_dim + d)]) *
+                           static_cast<ops::AccumT>(k_row[d]);
+                }
+                scores[static_cast<size_t>(ki)] = static_cast<float>(acc) * scale;
+            }
+            std::vector<float> probs = ops::softmax_last_axis(scores, 1, key_count);
+            for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                ops::AccumT acc = ops::AccumT(0);
+                for (int64_t ki = 0; ki < key_count; ++ki) {
+                    const float* v_row = cache.v_row(layer, kv_h, ki);
+                    acc += static_cast<ops::AccumT>(probs[static_cast<size_t>(ki)]) *
+                           static_cast<ops::AccumT>(v_row[d]);
+                }
+                context_heads[static_cast<size_t>((h * new_len + qi) * cfg.head_dim + d)] = static_cast<float>(acc);
+            }
+        }
+    }
+
+    std::vector<float> context_flat(static_cast<size_t>(new_len * q_dim));
+    for (int64_t i = 0; i < new_len; ++i) {
+        for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
+            for (int64_t d = 0; d < cfg.head_dim; ++d) {
+                context_flat[static_cast<size_t>(i * q_dim + h * cfg.head_dim + d)] =
+                    context_heads[static_cast<size_t>((h * new_len + i) * cfg.head_dim + d)];
+            }
+        }
+    }
+
+    std::vector<float> attn_out = ops::linear_no_bias(context_flat, new_len, q_dim, lw.w_o.raw(), hidden);
+
+    std::vector<float> r(x.size());
+    for (size_t i = 0; i < x.size(); ++i) r[i] = x[i] + attn_out[i];
+    check_finite("layer" + std::to_string(layer) + ".post_attention_residual", r);
+
+    std::vector<float> f = ops::rmsnorm(r, new_len, hidden, lw.ffn_norm_weight.raw(), cfg.rmsnorm_epsilon);
+    std::vector<float> gate = ops::linear_no_bias(f, new_len, hidden, lw.w_gate.raw(), cfg.intermediate);
+    std::vector<float> up = ops::linear_no_bias(f, new_len, hidden, lw.w_up.raw(), cfg.intermediate);
+    std::vector<float> gate_act = ops::silu(gate);
+    std::vector<float> activated(gate.size());
+    for (size_t i = 0; i < gate.size(); ++i) activated[i] = gate_act[i] * up[i];
+    std::vector<float> ffn = ops::linear_no_bias(activated, new_len, cfg.intermediate, lw.w_down.raw(), hidden);
+
+    std::vector<float> y(r.size());
+    for (size_t i = 0; i < r.size(); ++i) y[i] = r[i] + ffn[i];
+    check_finite("layer" + std::to_string(layer) + ".post_ffn_residual", y);
+
+    return y;
+}
+
 CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVStore& cache,
                                       const std::vector<int64_t>& new_token_ids,
                                       int64_t start_position) {
@@ -38,10 +156,6 @@ CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVSt
     }
 
     const int64_t hidden = cfg.hidden;
-    const int64_t group_size = cfg.group_size();
-    const float scale = 1.0f / std::sqrt(static_cast<float>(cfg.head_dim));
-    const int64_t prior_len = start_position;  // positions [0, prior_len) already committed by the caller
-    const int64_t total_len = start_position + new_len;
 
     std::vector<float> x = ops::embedding_lookup(model.token_embedding.raw(), hidden, new_token_ids);
     check_finite("input_embedding", x);
@@ -54,113 +168,8 @@ CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVSt
 
     for (int64_t li = 0; li < cfg.n_layers; ++li) {
         const LayerWeights& lw = model.layers[static_cast<size_t>(li)];
-
-        std::vector<float> a = ops::rmsnorm(x, new_len, hidden, lw.attn_norm_weight.raw(), cfg.rmsnorm_epsilon);
-        check_finite("layer" + std::to_string(li) + ".a", a);
-
-        const int64_t q_dim = cfg.n_q_heads * cfg.head_dim;
-        const int64_t kv_dim = cfg.n_kv_heads * cfg.head_dim;
-        std::vector<float> q_flat = ops::linear_no_bias(a, new_len, hidden, lw.w_q.raw(), q_dim);
-        std::vector<float> k_flat_new = ops::linear_no_bias(a, new_len, hidden, lw.w_k.raw(), kv_dim);
-        std::vector<float> v_flat_new = ops::linear_no_bias(a, new_len, hidden, lw.w_v.raw(), kv_dim);
-
-        // q_rope: [n_q_heads][new_len][head_dim] (only this step's new query positions).
-        std::vector<float> q_rope(static_cast<size_t>(cfg.n_q_heads * new_len * cfg.head_dim));
-        for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
-            for (int64_t i = 0; i < new_len; ++i) {
-                std::vector<float> vec(static_cast<size_t>(cfg.head_dim));
-                for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    vec[static_cast<size_t>(d)] = q_flat[static_cast<size_t>(i * q_dim + h * cfg.head_dim + d)];
-                }
-                std::vector<float> rotated = ops::apply_rope(vec, cos_by_pos[static_cast<size_t>(i)],
-                                                               sin_by_pos[static_cast<size_t>(i)]);
-                for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    q_rope[static_cast<size_t>((h * new_len + i) * cfg.head_dim + d)] = rotated[static_cast<size_t>(d)];
-                }
-            }
-        }
-
-        // Compute this step's new K (with RoPE) and V (no RoPE), then write into the cache
-        // at absolute positions [start_position, start_position+new_len) for this layer.
-        for (int64_t h = 0; h < cfg.n_kv_heads; ++h) {
-            for (int64_t i = 0; i < new_len; ++i) {
-                std::vector<float> k_vec(static_cast<size_t>(cfg.head_dim));
-                for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    k_vec[static_cast<size_t>(d)] = k_flat_new[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
-                }
-                std::vector<float> k_rotated = ops::apply_rope(k_vec, cos_by_pos[static_cast<size_t>(i)],
-                                                                sin_by_pos[static_cast<size_t>(i)]);
-                cache.write_k(li, h, start_position + i, k_rotated.data());
-
-                std::vector<float> v_vec(static_cast<size_t>(cfg.head_dim));
-                for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    v_vec[static_cast<size_t>(d)] = v_flat_new[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
-                }
-                cache.write_v(li, h, start_position + i, v_vec.data());
-            }
-        }
-
-        // Attention: query position (start_position + qi) attends to key positions
-        // [0, start_position + qi] inclusive -- prior cache content plus this step's
-        // own new keys up to and including its own position (rectangular causal mask).
-        std::vector<float> context_heads(static_cast<size_t>(cfg.n_q_heads * new_len * cfg.head_dim));
-        for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
-            const int64_t kv_h = h / group_size;
-            for (int64_t qi = 0; qi < new_len; ++qi) {
-                const int64_t query_abs = start_position + qi;
-                const int64_t key_count = query_abs + 1;  // keys [0, query_abs] inclusive
-                std::vector<float> scores(static_cast<size_t>(key_count));
-                for (int64_t ki = 0; ki < key_count; ++ki) {
-                    const float* k_row = cache.k_row(li, kv_h, ki);
-                    ops::AccumT acc = ops::AccumT(0);
-                    for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                        acc += static_cast<ops::AccumT>(q_rope[static_cast<size_t>((h * new_len + qi) * cfg.head_dim + d)]) *
-                               static_cast<ops::AccumT>(k_row[d]);
-                    }
-                    scores[static_cast<size_t>(ki)] = static_cast<float>(acc) * scale;
-                }
-                std::vector<float> probs = ops::softmax_last_axis(scores, 1, key_count);
-                for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    ops::AccumT acc = ops::AccumT(0);
-                    for (int64_t ki = 0; ki < key_count; ++ki) {
-                        const float* v_row = cache.v_row(li, kv_h, ki);
-                        acc += static_cast<ops::AccumT>(probs[static_cast<size_t>(ki)]) *
-                               static_cast<ops::AccumT>(v_row[d]);
-                    }
-                    context_heads[static_cast<size_t>((h * new_len + qi) * cfg.head_dim + d)] = static_cast<float>(acc);
-                }
-            }
-        }
-
-        std::vector<float> context_flat(static_cast<size_t>(new_len * q_dim));
-        for (int64_t i = 0; i < new_len; ++i) {
-            for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
-                for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    context_flat[static_cast<size_t>(i * q_dim + h * cfg.head_dim + d)] =
-                        context_heads[static_cast<size_t>((h * new_len + i) * cfg.head_dim + d)];
-                }
-            }
-        }
-
-        std::vector<float> attn_out = ops::linear_no_bias(context_flat, new_len, q_dim, lw.w_o.raw(), hidden);
-
-        std::vector<float> r(x.size());
-        for (size_t i = 0; i < x.size(); ++i) r[i] = x[i] + attn_out[i];
-        check_finite("layer" + std::to_string(li) + ".post_attention_residual", r);
-
-        std::vector<float> f = ops::rmsnorm(r, new_len, hidden, lw.ffn_norm_weight.raw(), cfg.rmsnorm_epsilon);
-        std::vector<float> gate = ops::linear_no_bias(f, new_len, hidden, lw.w_gate.raw(), cfg.intermediate);
-        std::vector<float> up = ops::linear_no_bias(f, new_len, hidden, lw.w_up.raw(), cfg.intermediate);
-        std::vector<float> gate_act = ops::silu(gate);
-        std::vector<float> activated(gate.size());
-        for (size_t i = 0; i < gate.size(); ++i) activated[i] = gate_act[i] * up[i];
-        std::vector<float> ffn = ops::linear_no_bias(activated, new_len, cfg.intermediate, lw.w_down.raw(), hidden);
-
-        std::vector<float> y(r.size());
-        for (size_t i = 0; i < r.size(); ++i) y[i] = r[i] + ffn[i];
-        check_finite("layer" + std::to_string(li) + ".post_ffn_residual", y);
-
-        x = y;
+        x = execute_cached_transformer_layer(x, new_len, start_position, lw, cfg, li,
+                                              cos_by_pos, sin_by_pos, cache);
     }
 
     std::vector<float> final_normed = ops::rmsnorm(x, new_len, hidden, model.final_norm_weight.raw(), cfg.rmsnorm_epsilon);
@@ -177,8 +186,18 @@ CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVSt
         std::vector<float> row(logits.begin() + i * cfg.vocab, logits.begin() + (i + 1) * cfg.vocab);
         result.selected_token[static_cast<size_t>(i)] = ops::argmax(row);
     }
-    (void)prior_len;
-    (void)total_len;
+
+    // Auto-commit on success, here and ONLY here (never on an exception
+    // path above -- every throw site above returns before this line runs).
+    // This is the API-narrowing fix from the commit-API audit: a caller no
+    // longer needs (and should not) call cache.set_current_length()
+    // manually after this function returns -- doing so was the exact
+    // "failed step + set_current_length()" misuse pattern that could make
+    // poisoned KV appear committed if a caller mistakenly called it after
+    // catching an exception. Folding the commit into the success path
+    // itself removes the caller's opportunity to get this wrong for the
+    // normal call pattern, without building rollback machinery.
+    cache.set_current_length(start_position + new_len);
     return result;
 }
 

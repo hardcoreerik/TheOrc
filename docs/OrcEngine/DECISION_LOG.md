@@ -1066,3 +1066,210 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   recorded as a known, accepted limitation. Neither has happened. Do not
   create `orcengine-phase5a-freeze`. Do not push the branch. Do not begin
   Phase 5B, 5C, Phase 6, CUDA, or product integration.
+
+## OE-ADR-026 — Phase 5A freeze boundary requires persistent KV state with transient Phase-4 weights
+
+- **Status:** Accepted (maintainer/director decision, 2026-08-18, made
+  after reviewing OE-ADR-025 and its supporting evidence). Does not
+  modify OE-ADR-025's historical decision or findings -- appended, not
+  edited in place, per this log's standing discipline.
+- **Context:** OE-ADR-025 proved, against the real pinned SmolLM2-135M
+  model: cached-decode math works; it works on the real model, not just
+  synthetic Fixture C; HF/PyTorch full-prefix and native-cached
+  comparisons both pass; the fully-resident cached path is semantically
+  correct. It also found, and did not hide, that this implementation
+  violates the residency architecture OE-ADR-024 inherited from Phase
+  3/4 -- it requires a fully-resident `Model` and never touches
+  `ModelSource`, `TensorRowRegionMaterializer`, or the Phase-3
+  layer-at-a-time lifecycle.
+- **Decision:** Phase 5A does **not** freeze as a correctness-only,
+  fully-resident reference. The existing fully-resident cached
+  implementation (`forward_cached_step`) becomes a **retained semantic
+  oracle** -- it is not deleted, because comparing it against a
+  virtualized implementation on identical inputs is exactly what isolates
+  residency-architecture correctness from cache-mathematics correctness.
+  The Phase-5A target implementation must prove, before independent
+  review is requested:
+  ```
+  persistent context/KV state
+  +
+  temporary, per-layer-materialized (virtualized) weights
+  +
+  the same cached-decode semantics already proven correct
+  ```
+  Concretely: an embedding lookup that stays row-virtualized, a
+  transformer loop that materializes exactly one layer's weights at a
+  time (reading and writing that layer's persistent KV before releasing
+  the layer), an output projection that stays row-chunk-virtualized, and
+  a result that matches the fully-resident oracle's complete logits at
+  every step. The oracle (Reference Path B) and the new target (Reference
+  Path C) are both retained afterward -- see `PHASE5A_KV_CACHE_SPEC.md`'s
+  "Active Phase-5A completion gate after real-model audit" section for
+  the full three-reference-path structure (A: frozen Phase-4 full-prefix;
+  B: this fully-resident cached oracle; C: the new virtualized-cached
+  target) and the updated 20-item gate.
+- **Rejected alternative — create Phase 5D and postpone composition:**
+  rejected. OE-ADR-024 already established bounded weight residency as
+  an *inherited* Phase-5A invariant, not a Phase-5A-optional nicety.
+  Postponing composition to a later phase would let Phase 5B (tokenizer),
+  5C (workspace/benchmarking), and eventually Phase 6 (quantization) all
+  build on top of an execution architecture already known, by this
+  project's own evidence, to violate an accepted contract. Fixing it
+  later would mean re-touching every phase built on the violation, not
+  just Phase 5A. Composing now, while only KV-cached decode depends on
+  the gap, is the smaller and more honest fix.
+- **Explicitly preserved, not to be silently regressed by the refactor
+  this decision requires:** no permanent full-resident embedding/output
+  bookends reintroduced; no silent full-model-residency fallback restored
+  anywhere in the new implementation; KV-cache growth accounted separately
+  from weight residency, never conflated (per OE-ADR-022/023's
+  established discipline); `current_length()`'s poisoned-in-place
+  transactional contract (OE-ADR-025) re-attacked after the refactor, not
+  assumed to still hold; no new copied/duplicated transformer-layer
+  implementation -- the composition work must factor a shared execution
+  seam usable by both the full-prefix and cached paths, not add a third
+  independent reimplementation of RMSNorm/QKV/RoPE/GQA/attention/output
+  projection/residual/FFN.
+- **Evidence authority:** OE-ADR-024 (bounded-residency invariant
+  inherited by Phase 5A); OE-ADR-025 (the correctness evidence and the
+  composition gap this decision responds to); `PHASE5A_KV_CACHE_SPEC.md`'s
+  composition-audit Results section and its new active-gate section.
+- **Acceptance trigger:** Phase-4-compatible (virtualized, one-layer-
+  resident-at-a-time) cached execution, proven equivalent to the retained
+  fully-resident oracle on complete logits, plus every item in
+  `PHASE5A_KV_CACHE_SPEC.md`'s updated 20-item active gate. Until then: do
+  not create `orcengine-phase5a-freeze`; do not push the branch unless
+  separately authorized; do not begin Phase 5B, 5C, Phase 6, CUDA, or
+  product integration.
+
+## OE-ADR-027 — Phase 5A composition implemented: Reference Path C proven equivalent to Phase 4's residency architecture
+
+- **Status:** Accepted. Records the result of pursuing OE-ADR-026's
+  decision. Proposed verdict `READY FOR INDEPENDENT FREEZE REVIEW`
+  (19/20 active-gate items fully satisfied, one partially). Does not
+  self-authorize a freeze -- independent review remains required.
+- **Context:** OE-ADR-026 decided Phase 5A must compose persistent KV
+  state with Phase 4's transient, per-layer-materialized weight
+  architecture before requesting independent review, and specified the
+  target architecture, the shared-execution-seam requirement, and an
+  updated 20-item gate. This entry records what building that
+  implementation actually found.
+- **VERIFIED — shared seam, no duplicated transformer math.**
+  `execute_cached_transformer_layer()` was extracted from the existing
+  `forward_cached_step` (a pure refactor, proven bit-identical to the
+  pre-refactor implementation on both synthetic and real-model evidence
+  before any new code was written) and is the ONLY implementation of
+  cached-decode's per-layer math. The new virtualized path
+  (`VirtualizedCachedModel::step`) calls the same function; it does not
+  reimplement RMSNorm/QKV/RoPE/GQA/attention/output-projection/residual/FFN.
+- **VERIFIED — prefill schedule chosen after proof, not intuition.**
+  Layer-major and token-major prefill were proven bit-identical (complete
+  logits, selected tokens, full cache content) on synthetic Fixture C
+  before either was preferred. Layer-major was then selected specifically
+  because it materializes each transformer layer exactly once per
+  prefill call regardless of prompt length, a real weight-I/O advantage
+  under Phase 4's streaming model.
+- **VERIFIED — Reference Path C composes with Phase 3/4 using their own
+  public contracts, not a new mechanism.** `VirtualizedCachedModel` is
+  built entirely from Phase 3/4's already-public `ModelSource`,
+  `TensorMaterializer`, `TensorRowRegionMaterializer`, and
+  `ResidencyLedger` types (`Tools/OrcEnginePhase3/include/orcengine/
+  {model_source,streaming}.hpp`) — no modification to any frozen Phase
+  1/3/4 file was required. Embedding stays row-virtualized, the output
+  head stays row-chunk-virtualized, and `ResidencyLedger::enter_layer`'s
+  existing more-than-one-resident-layer guard (a mechanism Phase 3/4
+  already built and this entry reuses, not reinvents) enforces one
+  resident layer at a time — and was directly proven to fire, not just
+  assumed correct, by a dedicated attack.
+- **VERIFIED — B == C, synthetic and real, bit-exact.** On synthetic
+  Fixture C: 9/9 steps bit-identical (`max_abs_diff=0.000000`), identical
+  selected tokens, bit-identical final cache content. On the real pinned
+  SmolLM2-135M: all of Reference Path A (frozen Phase-4 virtualized
+  full-prefix), Reference Path B (resident cached), and Reference Path C
+  (virtualized cached) are bit-identical at every one of 4 steps
+  (`max|a-b|=max|a-c|=max|b-c|=0.0`), matching the historically-established
+  `[1,5,28,284,260,198]` sequence. Extended to a real 5-way differential
+  with HF/PyTorch full-prefix and HF/PyTorch's own independently
+  constructed native cached decode: all five legs agree, and
+  `c_vs_hf_full`'s nonzero-but-within-tolerance divergence (matching
+  historical evidence) proves C is not vacuously echoing an expected
+  value.
+- **VERIFIED — real KV cache content numerically cross-checked, not just
+  plausibility-checked.** HF's own `DynamicCache` (independently
+  constructed, never fed by OrcEngine) compared against Reference Path
+  C's cache dumps at layer 0, a middle layer (15), the final layer (29),
+  multiple KV heads, a prompt position, and an incremental position — 5/5
+  pass with `max_abs` in the `1e-7`–`2.4e-5` range, each reported with
+  shape/position/head/max_abs/max_rel.
+- **MEASURED — the exact backing-I/O question this project posed,
+  answered experimentally.** Reference Path A's and Reference Path C's
+  total backing bytes read are nearly identical over the same run; the
+  small difference is fully explained by embedding-row materialization
+  count (A re-embeds the whole growing sequence every step since it never
+  caches; C only embeds new tokens) — a real, measured caching benefit
+  specific to embedding. Transformer-layer weight bytes read are
+  effectively IDENTICAL between A and C: **caching reduces attention
+  computation but does NOT reduce transformer weight rereads per
+  generated token** under the current virtualized architecture. This
+  project's own prior framing anticipated exactly this distinction; it is
+  now measured, not assumed.
+- **DECIDED — the real composed KV/weight crossover.** Using Reference
+  Path C's own measured peak (14,162,688 bytes — proven to match Phase
+  4's documented frozen peak exactly, not merely close to it):
+  `ceil(14,162,688 / 46,080) = 308` committed tokens. Superseding the
+  hypothetical estimates in OE-ADR-025 (which had no composed
+  implementation to measure), while numerically coinciding with them —
+  confirmation, not coincidence, that composition succeeded.
+- **DECIDED — eager KV allocation retained.** Per the bounded evaluation
+  this entry's evidence supports: no correctness or usability problem
+  severe enough to justify growable-store complexity was found for this
+  model/configuration. Capacity/storage optimization (paging, eviction, a
+  generalized cache manager) remains explicitly deferred, not designed
+  speculatively.
+- **VERIFIED — commit-API audit acted on.** `forward_cached_step` and
+  `VirtualizedCachedModel::step` now commit `cache.current_length()`
+  themselves, on the success path only, closing the specific
+  "failed step + caller's own `set_current_length()` call" misuse pattern
+  OE-ADR-025 flagged as unresolved. All external call sites that
+  previously called `set_current_length()` manually were removed as
+  redundant. The mid-layer NaN failure was re-attacked end-to-end against
+  BOTH reference paths after this refactor, not assumed to still hold.
+- **VERIFIED — fault attacks re-run with temporary materialized weights,
+  plus non-vacuity.** 11/11 pass against Reference Path C specifically:
+  the full required suite (position, stale reuse, swapped K/V, GQA
+  corruption, isolation, capacity, RoPE reset) plus a forced
+  materialization failure (propagates cleanly, never over-resident, never
+  committed) and two non-vacuity checks (a corrupted-not-thrown
+  materializer changes C's result, proving no silent weight-sharing with
+  B; a direct proof the residency guard actually rejects misuse).
+- **VERIFIED — full validation matrix, explicit configuration.**
+  Debug/Release/strict(`/W4 /WX /permissive- /EHsc`)/ASan all 18/18, zero
+  warnings, zero memory-safety findings, with `ORCENGINE_REAL_F32_GGUF`
+  configuration documented rather than a bare pass count.
+- **Explicitly not fully closed:** item 15 of the active gate (per-step,
+  not just per-run, backing-I/O granularity) is recorded as partially
+  satisfied — the underlying experimental question (does caching reduce
+  weight rereads) is answered at run-level granularity, but true
+  per-step-separated figures were not produced this pass. Not hidden;
+  recorded as a bounded, known gap.
+- **Alternatives considered:** declare the gate fully closed by treating
+  item 15's run-level measurement as sufficient (rejected — the gate's
+  own wording asked for per-step separation; recording the gap honestly
+  is more valuable than silently rounding up); delay this ADR until item
+  15 is fully closed (rejected — 19/20 items with one honestly-scoped
+  partial is a materially different, and more useful, state for a
+  maintainer or independent reviewer to see than no report at all).
+- **Evidence authority:** `PHASE5A_KV_CACHE_SPEC.md`'s "Composition
+  implementation results" section and its updated 20-item active gate;
+  `forward_cached_virtualized.hpp`/`.cpp`; `test_virtualized_cached_decode.cpp`;
+  `test_virtualized_cache_attacks.cpp`;
+  `test_transactional_semantics_virtualized.cpp`;
+  `test_prefill_schedule_equivalence.cpp`;
+  `tools/gguf_cached_forward_virtualized.cpp`;
+  `tests/real_5way_composed_differential.py`.
+- **Acceptance trigger:** independent (non-self-authored) review of this
+  entry's findings and the underlying evidence. This entry proposes
+  `READY FOR INDEPENDENT FREEZE REVIEW` as a recommendation, not a
+  self-authorization. Do not create `orcengine-phase5a-freeze`. Do not
+  push the branch unless separately authorized. Do not begin Phase 5B,
+  5C, Phase 6, CUDA, or product integration until that review completes.

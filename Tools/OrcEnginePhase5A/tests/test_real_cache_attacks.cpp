@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
         // Baseline: correct prefill + one correct decode step.
         ContiguousAttentionKVStore baseline_cache(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
         forward_cached_step(model, baseline_cache, initial, 0);
-        baseline_cache.set_current_length(static_cast<int64_t>(initial.size()));
+        // forward_cached_step auto-commits current_length() on success.
         CachedStepResult baseline = forward_cached_step(model, baseline_cache, next,
                                                          static_cast<int64_t>(initial.size()));
         std::vector<float> baseline_last(baseline.logits.end() - cfg.vocab, baseline.logits.end());
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(model, c, initial, 0);
-            c.set_current_length(static_cast<int64_t>(initial.size()));
+            // forward_cached_step auto-commits current_length() on success.
             CachedStepResult wrong = forward_cached_step(model, c, next, static_cast<int64_t>(initial.size()) + 1);
             std::vector<float> wrong_last(wrong.logits.end() - cfg.vocab, wrong.logits.end());
             check(max_abs_diff(wrong_last, baseline_last) > 1e-3f,
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(model, c, initial, 0);
-            c.set_current_length(static_cast<int64_t>(initial.size()));
+            // forward_cached_step auto-commits current_length() on success.
             std::vector<float> corrupt(static_cast<size_t>(cfg.head_dim), 999.0f);
             c.write_k(0, 0, 0, corrupt.data());
             CachedStepResult corrupted = forward_cached_step(model, c, next, static_cast<int64_t>(initial.size()));
@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
         for (int64_t delta : {-1, 1}) {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(model, c, initial, 0);
-            c.set_current_length(static_cast<int64_t>(initial.size()));
+            // forward_cached_step auto-commits current_length() on success.
             const int64_t bad_position = static_cast<int64_t>(initial.size()) + delta;
             if (bad_position < 0) continue;
             CachedStepResult r = forward_cached_step(model, c, next, bad_position);
@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(model, c, initial, 0);
-            c.set_current_length(static_cast<int64_t>(initial.size()));
+            // forward_cached_step auto-commits current_length() on success.
             CachedStepResult r = forward_cached_step(model, c, next, 0);  // reset to position 0
             std::vector<float> r_last(r.logits.end() - cfg.vocab, r.logits.end());
             check(max_abs_diff(r_last, baseline_last) > 1e-3f,
@@ -138,7 +138,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c1(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(model, c1, initial, 0);
-            c1.set_current_length(static_cast<int64_t>(initial.size()));
+            // forward_cached_step auto-commits current_length() on success.
             CachedStepResult r1 = forward_cached_step(model, c1, next, static_cast<int64_t>(initial.size()));
 
             ContiguousAttentionKVStore c2(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);  // fresh, never prefilled

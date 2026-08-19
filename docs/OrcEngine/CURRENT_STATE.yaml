@@ -1,15 +1,33 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-08-16"
+  date: "2026-08-18"
   timezone: America/Los_Angeles
-  repository: "F:\\Ai\\OrchestratorIDE-phase4-bookend-virtualization"
-  branch: feat/orcengine-phase4-bookend-virtualization
-  verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
-  pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
-  native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
-  native_runtime_fix_branch_head: 198f5db8
-  native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
+  # Three distinct authorities -- do not conflate. "repository"/"branch" below
+  # point at whichever worktree is CURRENTLY ACTIVE for the work this file is
+  # describing (Phase 5A composition, as of this update); it is not the
+  # frozen parent and not the shipped product baseline.
+  repository: "F:\\Ai\\OrchestratorIDE-phase5a-kv-cache"
+  branch: feat/orcengine-phase5a-kv-cache
+  active_worktree_head: 0a80477d
+  frozen_parent:
+    description: >-
+      The immutable, independently-reviewed Phase-4 result Phase 5A forks
+      from and must remain compatible with. Never advances except by a new
+      formal freeze of a later phase.
+    tag: orcengine-phase4-freeze
+    commit: 944f07b86428ec53d46ca19dc66c3d0d5b1e207d
+    repository: "F:\\Ai\\OrchestratorIDE-phase4-bookend-virtualization"
+    branch: feat/orcengine-phase4-bookend-virtualization
+  product_baseline:
+    description: >-
+      TheOrc product's own integration state -- unrelated to OrcEngine's
+      research branches, tracked separately, not advanced by OrcEngine work.
+    verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
+    pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
+    native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
+    native_runtime_fix_branch_head: 198f5db8
+    native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
   lifecycle: phase_4_complete_frozen_phase_5a_in_progress
@@ -420,6 +438,79 @@ phases:
     name: practical_cpu_inference_semantics
     state: in_progress
     decision: OE-ADR-024
+    phase5a_status:
+      lifecycle_summary: >-
+        composition_with_phase4_implemented_and_verified_equivalent_proposed_ready_for_independent_review
+      worktree: "F:\\Ai\\OrchestratorIDE-phase5a-kv-cache"
+      branch: feat/orcengine-phase5a-kv-cache
+      head: 0a80477d
+      synthetic_fixture_c_gate: complete_passing
+      real_model_validation: complete_passing
+      real_model_pinned: HuggingFaceTB/SmolLM2-135M
+      four_way_differential_status: passing
+      four_way_differential_note: >-
+        OrcEngine full-prefix vs OrcEngine cached vs HF/PyTorch full-prefix vs
+        HF/PyTorch native cached (independently constructed); all agree on
+        [1,5,28,284,260,198]; cpp_full_vs_hf_full max_abs=0.00104618 matches
+        historical Phase 2/3/4 evidence (0.00104618073) almost exactly.
+      real_fault_attack_status: passing_11_of_11
+      real_fault_attack_note: >-
+        Real 9Q/3KV GQA corruption, RoPE position deltas (-1/+1/reset-to-0),
+        exact 8192-token capacity boundary, cross-context isolation.
+        See tests/test_real_cache_attacks.cpp.
+      transactional_failure_status: passing_6_of_6
+      transactional_failure_note: >-
+        Poisoned-in-place on mid-step NaN fault, current_length() confirmed
+        unchanged, retry at same position overwrites poison and reproduces
+        baseline bit-exactly. See tests/test_transactional_semantics.cpp.
+      kv_bytes_per_token: 46080
+      kv_bytes_per_token_derivation: n_layers(30) * n_kv_heads(3) * head_dim(64) * 2 * sizeof(float)
+      kv_reserved_bytes_eager: 377487360
+      kv_reserved_bytes_note: >-
+        Empirically confirmed via a measured ~377.5 MiB process working-set
+        jump at ContiguousAttentionKVStore construction, matching the derived
+        value almost exactly, not just established by code inspection.
+      phase4_composition_status: implemented_and_verified_equivalent
+      phase4_composition_note: >-
+        OE-ADR-027 (2026-08-18): VirtualizedCachedModel (Reference Path C)
+        implemented using Phase 3/4's own public ModelSource/
+        TensorMaterializer/TensorRowRegionMaterializer/ResidencyLedger
+        contracts (no frozen file modified). Proven bit-identical to the
+        fully-resident reference (Path B, retained as a semantic oracle
+        per OE-ADR-026) on synthetic Fixture C (9/9 steps) and the real
+        SmolLM2-135M model (4/4 steps), and bit-identical to frozen
+        Phase-4's own virtualized full-prefix (Path A) on the real model
+        too. peak_resident_weight_bytes measured at 14,162,688 bytes,
+        matching Phase 4's documented frozen peak exactly -- not merely
+        close to it. peak_active_layers==1 confirmed at every step, and
+        the underlying ResidencyLedger::enter_layer guard directly proven
+        to reject a second concurrently-resident layer (non-vacuity
+        attack), not just assumed correct.
+      real_kv_numeric_cross_check: passing_5_of_5
+      real_kv_numeric_cross_check_note: >-
+        HF DynamicCache (independently constructed) vs Reference Path C
+        cache dumps at layer 0/15/29, multiple KV heads, prompt + incremental
+        positions; max_abs 1e-7 to 2.4e-5, well inside 1e-3 tolerance.
+      backing_io_finding: >-
+        MEASURED (not assumed): transformer-layer weight backing bytes read
+        are effectively IDENTICAL between frozen Phase-4 full-prefix and
+        Reference Path C cached decode over the same run -- caching reduces
+        attention computation but does NOT reduce weight-reread-per-token
+        under the current virtualized architecture. Embedding backing bytes
+        ARE measurably reduced by caching (5 vs 14 row materializations on
+        the same 4-step real run).
+      composed_kv_weight_crossover_tokens: 308
+      composed_kv_weight_crossover_note: >-
+        ceil(14162688 / 46080), from Reference Path C's own measured peak,
+        not a hypothetical -- numerically coincides with OE-ADR-025's
+        earlier hypothetical estimate because composition succeeded in
+        matching Phase 4's actual residency architecture.
+      validation_matrix_composed: debug_18_18_release_18_18_strict_18_18_zero_warnings_asan_18_18_zero_findings
+      active_gate_status: 19_of_20_satisfied_1_partial_see_PHASE5A_KV_CACHE_SPEC
+      proposed_verdict: READY_FOR_INDEPENDENT_FREEZE_REVIEW_recommendation_not_self_authorization
+      independent_review: not_done
+      freeze_tag: absent
+      branch_push: not_done
     note: >-
       Renumbered/assigned 2026-08-18 (OE-ADR-024) -- the phase number
       OE-ADR-021 deferred pending Phase-4 independent review. Umbrella over
@@ -447,11 +538,17 @@ phases:
       finding: Phase 5A does NOT compose with Phase 3/4's streaming/
       row-region virtualization (requires a fully-resident Model, bypasses
       ModelSource/TensorRowRegionMaterializer/layer lifecycle entirely) --
-      correctness is proven, bounded-residency composition is not. Proposed
-      verdict NOT READY -- BLOCKERS REMAIN (composition gap + no independent
-      review yet); no orcengine-phase5a-freeze tag exists, branch unpushed.
-      See PHASE5A_KV_CACHE_SPEC.md's Results section for full evidence and
-      the 19-item freeze-candidate checklist. 5B
+      correctness is proven, bounded-residency composition is not. Per
+      OE-ADR-026 (2026-08-18): Phase 5A will NOT freeze as a correctness-only
+      fully-resident implementation. The fully-resident cached path is
+      RETAINED (not deleted) as a semantic oracle; a virtualized-cached
+      target implementation composing persistent KV state with Phase-4's
+      transient per-layer weight materialization is now the active
+      completion gate, per PHASE5A_KV_CACHE_SPEC.md's "Active Phase-5A
+      completion gate after real-model audit" section. No
+      orcengine-phase5a-freeze tag exists, branch unpushed. See
+      DECISION_LOG.md OE-ADR-025/OE-ADR-026 and phase5a_status above for
+      current, queryable state. 5B
       (tokenizer/text-token boundary, not yet specified), 5C (bounded
       activation workspace + prompt/decode benchmarking, not yet specified).
       Old "Phase 5 -- Initial quantization" heading (last touched 2026-07-31,

@@ -96,7 +96,8 @@ int main(int argc, char** argv) {
             if (sequence_diverged) break;
 
             CachedStepResult result = forward_cached_step(fx.model, cache, step.new_tokens, step.start_position);
-            cache.set_current_length(step.start_position + static_cast<int64_t>(step.new_tokens.size()));
+            // forward_cached_step now auto-commits current_length() on success itself
+            // (commit-API audit fix) -- no manual cache.set_current_length() call here.
 
             const std::vector<float> logits_last(
                 result.logits.end() - cfg.vocab, result.logits.end());
@@ -132,7 +133,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(fx.model, c, prefill.new_tokens, 0);
-            c.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+            // forward_cached_step auto-commits current_length() on success.
             CachedStepResult wrong = forward_cached_step(fx.model, c, first_decode.new_tokens,
                                                           first_decode.start_position + 1);
             std::vector<float> wrong_last(wrong.logits.end() - cfg.vocab, wrong.logits.end());
@@ -158,7 +159,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(fx.model, c, prefill.new_tokens, 0);
-            c.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+            // forward_cached_step auto-commits current_length() on success.
             std::vector<float> k_copy(cfg.head_dim), v_copy(cfg.head_dim);
             std::memcpy(k_copy.data(), c.k_row(0, 0, 0), sizeof(float) * static_cast<size_t>(cfg.head_dim));
             std::memcpy(v_copy.data(), c.v_row(0, 0, 0), sizeof(float) * static_cast<size_t>(cfg.head_dim));
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(fx.model, c, prefill.new_tokens, 0);
-            c.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+            // forward_cached_step auto-commits current_length() on success.
             std::vector<float> corrupt(static_cast<size_t>(cfg.head_dim), 999.0f);
             c.write_k(0, 0, 0, corrupt.data());  // corrupt kv_head 0, which multiple q heads map to
             CachedStepResult corrupted = forward_cached_step(fx.model, c, first_decode.new_tokens,
@@ -197,7 +198,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(fx.model, c, prefill.new_tokens, 0);
-            c.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+            // forward_cached_step auto-commits current_length() on success.
             // Correct call for comparison baseline already proven above (step-by-step loop).
             // Here: same call but read one extra key by asking for a position past what
             // was written for THIS layer/head (position 5 was never written -> zeros).
@@ -218,7 +219,7 @@ int main(int argc, char** argv) {
         {
             ContiguousAttentionKVStore c1(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(fx.model, c1, prefill.new_tokens, 0);
-            c1.set_current_length(static_cast<int64_t>(prefill.new_tokens.size()));
+            // forward_cached_step auto-commits current_length() on success.
 
             ContiguousAttentionKVStore c2(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             // c2 is fresh -- never prefilled. A correct implementation must show DIFFERENT

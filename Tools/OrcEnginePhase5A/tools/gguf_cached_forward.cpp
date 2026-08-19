@@ -138,7 +138,7 @@ int main(int argc, char** argv) {
         CachedStepResult prefill_result = forward_cached_step(model, cache, initial, 0);
         prefill_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - prefill_t0).count();
-        cache.set_current_length(static_cast<int64_t>(initial.size()));
+        // forward_cached_step auto-commits current_length() on success.
         {
             const int64_t vocab = model.config().vocab;
             std::vector<float> last(prefill_result.logits.end() - vocab, prefill_result.logits.end());
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
             CachedStepResult r = forward_cached_step(model, cache, {selected}, position);
             decode_ms.push_back(std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count());
-            cache.set_current_length(position + 1);
+            // forward_cached_step auto-commits current_length() on success.
             const int64_t vocab = model.config().vocab;
             std::vector<float> last(r.logits.end() - vocab, r.logits.end());
             cached_logits_per_step.push_back(last);

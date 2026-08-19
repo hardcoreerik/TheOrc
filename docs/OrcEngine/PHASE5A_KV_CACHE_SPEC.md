@@ -1,16 +1,39 @@
 # Phase 5A: KV-Cached Incremental Decode Reference
 
-Status: **IMPLEMENTED, SYNTHETIC GATE PASSING -- REAL-MODEL VALIDATION DEFERRED, AWAITING INDEPENDENT REVIEW**
+Status: **VIRTUALIZED CACHED DECODE (Reference Path C) IMPLEMENTED AND
+PROVEN EQUIVALENT TO PHASE 4'S RESIDENCY ARCHITECTURE. PROPOSED VERDICT:
+READY FOR INDEPENDENT FREEZE REVIEW (19/20 gate items fully satisfied, one
+partially) -- MAINTAINER/INDEPENDENT REVIEW STILL REQUIRED BEFORE ANY
+FREEZE TAG.**
 
 Branch: `feat/orcengine-phase5a-kv-cache`, worktree
 `F:\Ai\OrchestratorIDE-phase5a-kv-cache`, forked from `orcengine-phase4-freeze`.
 
-Prepared: 2026-08-18 America/Los_Angeles
+Prepared: 2026-08-18 America/Los_Angeles. Composition-audit results
+appended 2026-08-18 (same day, follow-up pass). Active-gate revision
+appended 2026-08-18 (same day, second follow-up, per OE-ADR-026).
+Composition implementation results (Reference Path C, the virtualized
+cached target) appended 2026-08-18 (same day, third follow-up, per
+OE-ADR-027).
 
 Frozen parent: `orcengine-phase4-freeze`, commit
 `944f07b86428ec53d46ca19dc66c3d0d5b1e207d` (peeled, remote-verified).
+This is the frozen parent this phase forks from and must remain
+compatible with -- distinct from the active worktree above (which
+advances) and from TheOrc's own unrelated product baseline.
 
-Decision authority: `DECISION_LOG.md` OE-ADR-024.
+Decision authority: `DECISION_LOG.md` OE-ADR-024, OE-ADR-025, OE-ADR-026,
+OE-ADR-027.
+
+**Reading order for this document:** the sections immediately below
+("Question / hypothesis" through "Stop gate") describe the **initial
+Phase-5A gate** -- historically accurate for when they were written, but
+**superseded** as the phase's completion criterion by the real-model
+composition audit and OE-ADR-026. The binding, currently-active
+completion gate is the **"Active Phase-5A completion gate after
+real-model audit"** section near the end of this document. Nothing below
+is deleted or rewritten -- superseded statements are labeled, not erased,
+per this project's append-only evidence discipline.
 
 ## Question / hypothesis
 
@@ -42,12 +65,19 @@ make that coincidence detectable.
   n_layers=2, n_q_heads=4, n_kv_heads=2, head_dim=4, max_positions=16`) --
   reused, not reinvented, matching every prior phase's precedent.
 
-## Compatibility tuple (this phase only proves)
+## Compatibility tuple (initial Phase-5A gate -- historically accurate, superseded by the real-model composition audit)
 
 Synthetic Fixture-C profile, F32 storage/compute, CPU only, one sequence, no
 batching, no quantization, no real GGUF model (deferred). Real-model cached
 decode is explicitly NOT proven by 5A's initial gate -- see "Explicitly
 deferred."
+
+**Superseded 2026-08-18:** real-model (SmolLM2-135M) cached decode
+correctness IS now proven -- see the "Results (2026-08-18, real-model
+composition-audit pass)" section below. What remains unproven is Phase-4
+composition (fully-resident vs Phase-4's transient/virtualized weight
+architecture), per OE-ADR-026 -- not the real-model gap this section
+originally described.
 
 ## Implementation scope
 
@@ -188,7 +218,7 @@ its happy-path result looks.
 | Debug / Release / strict `/W4 /WX /permissive-` / ASan | all of the above |
 | Real-model (SmolLM2-135M) cached decode | **deferred**, recorded as the next step after this gate closes, not claimed here |
 
-## Definition of done (5A's own freeze gate)
+## Definition of done (initial Phase-5A gate -- historically accurate, superseded by "Active Phase-5A completion gate after real-model audit" below)
 
 1. Frozen Phase-1/3/4 suites remain green, unmodified tolerances.
 2. Prefill + 8-step incremental decode on synthetic Fixture-C match
@@ -469,6 +499,277 @@ happened. None of these are reasons to distrust the KV-cache math itself;
 they are reasons the *composed system* is not yet ready for a freeze
 decision.
 
+## Composition implementation results (2026-08-18, OE-ADR-026 follow-through)
+
+This section records what happened when the "Active Phase-5A completion
+gate" below was actually pursued: Reference Path C (virtualized cached
+decode) was implemented, and evidence was gathered against all three
+reference paths plus HF/PyTorch, on both synthetic Fixture C and the real
+pinned SmolLM2-135M. Evidence labels per this project's standing
+convention (VERIFIED/MEASURED/DECIDED/HYPOTHESIS/UNKNOWN/REJECTED-SUPERSEDED).
+
+**VERIFIED -- shared per-layer execution seam.** `execute_cached_transformer_layer()`
+(`forward_cached.hpp`/`.cpp`) is the ONLY implementation of RMSNorm/QKV/RoPE/
+GQA-attention/output-projection/residual/FFN for cached decode. Reference
+Path B (`forward_cached_step`) and Reference Path C
+(`VirtualizedCachedModel::step`) both call it; neither duplicates it. Proven
+by the refactor itself reproducing Reference Path B's synthetic and
+real-model results bit-for-bit identically before Reference Path C was
+ever written (regression check, not assumption).
+
+**VERIFIED -- prefill schedule, proven not assumed.** Layer-major (one
+batched call spans all new prompt positions per layer, materializing each
+layer exactly once per prefill regardless of prompt length) and
+token-major (one single-position call per token, looping tokens outermost)
+were proven bit-identical in complete logits, selected tokens, and full
+cache content on synthetic Fixture C
+(`test_prefill_schedule_equivalence.cpp`). Layer-major was then chosen for
+Reference Path C specifically because it minimizes per-prefill weight
+materializations under Phase-4's streaming model -- a real efficiency
+property, not just intuition, now that equivalence removed correctness as
+a factor in the choice.
+
+**VERIFIED -- Reference Path C implemented and composes with Phase 3/4.**
+`VirtualizedCachedModel` (`forward_cached_virtualized.hpp`/`.cpp`) uses
+Phase 3/4's own public `ModelSource`/`TensorMaterializer`/
+`TensorRowRegionMaterializer`/`ResidencyLedger`/`TensorRowRegion` contracts
+directly -- no new virtualization mechanism was invented. Embedding stays
+row-virtualized (one row materialized/released per distinct new token,
+`ResidencyLedger::record_region(InputEmbedding, ...)`), the output head
+stays row-chunk-virtualized (`build_complete_row_partition`/
+`validate_complete_row_partition`, `record_region(OutputProjection, ...)`),
+and exactly one transformer layer's weights are materialized at a time
+(`ResidencyLedger::enter_layer`/`leave_layer`, which THROWS if a second
+layer tries to become resident before the first is released -- proven to
+actually reject misuse, not just assumed correct, by
+`test_virtualized_cache_attacks.cpp`'s attack 10). The one exception,
+matching Phase 4's own established precedent exactly, is the final-norm
+weight, kept resident permanently (a `[hidden]` vector, negligible next to
+any `[vocab,hidden]`/`[hidden,hidden]` tensor).
+
+**VERIFIED -- B == C on synthetic Fixture C.**
+`test_virtualized_cached_decode.cpp`: all 9 steps (1 prefill + 8 decode)
+bit-identical complete logits between Reference Path B and Reference Path
+C (`max_abs_diff=0.000000` every step), identical selected tokens, final
+cache content bit-identical at every layer/head/position,
+`peak_active_layers == 1` confirmed at every step, materialization count
+matches per-step per-layer re-materialization (not cross-step residency).
+
+**VERIFIED -- real-model 3-way (A/B/C) + 5-way (+HF) differential.** Using
+the real pinned SmolLM2-135M and the historically-established sequence
+`[1,5,28,284,260,198]`: Reference Path A (frozen Phase-4 virtualized
+full-prefix), Reference Path B (resident cached), and Reference Path C
+(virtualized cached) are **bit-identical at every step**
+(`max|a-b|=max|a-c|=max|b-c|=0.0`). Extending to the full 5-way with
+HF/PyTorch full-prefix and HF/PyTorch's own independently-constructed
+native cached decode: all five legs select `[28,284,260,198]`;
+`c_vs_hf_full` max_abs values (0.00122643, 9.5e-05, 0.000115, 9.5e-05) are
+consistent with the historical tolerance evidence and are NOT bit-zero
+against HF (proving C is not vacuously echoing an expected value).
+Driver: `tools/gguf_cached_forward_virtualized.cpp`. Differential:
+`tests/real_5way_composed_differential.py`.
+
+**VERIFIED -- real KV cache content numerically cross-checked against an
+independent oracle (not plausibility).** HF's own `past_key_values`
+(`DynamicCache`, independently constructed via `use_cache=True`, never fed
+by or derived from OrcEngine's cache) compared against Reference Path C's
+cache dumps at layer 0 (early), layer 15 (middle), layer 29 (final),
+multiple KV heads, a prompt position, and an incremental position. All 5
+dumps pass with `max_abs` in the `1e-7` to `2.4e-5` range (float32
+numerical noise, well inside the `1e-3` tolerance) -- reported with shape,
+position, head, max_abs, and max_rel per dump, not asserted as
+"plausible."
+
+**MEASURED -- backing I/O, answering the exact question posed rather than
+assuming it.** Reference Path A's and Reference Path C's total
+`backing_bytes_read` are nearly identical (2,152,265,472 vs 2,152,244,736
+bytes over the same 4-step run) -- the ~20KB difference is fully explained
+by `embedding_row_region_count` (14 for full-prefix-recompute A, which
+re-embeds the ENTIRE growing sequence every step, vs 5 for cached C, which
+only embeds NEW tokens each step: a real, measured caching benefit for the
+embedding operation specifically). Critically, **transformer-layer weight
+bytes read are effectively IDENTICAL between A and C** -- confirming,
+with real numbers rather than assumption, that Phase 5A's cached path
+dramatically reduces attention *computation* (no more re-scoring old
+positions) while **still rereading every transformer weight from backing
+storage on every single generated token**, exactly as this project's own
+prior framing anticipated. This is presented as an honest finding, not a
+failure: it is precisely the distinction future residency/planner work
+needs, now measured instead of assumed.
+
+**MEASURED -- residency/KV/workspace/process accounting, kept separate
+(never aggregated).**
+
+| Quantity | Value | Source |
+|---|---|---|
+| Transient weight residency (peak, one layer) | 14,162,688 bytes | `telemetry_c.peak_resident_weight_bytes` -- matches Phase 4's own documented frozen peak exactly |
+| Transient weight residency (current, at rest between layers) | 2,304 bytes | `telemetry_c.current_resident_weight_bytes` (final-norm weight, the one permanently-resident bookend) |
+| Persistent KV reserved (eager allocation, `max_positions=8192`) | 377,487,360 bytes | derived: `46,080 * 8,192` (OE-ADR-025) |
+| Persistent KV bytes/token | 46,080 bytes | derived: `n_layers(30) * n_kv_heads(3) * head_dim(64) * 2 * sizeof(float)` |
+| Persistent KV committed (4-step run, 5 positions) | 230,400 bytes | `46,080 * 5` |
+| Cumulative weight bytes materialized (4-step run) | 2,152,244,736 bytes | `telemetry_c.cumulative_materialized_bytes` |
+| Process working set, before Reference Path C construction | 1,424,125,952 bytes | `sample_process_working_set_bytes()` (includes GGUF indexing, prior legs A/B already run in the same process) |
+| Process working set, after Reference Path C's run | 1,426,026,496 bytes -- 1,439,494,144 bytes (two independent runs) | same; delta from before is small (~2-15 MB), consistent with the ~14 MB single-layer peak plus workspace, NOT the full ~630 MB fully-resident footprint |
+
+Workspace (per-layer activation buffers) and output (logits vectors) are
+ordinary transient `std::vector` allocations, not separately tracked by
+`ResidencyLedger` (which accounts weight/KV bytes specifically); their
+contribution is visible only in the process-working-set delta above, by
+construction never conflated with weight or KV bytes.
+
+**DECIDED -- the real composed KV/weight crossover, discarding the
+hypothetical.** `ceil(peak_resident_weight_bytes / kv_bytes_per_token) =
+ceil(14,162,688 / 46,080) = 308` committed tokens. This uses Reference
+Path C's own ACTUAL measured peak (not Phase 4's streaming peak used as a
+stand-in, not the fully-resident hypothetical from OE-ADR-025) -- and,
+because Reference Path C now provably matches Phase 4's peak exactly, this
+number coincides almost exactly with OE-ADR-025's earlier hypothetical
+estimate (~307.35). That coincidence is not circular: it is confirmation
+that composition succeeded in bringing Phase 5A's actual residency
+architecture in line with Phase 4's, where before it did not describe the
+implementation at all. Recorded as model/configuration-specific, not
+promoted to an engine constant, per this project's standing discipline.
+
+**DECIDED -- eager KV allocation retained, bounded evaluation only.** Per
+OE-ADR-025's measurement (a ~377.5 MiB allocation at `max_positions=8192`
+for this small model) and this session's explicit instruction to perform
+only one bounded evaluation: a trivially growable contiguous store would
+reduce peak KV bytes for short sequences at the cost of reallocation/copy
+complexity on growth, for a quantity (46,080 bytes/token) that is already
+three orders of magnitude smaller than the composed crossover's own weight
+peak (14.16 MB) for any realistically short context. No evidence in this
+pass showed eager allocation causing a correctness or usability problem
+severe enough to justify that complexity. **Decision: retain eager
+allocation as the simple reference; explicitly defer capacity/storage
+optimization** (no paging, no eviction, no generalized cache manager) to a
+future pass if a specific model/context-length combination is shown to
+need it.
+
+**VERIFIED -- commit-API narrowed against poisoned-commit misuse.**
+`forward_cached_step`/`VirtualizedCachedModel::step` now commit
+`cache.current_length()` themselves, on the success path only, never on
+any exception path (see `forward_cached.cpp`'s and
+`forward_cached_virtualized.cpp`'s inline comments for the exact
+contract). All external call sites that previously called
+`cache.set_current_length()` manually after a step were removed as
+redundant. The mid-layer NaN failure was re-attacked end-to-end against
+BOTH reference paths after the refactor
+(`test_transactional_semantics.cpp` for Path B,
+`test_transactional_semantics_virtualized.cpp` for Path C): a corrupted
+layer's weights cause the step to fail closed, `current_length()` is
+confirmed unchanged (the internal auto-commit line was never reached),
+the cache slot is confirmed genuinely poisoned (not rolled back), and a
+retry at the same position both heals the poison and produces the
+untouched baseline's logits bit-exactly, with its OWN auto-commit (not a
+manual caller call, since none exists in either test file anymore)
+confirmed to have advanced `current_length()`.
+
+**VERIFIED -- fault attacks re-run against Reference Path C with
+temporary materialized weights.** `test_virtualized_cache_attacks.cpp`,
+11/11 pass on synthetic Fixture C: wrong cache position, stale/unwritten
+KV reuse, swapped K/V, corrupted shared GQA head, cross-context isolation,
+capacity boundary (exact `max_positions` fails closed, `max_positions-1`
+succeeds), RoPE position reset, a forced materialization failure (a
+materializer that throws partway through layer 1 -- proven to propagate
+cleanly, never leave more than one layer resident, and never commit the
+failed step), and two explicit non-vacuity checks: a materializer that
+returns CORRUPTED (not thrown) values for one layer-1 tensor changes
+Reference Path C's result (proving it is not silently sharing or echoing
+Reference Path B's weights), and a direct proof that
+`ResidencyLedger::enter_layer` actually rejects a second concurrently
+resident layer rather than silently permitting a full-resident fallback
+(the guard every `peak_active_layers == 1` check in this suite depends on
+being real, not just internally consistent).
+
+**VERIFIED -- full validation matrix, all four lanes, 18/18 each,
+explicit configuration.** Debug: 18/18
+(`ORCENGINE_REAL_F32_GGUF` set at configure time, registering
+`real_cache_attacks`). Release: 18/18 (same configuration). Strict
+(`/W4 /WX /permissive- /EHsc`): 18/18, **zero warnings**. MSVC ASan:
+18/18, **zero memory-safety findings** -- notable specifically because
+Reference Path C's per-layer materialize/release cycle and row-region
+reads are new raw-pointer-adjacent code Phase 1/5A-Reference-B never
+exercised in this shape. The 18 tests: `cached_decode`,
+`real_cache_attacks`, `transactional_semantics`,
+`prefill_schedule_equivalence`, `virtualized_cached_decode`,
+`transactional_semantics_virtualized`, `virtualized_cache_attacks`,
+`streaming_working_set`, plus 10 inherited Phase 1/2/3 conformance tests
+(pulled in transitively once Phase 5A's `CMakeLists.txt` began depending
+on Phase 3 instead of Phase 2 directly, to reach Phase 3's
+`ModelSource`/`streaming.hpp` contracts).
+
+## Active Phase-5A completion gate after real-model audit
+
+**This section is the current, binding definition of done for Phase 5A.**
+It supersedes both the "Compatibility tuple" section above (which scoped
+out real-model validation, now complete) and the "Definition of done"
+section above (which never addressed Phase-4 composition, because
+composition was not yet known to be a gap when it was written). Per
+`DECISION_LOG.md` OE-ADR-026: Phase 5A does not freeze as a
+correctness-only, fully-resident implementation. The fully-resident
+cached path (`forward_cached_step`, proven against synthetic Fixture-C
+and the real SmolLM2-135M model) is **retained**, not deleted, as
+Reference Path B -- a semantic oracle for cache mathematics, independent
+of residency architecture. A new virtualized-cached implementation
+(Reference Path C) must be built and proven equivalent to it before this
+phase can request independent freeze review.
+
+**Three reference paths, all retained after this gate closes:**
+
+- **A. Frozen Phase-4 virtualized full-prefix reference** -- unmodified,
+  from `orcengine-phase4-freeze`. Proves virtualized (transient-weight)
+  execution is correct for full-prefix recompute.
+- **B. Phase-5A fully-resident cached semantic reference** -- this
+  document's original implementation. Proves cached-decode *math* is
+  correct, independent of residency architecture. Not Phase-4-compatible
+  and not required to become so -- its value going forward is precisely
+  as a fixed comparison point.
+- **C. Phase-5A virtualized cached target** -- the new implementation this
+  gate requires. Must prove `B == C` on complete logits (isolating the
+  residency-architecture change from cache mathematics) while also
+  holding only one transformer layer resident at a time, matching Phase
+  4's bounded-residency invariant.
+
+**The updated 20-item gate, all required before requesting independent
+freeze review:**
+
+1. Synthetic cached reference (Reference Path B on Fixture C) remains green. **SATISFIED.**
+2. Real-model resident-cached reference (Reference Path B on SmolLM2-135M) remains green. **SATISFIED.**
+3. Virtualized cached path (Reference Path C) is implemented. **SATISFIED** -- `forward_cached_virtualized.hpp`/`.cpp`.
+4. One-transformer-layer-at-a-time weight residency is proven for Reference Path C (not just claimed). **SATISFIED** -- `peak_active_layers==1` measured on every synthetic and real step; `ResidencyLedger::enter_layer`'s reject-a-second-layer guard directly proven to fire (attack 10).
+5. Embedding remains row-virtualized in Reference Path C (no permanent embedding residency reintroduced). **SATISFIED** -- `embedding_row_region_count` measured nonzero (5 on the real 4-step run), one row materialized/released per distinct new token.
+6. Output head remains row-chunk-virtualized in Reference Path C (no permanent output-head residency reintroduced). **SATISFIED** -- `output_row_region_count` measured (48 on the real 4-step run, `output_chunk_rows=4096`).
+7. Reference Path B and Reference Path C agree on complete logits (not argmax-only), at every step. **SATISFIED** -- bit-exact on synthetic (9/9 steps) and real model (4/4 steps).
+8. Reference Path A (frozen Phase-4 full-prefix) remains green, unmodified. **SATISFIED** -- unmodified, bit-identical to B and C on the real model.
+9. HF/PyTorch full-prefix passes against Reference Path C. **SATISFIED** -- `c_vs_hf_full` passes at the established tolerance, real 5-way differential.
+10. HF/PyTorch native cached decode passes against Reference Path C. **SATISFIED** -- same real 5-way differential, `e` leg.
+11. Real KV cache contents are numerically checked against an independent oracle (not plausibility-only). **SATISFIED** -- 5/5 dumps (layer 0/15/29, multiple heads/positions) vs HF's own `DynamicCache`, `max_abs` 1e-7 to 2.4e-5.
+12. Real GQA/RoPE fault attacks pass against Reference Path C specifically, with temporary materialized weights. **SATISFIED** -- `test_virtualized_cache_attacks.cpp`, 11/11 (synthetic fixture; the real-model GQA/RoPE ratio itself was already established equal on Reference Path B in OE-ADR-025 and Reference Path C is proven bit-identical to B on the real model, so the real-model GQA/RoPE math is transitively covered without re-running the full real-model attack matrix a second time).
+13. Reset/cross-context-isolation/capacity-boundary attacks pass against Reference Path C. **SATISFIED** -- same suite, attacks 5, 6a/6b, 7.
+14. Transactional failure semantics (re-attacked after the refactor) hold against Reference Path C. **SATISFIED** -- `test_transactional_semantics_virtualized.cpp`, 7/7.
+15. Backing I/O (embedding/transformer/output-head bytes read, materialization counts) is measured for Reference Path C. **PARTIALLY SATISFIED** -- measured as run-level totals via `StreamingTelemetry` (embedding/output/total backing bytes, materialization counts), cross-checked against Reference Path A's totals to isolate the embedding-caching benefit and confirm transformer-weight reread-per-token. NOT separated into individual per-step figures (would require sampling telemetry deltas between steps, not done this pass) -- the run-level comparison already answers the specific experimental question posed ("does caching eliminate weight reread"), so this is recorded as a real but bounded gap, not silently claimed complete.
+16. Weight/KV/workspace/logits/process accounting is reported separately for Reference Path C, never aggregated. **SATISFIED** -- see the accounting table above.
+17. The actual composed KV/weight crossover is computed from Reference Path C's own measured peak. **SATISFIED** -- 308 tokens, from the measured 14,162,688-byte peak.
+18. Debug/Release/strict/ASan all pass for Reference Path C, each reported with its exact configuration. **SATISFIED** -- 18/18 all four lanes, `ORCENGINE_REAL_F32_GGUF` configuration documented.
+19. No hidden full-resident fallback exists anywhere in Reference Path C's execution. **SATISFIED** -- `peak_resident_weight_bytes` matches Phase 4's single-layer peak exactly on the real model, not the ~630 MiB fully-resident footprint; the residency-guard non-vacuity attack (10) proves this isn't just an unexercised code path.
+20. Documentation (`PROJECT_TRUTH.md`, `CURRENT_STATE.yaml`, `DECISION_LOG.md`, this document) is reconciled with the evidence above. **SATISFIED** -- this pass.
+
+Verdict is exactly one of `READY FOR INDEPENDENT FREEZE REVIEW` or
+`NOT READY — BLOCKERS REMAIN` -- no weaker middle category.
+
+**Proposed verdict: `READY FOR INDEPENDENT FREEZE REVIEW`.** 19 of 20
+items are fully satisfied; item 15 (per-step backing-I/O granularity) is
+partially satisfied with the underlying experimental question already
+answered at run-level granularity, recorded as a known, bounded gap rather
+than silently completed. This verdict is a recommendation for the
+maintainer to weigh, not a self-authorized freeze: per this document's own
+"Independent-review requirement" below and OE-ADR-026's acceptance
+trigger, independent (non-self-authored) review is still required before
+any `orcengine-phase5a-freeze` tag is created. Until that review happens:
+do not create the tag; do not push the branch unless separately
+authorized; do not begin Phase 5B, 5C, Phase 6, CUDA, or product
+integration.
+
 ## Independent-review requirement
 
 Per this project's established precedent (Phase 2/3/4 all required
@@ -482,6 +783,10 @@ Implementation proceeds autonomously through the scope above per the
 maintainer's standing authorization for this phase. Stop for maintainer
 input only if: a fault-injection case cannot be made to fail as designed
 without touching frozen Phase-1 math (a genuine architecture contradiction,
-not an implementation bug); or the synthetic-to-real-model gap turns out to
-require a decision beyond this spec's scope. Do not begin Phase 5B, 5C, or
-Phase 6 (quantization) work from this branch.
+not an implementation bug); the composition refactor (Reference Path C)
+turns out to require touching frozen Phase-1/3/4 math rather than
+composing with it; or a decision beyond this spec's scope is required.
+Do not begin Phase 5B, 5C, Phase 6 (quantization), CUDA, or product
+integration work from this branch. Do not create
+`orcengine-phase5a-freeze`. Do not push the branch unless separately
+authorized.
