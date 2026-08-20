@@ -506,7 +506,7 @@ phases:
         earlier hypothetical estimate because composition succeeded in
         matching Phase 4's actual residency architecture.
       validation_matrix_composed_pre_closure: debug_18_18_release_18_18_strict_18_18_zero_warnings_asan_18_18_zero_findings
-      validation_matrix_composed_post_closure: debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_30_30_zero_findings_8_of_30_asan_tests_rerun_outside_ctest_timeout_due_to_frozen_phase2_3_cmakelists_timeouts
+      validation_matrix_composed_post_closure: debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_exit_8_timeout_plus_8_of_8_confirmed_by_direct_invocation_exit_0_elapsed_1387_to_5232s_zero_asan_diagnostics_ctest_exit_code_correctly_nonzero_not_reported_as_green_see_OE_ADR_028_for_per_test_table_reconfirmed_against_c89e7801
       freeze_closure_pass: >-
         2026-08-18, OE-ADR-028: independent review (grok-review skill, full +
         adversary) of candidate 7c046121 returned ACCEPT WITH FIXES, 11

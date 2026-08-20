@@ -1392,24 +1392,52 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   to `test_real_composed_evidence.cpp` and passes bit-identically,
   strengthening the prefill-schedule evidence beyond the 2-layer
   synthetic fixture alone.
-- **VERIFIED — full updated validation matrix, all four lanes green.**
-  30 registered tests (up from 18). Debug 30/30. Release 30/30. Strict
-  (`/W4 /WX /permissive- /EHsc`) 30/30, zero warnings. MSVC ASan 30/30 --
-  22 via CTest directly plus 8 (`streaming_real_explicit*`,
-  `streaming_real_tied*`, `streaming_real_hf_pytorch`,
+- **VERIFIED — full updated validation matrix, re-confirmed against
+  `c89e7801`** (the 2026-08-19 adversary-review closure commit, which
+  landed after the round described immediately above). 30 registered
+  tests (up from 18). Debug 30/30. Release 30/30. Strict
+  (`/W4 /WX /permissive- /EHsc`) 30/30, zero warnings.
+
+  **MSVC ASan is reported honestly as a split result, not as a single
+  pass count.** CTest itself: **22/30 passed, 8 timed out, exit code 8**
+  -- that exit code is correct and this document does not characterize
+  the CTest run as green. The 8 timeouts (`streaming_real_explicit`,
+  `streaming_real_explicit_budget`, `streaming_real_tied`,
+  `streaming_real_tied_budget`, `streaming_real_hf_pytorch`,
   `gguf_real_f32_forward`, `gguf_real_hf_pytorch_forward`,
-  `gguf_real_tied_forward`) re-run as the exact same driver-script
-  invocations outside CTest's own TIMEOUT mechanism, since those 8
-  tests' 300-900s timeouts are set in frozen Phase 2/3 `CMakeLists.txt`
-  files and were not modified; all 8 passed cleanly once given a
-  wall-clock budget matched to ASan's real-model slowdown (observed at
-  roughly 28-40x this pass). No test in any of the four lanes produced
-  an actual assertion failure, memory-safety finding, or warning --
-  every failure encountered during this closure pass was a harness
-  wall-clock budget too small for ASan's instrumentation overhead on
-  real-model compute, not a correctness defect. All four lanes run with
-  `ORCENGINE_REAL_F32_GGUF`, `ORCENGINE_REAL_TIED_F32_GGUF`, and
-  `ORCENGINE_HF_SOURCE_DIR` all configured.
+  `gguf_real_tied_forward`) all carry 300-900s `TIMEOUT` properties set
+  in frozen Phase 2/3 `CMakeLists.txt` files, not modified in this pass;
+  MSVC ASan showed a 28-40x slowdown on real-model compute this session,
+  exceeding those inherited budgets on every one of the 8.
+
+  Each of the 8 was additionally run as the exact same driver-script
+  invocation CTest itself would run, outside CTest's own TIMEOUT
+  mechanism, with exit code, elapsed wall-clock time, and full stdout/
+  stderr captured per test:
+
+  | Test | Exit | Elapsed | ASan report? |
+  |---|---:|---:|---|
+  | `streaming_real_explicit` | 0 | 5232s | none |
+  | `streaming_real_explicit_budget` | 0 | 1631s | none |
+  | `streaming_real_tied` | 0 | 4828s | none |
+  | `streaming_real_tied_budget` | 0 | 1387s | none |
+  | `streaming_real_hf_pytorch` | 0 | 2761s | none |
+  | `gguf_real_f32_forward` | 0 | 2413s | none |
+  | `gguf_real_hf_pytorch_forward` | 0 | 2489s | none |
+  | `gguf_real_tied_forward` | 0 | 4862s | none |
+
+  All 8 exited 0 with no AddressSanitizer diagnostic anywhere in their
+  captured output, and each test's own PASS assertion (bit-identical
+  logits, matching selected tokens, or -- for the two `*_budget` tests
+  -- the expected below-budget rejection message) is present in its
+  log. **Combined result: 22 CTest passes + 8 direct-invocation passes,
+  30/30 tests with no unproven or unconfirmed result, and zero actual
+  correctness or memory-safety failures anywhere in the four-lane
+  matrix.** The CTest exit code itself remains correctly non-zero
+  (harness timeout, not evidence of a defect) and is not described as
+  passing. All four lanes run with `ORCENGINE_REAL_F32_GGUF`,
+  `ORCENGINE_REAL_TIED_F32_GGUF`, and `ORCENGINE_HF_SOURCE_DIR` all
+  configured.
 - **Evidence authority:** `test_cache_position_safety.cpp`,
   `test_real_composed_evidence.cpp`,
   `real_5way_composed_differential.py` (hardened),
