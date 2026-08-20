@@ -1366,15 +1366,28 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   corruption, provably unable to alias `fx.model`'s live storage) stays
   bit-exactly unaffected -- the mirror image of the pre-existing
   corrupt-only-C attack, completing the symmetric independence proof.
-- **RESOLVED BY TRACE, MINOR — P5A-RVW-010 (materialization-failure
-  residency assertion).** Direct manual trace of
-  `VirtualizedCachedModel::step`'s exception paths confirmed
-  `materialize_layer`'s own catch block already releases before
-  rethrowing (using the same reference parameters `step()`'s outer catch
-  would otherwise double-release); no leak exists. Recorded as resolved
-  by trace, not by new code, since the underlying invariant is already
-  covered by existing `peak_active_layers<=1`/`current_length()==0`
-  assertions.
+- **CLOSED, MINOR — P5A-RVW-010 (materialization-failure residency
+  assertion).** `c89e7801` (2026-08-19 adversary-review closure round)
+  added attack 8d to `test_virtualized_cache_attacks.cpp`: a direct code
+  assertion that a forced mid-layer materialization failure returns
+  `telemetry().current_resident_weight_bytes` to exactly the one
+  permanent FinalNorm bookend byte count -- the weight-byte-ledger check
+  that `peak_active_layers<=1` and `current_length()==0` alone cannot
+  provide. Manual trace of `VirtualizedCachedModel::step`'s exception
+  paths (confirming `materialize_layer`'s own catch block releases
+  before rethrowing, using the same reference parameters `step()`'s
+  outer catch would otherwise double-release) is retained as
+  supporting evidence for why no leak was expected, not as the closing
+  evidence itself -- the finding's original point was precisely that
+  trace-only disposition is not a substitute for a direct assertion.
+  Real-GGUF-path coverage of this same assertion remains an optional
+  strengthening item: `test_real_composed_evidence.cpp`'s real-model
+  forced-materialization-failure attack still only asserts throw +
+  `current_length()==0`, not the byte-ledger check. The underlying
+  code path (`materialize_layer`'s catch block) is identical and
+  shared between the synthetic and real materializer callbacks, so
+  this gap is a coverage strengthening opportunity, not evidence of a
+  defect on the real path.
 - **CLOSED, MAJOR — P5A-RVW-011 (one-sided materialization-count
   assertion).** `test_virtualized_cached_decode.cpp`'s materialization
   count check used a one-sided `<=` that could not detect

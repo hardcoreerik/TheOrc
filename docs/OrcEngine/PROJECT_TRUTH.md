@@ -460,10 +460,12 @@ real-artifact coverage; the reverse B/C independence attack -- corrupt
 only B's resident weights, confirm C, snapshotted independently
 beforehand, is completely unaffected). One MINOR finding closed via
 documentation superseded-annotations. One MINOR finding (a
-materialization-failure residency assertion) was resolved by manual code
-trace rather than new code -- no leak was found; the existing
-`peak_active_layers`/`current_length()` assertions already cover the
-underlying invariant. Full detail in `DECISION_LOG.md` OE-ADR-028 and
+materialization-failure residency assertion) is closed with a direct
+code assertion (`c89e7801`'s attack 8d, confirming a forced
+materialization failure returns the resident-weight ledger to exactly
+the permanent FinalNorm bookend) -- the earlier manual code trace is
+retained only as supporting evidence, not as the closing evidence
+itself. Full detail in `DECISION_LOG.md` OE-ADR-028 and
 `PHASE5A_KV_CACHE_SPEC.md`'s "Freeze-closure pass results" section.
 
 **Validation matrix grew from 18 to 30 registered tests.** See the

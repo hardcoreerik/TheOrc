@@ -758,7 +758,7 @@ freeze review:**
 15. Backing I/O (embedding/transformer/output-head bytes read, materialization counts) is measured for Reference Path C. **PARTIALLY SATISFIED** -- measured as run-level totals via `StreamingTelemetry` (embedding/output/total backing bytes, materialization counts), cross-checked against Reference Path A's totals to isolate the embedding-caching benefit and confirm transformer-weight reread-per-token. NOT separated into individual per-step figures (would require sampling telemetry deltas between steps, not done this pass) -- the run-level comparison already answers the specific experimental question posed ("does caching eliminate weight reread"), so this is recorded as a real but bounded gap, not silently claimed complete.
 16. Weight/KV/workspace/logits/process accounting is reported separately for Reference Path C, never aggregated. **SATISFIED** -- see the accounting table above.
 17. The actual composed KV/weight crossover is computed from Reference Path C's own measured peak. **SATISFIED** -- 308 tokens, from the measured 14,162,688-byte peak.
-18. Debug/Release/strict/ASan all pass for Reference Path C, each reported with its exact configuration. **SATISFIED** -- Debug 30/30, Release 30/30, strict 30/30 (zero warnings). ASan: CTest 22/30 with eight inherited timeouts and exit 8 (inherited 300-900s `TIMEOUT` properties set in frozen Phase 2/3 `CMakeLists.txt`, not modified this pass, exceeded by ASan's real-model slowdown); those same eight exact invocations completed directly with exit 0 and no ASan diagnostics. The CTest exit code is not characterized as passing. Full per-test evidence table in `DECISION_LOG.md` OE-ADR-028. `ORCENGINE_REAL_F32_GGUF`/`ORCENGINE_REAL_TIED_F32_GGUF`/`ORCENGINE_HF_SOURCE_DIR` all configured.
+18. Debug/Release/strict/ASan each fully validate Reference Path C with zero correctness or memory-safety failures, each reported with its exact configuration and any CTest harness exception documented rather than hidden inside a bare pass count. **SATISFIED** -- Debug 30/30, Release 30/30, strict 30/30 (zero warnings): plain CTest passes for these three lanes. ASan: complete underlying validation with a documented CTest harness exception, not a green CTest run -- CTest itself reports 22/30 with eight inherited timeouts and exit 8 (300-900s `TIMEOUT` properties set in frozen Phase 2/3 `CMakeLists.txt`, not modified this pass, exceeded by ASan's real-model slowdown; the CTest exit code is not characterized as passing), and those same eight exact invocations were additionally confirmed by direct invocation outside CTest's timeout mechanism: exit 0, no ASan diagnostic, for all eight. Full per-test evidence table in `DECISION_LOG.md` OE-ADR-028. `ORCENGINE_REAL_F32_GGUF`/`ORCENGINE_REAL_TIED_F32_GGUF`/`ORCENGINE_HF_SOURCE_DIR` all configured.
 19. No hidden full-resident fallback exists anywhere in Reference Path C's execution. **SATISFIED** -- `peak_resident_weight_bytes` matches Phase 4's single-layer peak exactly on the real model, not the ~630 MiB fully-resident footprint; the residency-guard non-vacuity attack (10) proves this isn't just an unexercised code path.
 20. Documentation (`PROJECT_TRUTH.md`, `CURRENT_STATE.yaml`, `DECISION_LOG.md`, this document) is reconciled with the evidence above. **SATISFIED** -- this pass.
 
@@ -808,8 +808,16 @@ review report; only the closure evidence is summarized here.
   `VirtualizedCachedModel::step` now calls the same `check_finite` checks
   Reference Path B has always had on input embedding, final normalized
   state, and logits (previously only the shared per-layer checks were
-  present on Path C). Attacked directly via the same real-model and
-  synthetic test infrastructure used elsewhere in this pass.
+  present on Path C). These three fail-closed checks are implemented in
+  the shared virtualized path and directly attacked via three targeted
+  synthetic-fixture attacks (12/13/14 in `test_virtualized_cache_attacks.cpp`
+  -- NaN injected into an embedding row, the FinalNorm weight, and an
+  output-projection row respectively, each confirmed to throw closed at
+  its specific bookend). Real-model numerical execution of this same code
+  path is covered separately (bit-identical A/B/C logits across the real
+  4-step differential in `test_real_composed_evidence.cpp`), but real-model
+  NaN injection specifically was not performed -- no claim of equivalent
+  real-model fault-injection coverage is made.
 - **P5A-RVW-004 (CRITICAL, 5-way gate under-enforcement) -- CLOSED.**
   `real_5way_composed_differential.py` now REQUIRES (not merely prints)
   `A == B == C` bit-identical logits at every step, requires `C` vs HF
@@ -864,18 +872,26 @@ review report; only the closure evidence is summarized here.
   attack (9), completing the symmetric B/C independence proof in both
   directions.
 - **P5A-RVW-010 (MINOR, materialization-failure residency assertion) --
-  addressed via manual trace, not additional code.** Direct trace of
-  `VirtualizedCachedModel::step`'s exception paths confirmed
-  `materialize_layer`'s own internal catch block already calls
-  `ledger_.released()` before rethrowing, using the SAME `bytes`/`count`
+  CLOSED.** `c89e7801` (2026-08-19 adversary-review closure round) added
+  attack 8d to `test_virtualized_cache_attacks.cpp`: a direct assertion
+  that a forced mid-layer materialization failure returns
+  `telemetry().current_resident_weight_bytes` to exactly the one
+  permanent FinalNorm bookend byte count -- the weight-byte-ledger check
+  `peak_active_layers<=1` and `current_length()==0` alone cannot provide.
+  The earlier manual trace of `VirtualizedCachedModel::step`'s exception
+  paths (confirming `materialize_layer`'s own catch block calls
+  `ledger_.released()` before rethrowing, using the same `bytes`/`count`
   reference parameters `step()`'s outer catch would otherwise
-  double-release; the outer catch correctly does not re-release. No leak
-  exists on manual inspection. The underlying invariant (residency returns
-  to baseline after a materialization failure) is not a new gap; recorded
-  as verified by trace rather than by a new dedicated assertion, since
-  adding one would duplicate coverage `peak_active_layers<=1` and
-  `current_length()==0` (both already asserted for this case) already
-  provide.
+  double-release) is retained as supporting evidence for why no leak was
+  expected, not as the closing evidence -- the original finding's point
+  was precisely that a trace-only disposition does not substitute for a
+  direct assertion. Real-GGUF-path coverage of this same assertion
+  remains an optional strengthening item, not a new gap: the real-model
+  forced-materialization-failure attack in `test_real_composed_evidence.cpp`
+  still only asserts throw + `current_length()==0`. The exercised code
+  path (`materialize_layer`'s catch block) is identical and shared
+  between the synthetic and real materializer callbacks, so this is not
+  evidence of a defect on the real path.
 - **P5A-RVW-011 (MAJOR, one-sided materialization-count assertion) --
   CLOSED.** `test_virtualized_cached_decode.cpp`'s materialization-count
   check now computes the EXACT deterministic expected count (per-step
@@ -905,10 +921,10 @@ and `DECISION_LOG.md` OE-ADR-028 for the full per-lane pass/fail report.
 
 **New proposed verdict pending re-review: `READY FOR FINAL INDEPENDENT
 FREEZE REVIEW`.** All CRITICAL and MAJOR findings from the prior review
-are closed with real, re-run evidence; the one MINOR finding
-(P5A-RVW-010) was resolved by trace rather than new code, recorded
-honestly as such. This is still a recommendation, not a self-authorized
-freeze -- see below.
+are closed with real, re-run evidence; all MINOR findings, including
+P5A-RVW-010, are closed with a direct code assertion (manual trace
+retained only as supporting evidence -- see P5A-RVW-010 above). This is
+still a recommendation, not a self-authorized freeze -- see below.
 
 ## Independent-review requirement
 
