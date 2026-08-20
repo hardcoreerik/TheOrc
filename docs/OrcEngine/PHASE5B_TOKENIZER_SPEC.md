@@ -6,6 +6,8 @@ Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 `F:\Ai\OrchestratorIDE-phase5b-tokenizer`, forked from `orcengine-phase5a-freeze`.
 
 Prepared: 2026-08-20 America/Los_Angeles, specification-only pass.
+Corrected: 2026-08-20, same day, following a focused review pass
+(evidence/policy corrections only — see Sections 4, 5, 7, 11, 18, 19).
 
 ## 1. Authority and baseline
 
@@ -79,15 +81,22 @@ level pre-tokenization/decoding (every one of the 256 possible byte
 values maps to a printable-Unicode surrogate before BPE merging) and
 there is no GGUF `unknown_token_id` and no `token_type` value 2
 (UNKNOWN) or 6 (BYTE) present anywhere in the 49,152-entry
-`tokenizer.ggml.token_type` array, **every possible input byte sequence
-is representable by this vocabulary** — there is no vocabulary-level
-"unknown token" fallback path to design for encode. `unk_token` in
-`tokenizer_config.json` names `<|endoftext|>` only because the GPT-2
-tokenizer format requires *some* value for that field, not because it
-is ever actually produced by encoding arbitrary bytes. This is
-DERIVED from the confirmed metadata above, not independently verified
-by running the tokenizer against adversarial byte input — see Decision
-Register item 6 and Section 5's "Unknown-token behavior" row.
+`tokenizer.ggml.token_type` array, **every valid UTF-8 input accepted
+by the Phase 5B boundary is representable through this vocabulary
+without a vocabulary-level unknown-token fallback.** This claim is
+deliberately narrower than "every possible input byte sequence is
+representable" (an earlier draft's wording): it says nothing about
+*invalid* UTF-8, which is a separate input-validation decision
+(Decision Register item 6), not a vocabulary-coverage question — an
+input can be rejected as malformed before ever reaching the byte-level
+mapping this note describes, and that rejection is not evidence of a
+vocabulary gap. `unk_token` in `tokenizer_config.json` names
+`<|endoftext|>` only because the GPT-2 tokenizer format requires *some*
+value for that field, not because it is ever actually produced by
+encoding valid UTF-8. This is DERIVED from the confirmed metadata
+above, not independently verified by running the tokenizer against
+adversarial byte input — see Decision Register item 6 and Section 5's
+"Unknown-token behavior" row.
 
 The native runtime **must not** depend on Python `tokenizers` or
 llama.cpp merely to perform tokenization. Those are test/review
@@ -105,19 +114,29 @@ and when separately authorized:
 - **Existing C++/standard-library facilities** — no new external
   dependency has been demonstrated necessary by this reconnaissance
   pass.
-- **Reuse the existing GGUF metadata reader.** `Tools/OrcEnginePhase2/
-  include/orcengine/gguf.hpp`'s `GgufArtifact`/`GgufValue` (with
-  `GgufValueType::Array` already supporting `std::vector<GgufValue>`)
-  can already represent the `tokenizer.ggml.tokens`/`merges`/
-  `token_type` arrays this profile requires. **No native tokenizer or
-  GGUF-tokenizer-parsing code exists anywhere in the C++ tree today**
-  (confirmed by an exhaustive `tokeniz`-pattern search across
-  `Tools/OrcEnginePhase1` through `Tools/OrcEnginePhase5A`'s `.cpp`/
-  `.hpp` files — the sole match was an unrelated comment). A future
-  implementation must extend `gguf.hpp`'s typed-accessor pattern
-  (`require_metadata`/`metadata_u64`/`metadata_f64`/`metadata_string`)
-  with array-typed accessors for the tokenizer keys, not duplicate GGUF
-  parsing.
+- **Reuse the existing GGUF metadata reader without modifying it.**
+  `Tools/OrcEnginePhase2/include/orcengine/gguf.hpp` is a frozen Phase
+  1-5A file and must not be changed by Phase 5B (correction from an
+  earlier draft of this document, which incorrectly said a future
+  implementation "must extend `gguf.hpp`"). Direct inspection of its
+  public surface confirms this constraint is not a problem: `GgufArtifact::
+  metadata` is a public `std::map<std::string, GgufValue>` field;
+  `require_metadata(artifact, key)` returns a public `const GgufValue&`;
+  `GgufValueType::Array` and `GgufValue::data`'s `std::variant` already
+  include `std::vector<GgufValue>`. Every field this profile needs
+  (`tokenizer.ggml.tokens`/`merges`/`token_type` as arrays; `model`/
+  `pre` as strings; `bos_token_id`/`eos_token_id`/`add_bos_token`/
+  `add_eos_token` as scalars) is reachable through this already-public
+  surface. A future implementation therefore needs only a **Phase-5B-
+  local** free function that calls `index_gguf()` (already public) and
+  extracts typed arrays from the returned `GgufValue`s — no Phase 2
+  header or implementation change, and no missing operation to record
+  as a blocker. **No native tokenizer or GGUF-tokenizer-parsing code
+  exists anywhere in the C++ tree today** (confirmed by an exhaustive
+  `tokeniz`-pattern search across `Tools/OrcEnginePhase1` through
+  `Tools/OrcEnginePhase5A`'s `.cpp`/`.hpp` files — the sole match was an
+  unrelated comment), so this local helper would be new code, not a
+  duplicate of anything existing.
 - **Immutable tokenizer tables** — vocabulary and merge ranks loaded
   once at construction, never mutated.
 - **A small, explicit encode/decode surface** — not a general-purpose
@@ -149,7 +168,7 @@ tokenizer metadata.
 | `add_prefix_space` | Proposed Phase 5B requirement — `false`, confirmed |
 | BOS insertion | Proposed Phase 5B requirement — default `false` (`add_bos_token`), confirmed; see Decision Register item 3 |
 | EOS insertion | Proposed Phase 5B requirement — default `false` (`add_eos_token`), confirmed; see Decision Register item 4 |
-| Empty input | Behavior that will require future native implementation proof — no existing fixture confirmed for this exact case at time of writing (the 20-fixture corpus's "empty input" category exists per its README but its exact result was not re-verified in this reconnaissance pass) |
+| Empty input | Previously demonstrated: `empty_input` fixture (`tokenizer_golden_fixtures.json`) — `token_ids: []`, `encode_decode_round_trips_exactly: true`. Confirmed by direct read of the committed artifact, not inferred from the category list. |
 | Repeated spaces | Previously demonstrated in the 20-fixture golden corpus ("leading/trailing/repeated whitespace" category) |
 | Leading and trailing spaces | Previously demonstrated in the 20-fixture golden corpus |
 | Newlines and tabs | Previously demonstrated in the 20-fixture golden corpus |
@@ -158,9 +177,9 @@ tokenizer metadata.
 | CJK text | Previously demonstrated in the 20-fixture golden corpus category, not independently re-verified this pass |
 | Emoji | Previously demonstrated in the 20-fixture golden corpus category, not independently re-verified this pass |
 | Combining characters | Previously demonstrated in the 20-fixture golden corpus category, not independently re-verified this pass |
-| Embedded NUL (if supported) | Golden corpus category exists ("embedded NUL byte if supported by API"); whether the pinned `tokenizers` 0.22.2 API supports NUL bytes was not re-verified this pass — behavior that will require future native implementation proof |
+| Embedded NUL (if supported) | Previously demonstrated: `embedded_nul_char` fixture — raw text `"before\x00after"` (12 bytes), `token_ids: [17985, 190, 9110]`, `encode_decode_round_trips_exactly: true`. The pinned `tokenizers` 0.22.2 API confirmed to support an embedded NUL byte and round-trip it exactly. Confirmed by direct read of the committed artifact. |
 | Invalid UTF-8 | Behavior that remains undecided — no existing fixture found for this case; see Decision Register item 6 |
-| Literal text resembling a special token | Previously demonstrated — the golden corpus's "text resembling special tokens" fixtures, and the specific `<\|endoftext\|>`-substring finding in Section 6 |
+| Literal text resembling a special token | Previously demonstrated with exact IDs: `text_resembling_special_tokens` (`"this <\|endoftext\|> looks like a special token"`) encodes `<\|endoftext\|>` as token ID **0** at position 3 of `[8232, 216, 0, 5117, 702, 253, 1767, 9624]`; `text_resembling_special_tokens_2` (`"<\|im_start\|>not really a chat turn<\|im_end\|>"`) encodes `<\|im_start\|>`/`<\|im_end\|>` as IDs **1** and **2** at the start/end of `[1, 1766, 2159, 253, 11743, 1607, 2]`. Both confirmed by direct read of `tokenizer_golden_fixtures.json`. **This is the pinned oracle's DEFAULT encode-time behavior** — it recognizes literal special-token substrings and maps them to their special IDs; it does not treat them as ordinary text by default. See Section 7's encode-mode evidence subsection for the mechanism that produces the alternative (literal-text) behavior. |
 | Recognition of allowed-control special tokens | Previously demonstrated at the fault-injection level (`tokenizer_special_token_error`: mislabeling `<\|im_start\|>` CONTROL→NORMAL in GGUF `token_type` diverges `"<\|im_start\|>user"` tokenization from `[1, 4093]` to an 8-token shattered sequence) |
 | Distinction: ordinary text vs. explicitly authorized special-token input | Proposed Phase 5B requirement — not yet a settled policy; see Section 7 and Decision Register items 1-2 |
 
@@ -171,7 +190,8 @@ tokenizer metadata.
 | Token IDs to raw decoded bytes | Proposed Phase 5B requirement |
 | Ordinary vocabulary tokens | Previously demonstrated at the Python-oracle level |
 | Control/special tokens | Proposed Phase 5B requirement, directly informed by the finding below |
-| `skip_special_tokens=true` vs. `false` | **Previously demonstrated, with a real documented divergence**: under the `tokenizers` library's *default* `skip_special_tokens=True`, a fixture containing the literal substring `<\|endoftext\|>` loses that substring on decode, because it is token ID 0 — the model's actual `<\|endoftext\|>` control token — and gets silently dropped. Re-decoding the same fixture with `skip_special_tokens=False` round-trips exactly. Source: `Tools/OrcEnginePhase0/phase3_prep/tokenizer_golden_fixtures.py` module docstring and `phase3_prep/README.md`, both dated 2026-08-15. This specification does **not** hide that result — Section 7 and Decision Register item 5 require an explicit decode policy exactly because of it. |
+| `skip_special_tokens=true` vs. `false` | **Previously demonstrated, with a real documented divergence, confirmed by direct read of the committed artifact:** both `text_resembling_special_tokens` and `text_resembling_special_tokens_2` show `encode_decode_round_trips_exactly: false` (the default decode drops the control-token text) alongside `encode_decode_round_trips_with_special_tokens_kept: true` (decoding with special tokens kept round-trips exactly). Concretely: `text_resembling_special_tokens`'s `decoded_text_repr` is `"this  looks like a special token"` — the literal `<\|endoftext\|>` substring (token ID 0) is silently dropped under the default `skip_special_tokens=True`; `text_resembling_special_tokens_2`'s default-decoded text drops both `<\|im_start\|>`/`<\|im_end\|>`, leaving only `"not really a chat turn"`. Re-decoding either fixture with `skip_special_tokens=False` round-trips exactly. Source: `tokenizer_golden_fixtures.json` fixture fields directly, corroborated by `Tools/OrcEnginePhase0/phase3_prep/tokenizer_golden_fixtures.py`'s module docstring and `phase3_prep/README.md` (both dated 2026-08-15). This specification does **not** hide that result — Section 7 and Decision Register item 5 require an explicit decode policy exactly because of it. |
+| `add_special_tokens=true` vs. `false` (encode-time, distinct from decode's `skip_special_tokens`) | Previously demonstrated for ordinary text: the `bos_eos_combination` fixture shows `plain_ids: [2129]` and `with_add_special_tokens_true_ids: [2129]` — identical, `add_special_tokens_changes_output: false`, for text containing no special-token substrings. **This does NOT establish what `add_special_tokens` does for text containing literal special-token substrings** — see Section 7's encode-mode evidence subsection, which tested that specific case directly and found `add_special_tokens` has no effect there either; the actual controlling mechanism is a different, separately-discovered property. |
 | Unknown or invalid token IDs | Behavior that remains undecided — see Decision Register item 8 |
 | Empty token sequences | Behavior that will require future native implementation proof |
 | Byte fragments split across tokens | Golden corpus category exists ("tokens that split a multibyte UTF-8 code point"); native streaming-accumulator behavior is a proposed Phase 5B requirement, not yet implemented anywhere |
@@ -227,6 +247,93 @@ requirement, not an incidental detail.
   remains a labeled maintainer decision (Decision Register item 5), not
   silently selected by this document.
 
+### Two proposed explicit encode modes
+
+An earlier draft of this document recommended, as the safe default,
+that plain user text not activate control tokens — without checking
+whether that default is actually what the pinned oracle does. It is
+**not**: Section 5's "Literal text resembling a special token" row
+shows the pinned `tokenizers` 0.22.2 oracle's *default* encode behavior
+already converts literal `<|endoftext|>`/`<|im_start|>`/`<|im_end|>`
+substrings to their special IDs. This mismatch is not hidden here — it
+is exactly why Phase 5B needs two explicit, separately named modes
+rather than one silent default:
+
+**A. Literal/ordinary-text mode.** Intended for ordinary user text.
+Control-token-looking substrings are treated as literal text — encoded
+through the normal byte-level BPE path — rather than silently
+activating control semantics. **Confirmed independently producible**
+against the pinned oracle: see the evidence subsection below. This is
+the recommended safe default for Decision Register items 1-2, since an
+equivalent, independently testable oracle configuration exists.
+
+**B. Explicit-control-token mode.** Requires deliberate caller opt-in.
+Recognizes the 17 pinned control tokens according to the GGUF
+`token_type` metadata — this is the pinned oracle's *default* behavior
+(Section 5). Used for already-formatted prompts where the caller
+intentionally supplies control tokens (e.g. a caller that has already
+rendered `<|im_start|>user\n...`).
+
+### Encode-mode evidence subsection
+
+Targeted, read-only oracle investigation performed this pass to
+determine what actually controls the distinction between modes A and B.
+
+**Tool and version:** `tokenizers` Python library, `0.22.2` (confirmed
+via `python3 -c "import tokenizers; print(tokenizers.__version__)"`,
+exit 0, output `0.22.2`). Tokenizer loaded via
+`Tokenizer.from_file("artifacts/smollm2-135m/tokenizer.json")`.
+
+**Finding 1 — `add_special_tokens` does NOT control literal
+special-token recognition**, despite the name. Command: `tok.encode(t,
+add_special_tokens=True)` vs. `tok.encode(t, add_special_tokens=False)`
+for both special-token-lookalike fixture texts. Exit 0 both times.
+Result: **identical token IDs both ways** —
+`"this <|endoftext|> looks like a special token"` →
+`[8232, 216, 0, 5117, 702, 253, 1767, 9624]` under both settings;
+`"<|im_start|>not really a chat turn<|im_end|>"` →
+`[1, 1766, 2159, 253, 11743, 1607, 2]` under both settings. Per this
+document's own instruction not to assume `add_special_tokens` controls
+literal special-token recognition merely because of its name: it does
+not, empirically, for this tokenizer/library combination. (`add_special_tokens`
+controls BOS/EOS insertion, which this profile has disabled — see
+Section 3 — so it has no visible effect on these particular fixtures
+either way.)
+
+**Finding 2 — `Tokenizer.encode_special_tokens` is the actual
+controlling property.** This is a boolean attribute on the `Tokenizer`
+object itself (not an `encode()` call parameter), default `False`
+(confirmed: `tok.encode_special_tokens` → `False` on a freshly loaded
+tokenizer). Command: set `tok.encode_special_tokens = False` then
+`True`, re-running `tok.encode(t, add_special_tokens=False)` for both
+fixture texts under each setting. Exit 0 both times.
+
+| `encode_special_tokens` | `"this <\|endoftext\|> looks like a special token"` → IDs | `"<\|im_start\|>not really a chat turn<\|im_end\|>"` → IDs |
+|---|---|---|
+| `False` (default) | `[8232, 216, 0, 5117, 702, 253, 1767, 9624]` — `<\|endoftext\|>` matched as ID 0 | `[1, 1766, 2159, 253, 11743, 1607, 2]` — `<\|im_start\|>`/`<\|im_end\|>` matched as IDs 1/2 |
+| `True` | `[8232, 2067, 108, 486, 1714, 2692, 108, 46, 5117, 702, 253, 1767, 9624]` — `<\|endoftext\|>` broken into ordinary byte-level pieces (`<`,`\|`,`end`,`of`,`text`,`\|`,`>`) | `[44, 108, 306, 79, 3738, 108, 46, 1766, 2159, 253, 11743, 1607, 44, 108, 306, 79, 486, 108, 46]` — `<\|im_start\|>`/`<\|im_end\|>` similarly broken into ordinary pieces |
+
+This is a definitive, independently reproducible mechanism: `encode_special_tokens
+= False` (the library default) is **Mode B** (explicit-control-token
+mode is actually the oracle's default); `encode_special_tokens = True`
+is **Mode A** (literal/ordinary-text mode). Both modes are confirmed
+independently producible against the pinned primary oracle by toggling
+this one property — no blocker for the primary oracle.
+
+**Finding 3 — the secondary oracle (llama.cpp) could not be checked
+this pass.** `Tools/OrcEnginePhase0/oracle/tokenizer_dual_source_check.py`
+resolves its llama.cpp binary path from the `ORC_LLAMA_TOKENIZE_PATH`
+environment variable, which was unset in this session, and a targeted
+filesystem search (project directories plus common local tool/download
+locations) found no `llama-tokenize`/`llama-server` binary present on
+this machine. **This is recorded as an evidence gap, not invented
+behavior**: whether llama.cpp's tokenizer exposes an equivalent
+special-token-recognition option (its public documentation describes a
+`parse_special` concept for this purpose, but that was not
+independently confirmed by running anything locally this pass) remains
+unverified. Mode A/B's independent producibility is confirmed only
+against the primary oracle at this time.
+
 ## 8. GGUF metadata contract and rejection behavior
 
 Exact metadata fields required to construct this tokenizer, confirmed
@@ -276,7 +383,7 @@ tokenizer profile.
 Three-way comparison, required when implementation is later authorized:
 
 1. **Primary oracle:** the pinned Hugging Face tokenizer via `tokenizers` 0.22.2.
-2. **Secondary independent oracle:** llama.cpp reading the GGUF's `tokenizer.ggml.*` metadata.
+2. **Secondary independent oracle:** llama.cpp reading the GGUF's `tokenizer.ggml.*` metadata. **Availability note (confirmed this pass):** no `llama-tokenize`/`llama-server` binary was found on this machine and `ORC_LLAMA_TOKENIZE_PATH` is unset — this oracle is used successfully elsewhere in the project's own history (`PHASE_0_ACCEPTANCE.yaml`'s `tokenizer_dual_source_agreement` entry) but was not independently re-exercised by this reconnaissance/correction pass (see Section 7's evidence subsection, Finding 3).
 3. **System under test:** the future native OrcEngine C++ implementation.
 
 Existing evidence to reuse rather than recreate:
@@ -332,17 +439,44 @@ Future tests, not implemented in this pass:
 
 ## 11. Frozen-engine integration proof
 
+**Correction from an earlier draft:** the `[1, 5, 28, 284, 260, 198]`
+sequence used pervasively in Phase 2-5A real-model evidence is **not**
+entirely a tokenized prompt. It is `[1, 5]` (arbitrary explicit initial
+IDs, never established as the tokenization of any real text) followed
+by `[28, 284, 260, 198]` (four IDs the frozen model *generated*, not
+tokenized from input text). No raw-prompt-identity fixture was found
+that independently tokenizes to `[1, 5]` — the six fixtures in
+`raw_prompt_identity_manifest.json` were checked directly and none
+produce that pair (the closest are `"Hello, world!"` → `[19556, 28,
+905, 17]` and `"12345 test"` → `[33, 34, 35, 36, 37, 1028]`). Per this
+document's own instruction not to invent an input that would produce
+`[1, 5]`, this specification uses a different, already-established
+fixture instead.
+
 A future integration test must demonstrate:
 
-1. A frozen raw prompt is tokenized by the native Phase 5B boundary.
-2. The resulting IDs exactly equal the established explicit token IDs
-   already used throughout Phase 1-5A's own fixtures (e.g. the
-   `[1, 5, 28, 284, 260, 198]` sequence used pervasively in Phase 2-5A
-   real-model evidence).
-3. Those IDs are passed into the frozen Phase 5A engine without
-   translation.
-4. The resulting logits/tokens remain identical to the frozen
-   explicit-ID path.
+1. Select a frozen raw-prompt-identity fixture with established raw
+   bytes and oracle token IDs — e.g. `raw_prompt_identity_manifest.json`'s
+   `"smollm2-135m:'Hello, world!'"` record (`raw_text: "Hello, world!"`,
+   oracle-established `token_ids: [19556, 28, 905, 17]`).
+2. Tokenize that raw prompt through the future native Phase 5B
+   boundary.
+3. Require exact equality between the native boundary's output and the
+   fixture's oracle-established token IDs (`[19556, 28, 905, 17]` for
+   the example above) — this is the tokenization-correctness half of
+   the proof.
+4. Run the frozen Phase 5A engine once with those native-tokenized IDs.
+5. Run the same frozen engine again with those identical IDs supplied
+   explicitly (the existing explicit-ID path every current Phase 1-5A
+   test already uses).
+6. Require identical logits, selected tokens, and generated
+   continuation between steps 4 and 5.
+
+**This test does not require the tokenizer to produce generated
+continuation IDs from input text** — generation is the frozen engine's
+job, not the tokenizer's; the proof's scope is strictly that
+Phase 5B's tokenized IDs are indistinguishable, once produced, from
+hand-supplied explicit IDs.
 
 The purpose is narrowly to prove that Phase 5B adds a boundary without
 changing numerical execution. **This test is not authorized or
@@ -463,8 +597,8 @@ remains prohibited until Phase 5B is separately accepted and frozen.
 
 | # | Decision | Existing evidence | Recommended Phase 5B contract | Maintainer confirmation required? |
 |---|---|---|---|---|
-| 1 | Default encoding treatment of literal special-token-looking text | Golden corpus has a dedicated fixture category; `skip_special_tokens` finding shows control tokens have real, silent effects on decode | Encode literal text as ordinary bytes by default (do not let plain user text activate a control token's special ID unless explicitly requested) — matches the general safety instinct behind `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "never an invisible guess" requirement, but has not been proven against this tokenizer's actual encode-time special-token matching behavior | **Yes** — no direct local fixture proves what the pinned `tokenizers` 0.22.2 library actually does with literal `<\|endoftext\|>` text at *encode* time (only the *decode*-time `skip_special_tokens` effect is confirmed) |
-| 2 | Whether control-token recognition requires explicit caller opt-in | None directly on encode-time opt-in; `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "special-token recognition policy" principle | Yes, require explicit opt-in per call (mirrors HF `tokenizers`' own `add_special_tokens`-style parameter conventions) | **Yes** |
+| 1 | Default encoding treatment of literal special-token-looking text | **Directly confirmed this pass** (Section 7 evidence subsection): the pinned oracle's own *default* (`encode_special_tokens=False`) already recognizes literal `<\|endoftext\|>`/`<\|im_start\|>`/`<\|im_end\|>` substrings and maps them to their special IDs — it does NOT treat them as ordinary text by default. `add_special_tokens` (the encode-call parameter) was confirmed to have no effect on this recognition either way. | Mode A (literal/ordinary-text, `encode_special_tokens=True` on the pinned oracle) as the Phase 5B default for ordinary user text — this is now a genuinely evidence-backed recommendation, not merely a safety instinct, since Mode A is confirmed independently producible against the primary oracle. This is a deliberate DEPARTURE from the pinned oracle's own default (Mode B), made explicitly and for a stated reason (safety against literal user text silently invoking control tokens), not silently inherited. | **Yes** — the mechanism is now proven, but choosing to depart from the oracle's own default is still a policy decision requiring maintainer sign-off, not something Section 7's evidence alone can settle |
+| 2 | Whether control-token recognition requires explicit caller opt-in | **Directly confirmed this pass**: Mode B (`encode_special_tokens=False`, the oracle's default) and Mode A (`encode_special_tokens=True`) are both independently producible and empirically distinct (Section 7). `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "special-token recognition policy" principle supports opt-in. | Yes, require explicit opt-in per call to select Mode B; Mode A (literal text) is the default. Now backed by a concrete, tested mechanism (the `encode_special_tokens` property), not merely a naming convention borrowed from HF's `add_special_tokens`. | **Yes** — the mechanism exists and is proven; whether opt-in is mandatory (vs. a permissive default) is still a policy choice |
 | 3 | BOS insertion default | GGUF `add_bos_token = false`, confirmed | Do not insert BOS by default, matching the pinned metadata exactly | No — metadata is unambiguous; implementation should follow it directly |
 | 4 | EOS insertion default | GGUF `add_eos_token = false`, confirmed | Do not insert EOS by default, matching the pinned metadata exactly | No — metadata is unambiguous |
 | 5 | Default decode `skip_special_tokens` behavior | Directly confirmed divergence: `True` drops literal `<\|endoftext\|>` substrings; `False` round-trips exactly | Default to `skip_special_tokens=false` (preserve bytes exactly, fail-safe for a decode boundary) with an explicit, separately-named caller option to strip special tokens for display purposes | **Yes** — this is a deliberate behavior choice with a real, demonstrated user-visible consequence either way, not a metadata-determined fact |
@@ -477,4 +611,144 @@ remains prohibited until Phase 5B is separately accepted and frozen.
 Where this table says "Yes" under maintainer confirmation, this
 specification deliberately does not silently select a final policy —
 an explicit unresolved decision is recorded instead of an unsupported
-claim.
+claim. **Seven of the ten items above (1, 2, 5, 6, 7, 8, 10) require
+maintainer confirmation**; the other three (3, 4, 9) are directly
+determined by confirmed metadata and need no policy decision.
+
+## 19. Maintainer decision packet
+
+None of the seven items below is silently marked accepted by this
+document. Each is presented with its evidence, a recommended choice,
+the consequence of accepting versus rejecting it, and whether the
+oracle evidence gathered this pass is sufficient to support the
+recommendation — so the maintainer can confirm, reject, or request
+more evidence per item, not rubber-stamp a bundle.
+
+**1. Ordinary user text does not activate control tokens by default
+(Decision Register item 1).**
+- *Existing evidence:* Section 7's evidence subsection — the pinned
+  oracle's own default (`encode_special_tokens=False`) activates
+  control tokens for literal matches; Mode A
+  (`encode_special_tokens=True`) is confirmed to suppress that and is
+  independently producible.
+- *Recommended choice:* accept — default to Mode A (literal text) for
+  ordinary user text.
+- *Consequence of accepting:* Phase 5B's default behavior deliberately
+  diverges from the pinned oracle's own default. Every fixture and
+  comparison must be explicit about which mode was used, since "the
+  oracle's result" is no longer synonymous with "Phase 5B's result" at
+  default settings.
+- *Consequence of the alternative* (default to Mode B, matching the
+  oracle's own default): simpler to state ("Phase 5B's default matches
+  the oracle's default"), but means ordinary user text containing
+  `<|endoftext|>`-like substrings silently invokes control-token
+  semantics unless the caller knows to opt out — the exact silent-guess
+  failure mode this project's own tokenizer principles warn against.
+- *Oracle evidence sufficient?* Yes for the mechanism (both modes are
+  proven producible); the choice of which is the *default* remains a
+  genuine policy call, not something the mechanism itself decides.
+
+**2. Control-token recognition requires explicit caller opt-in
+(Decision Register item 2).**
+- *Existing evidence:* same as item 1 — both modes are independently
+  producible and distinct.
+- *Recommended choice:* accept — Mode B requires an explicit,
+  separately-named caller flag; it is never implicit.
+- *Consequence of accepting:* every call site that intends to tokenize
+  an already-formatted, control-token-bearing prompt must say so
+  explicitly.
+- *Consequence of the alternative* (permissive default, e.g. detect
+  control-token-looking substrings heuristically): reintroduces the
+  invisible-guess failure mode item 1 exists to avoid.
+- *Oracle evidence sufficient?* Yes — this follows directly from item 1's evidence.
+
+**3. Decode preserves special tokens by default (Decision Register
+item 5).**
+- *Existing evidence:* Section 6 — `skip_special_tokens=True` (the
+  pinned oracle's default) silently drops literal `<|endoftext|>`/
+  `<|im_start|>`/`<|im_end|>` substrings on decode;
+  `skip_special_tokens=False` round-trips exactly for both affected
+  fixtures.
+- *Recommended choice:* accept — default to `skip_special_tokens=false`
+  equivalent (preserve special-token text), with an explicit,
+  separately-named option to strip them for display.
+- *Consequence of accepting:* decode is byte-exact by default, at the
+  cost of callers who want "clean" display text needing to opt in to
+  stripping.
+- *Consequence of the alternative* (default-strip, matching the
+  oracle's default): matches the oracle's own default, but a decode
+  boundary that silently drops bytes by default is a correctness risk
+  for any caller that assumes decode is lossless.
+- *Oracle evidence sufficient?* Yes — the divergence is directly
+  measured on two real fixtures, not hypothetical.
+
+**4. Invalid UTF-8 input is rejected explicitly (Decision Register item 6).**
+- *Existing evidence:* none found locally — no fixture in the 20-fixture
+  corpus or elsewhere exercises malformed UTF-8 input.
+- *Recommended choice:* reject explicitly (fail closed) rather than
+  substitute a replacement character.
+- *Consequence of accepting:* callers must handle an explicit error for
+  malformed input; no silent data loss or corruption is possible.
+- *Consequence of the alternative* (substitute/replace): matches some
+  other tokenizer ecosystems' conventions, but risks silently
+  corrupting input the caller believed was preserved.
+- *Oracle evidence sufficient?* **No** — this is a genuinely open
+  policy choice with zero local evidence either way; the recommendation
+  is a safety default, not an evidenced fact.
+
+**5. Incomplete UTF-8 at end of stream is an explicit error (Decision
+Register item 7).**
+- *Existing evidence:* none found locally;
+  `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "Streaming decode" section
+  states the general principle only, never implemented or tested
+  against this tokenizer.
+- *Recommended choice:* buffer incomplete trailing bytes during
+  streaming; treat a still-incomplete sequence at end-of-stream as an
+  explicit error surfaced to the caller.
+- *Consequence of accepting:* streaming callers must handle an explicit
+  end-of-stream error path distinct from normal completion.
+- *Consequence of the alternative* (silently discard or replace
+  incomplete trailing bytes): simpler for callers, but hides a genuine
+  truncation/corruption signal.
+- *Oracle evidence sufficient?* **No** — no local evidence either way;
+  this is a design principle applied for the first time to this
+  tokenizer, not a measured fact.
+
+**6. Invalid token IDs are rejected explicitly (Decision Register item 8).**
+- *Existing evidence:* none found locally.
+- *Recommended choice:* reject with an explicit error at the decode
+  boundary rather than silently mapping to a placeholder token.
+- *Consequence of accepting:* a caller that (through its own bug)
+  passes an out-of-vocabulary ID gets a clear error instead of a
+  plausible-looking but wrong decoded token.
+- *Consequence of the alternative* (map to a placeholder, e.g. UNK):
+  matches some tokenizer conventions, but this vocabulary's own
+  `unk_token` is `<|endoftext|>` (Section 3) — silently mapping invalid
+  IDs to the same token that also means BOS/EOS would be actively
+  misleading, not merely imprecise.
+- *Oracle evidence sufficient?* **No** — no local fixture exercises
+  this; the recommendation is reasoned from Section 3's evidence about
+  what `unk_token` actually means for this profile, not directly
+  measured.
+
+**7. Raw decoded bytes are the primary round-trip authority, with
+Unicode comparison secondary for valid UTF-8 (Decision Register item 10).**
+- *Existing evidence:* existing fixtures already record both
+  `raw_bytes_sha256`/`decoded_bytes_sha256`-style hashes and
+  human-readable `decoded_text_repr`, without a stated priority between
+  them.
+- *Recommended choice:* accept — raw bytes are authoritative (that is
+  what the `ByteLevel` decoder actually produces); Unicode-string
+  comparison is a secondary, human-readable check, valid only when the
+  bytes happen to be valid UTF-8.
+- *Consequence of accepting:* test failures are diagnosed byte-first;
+  a byte-level mismatch that happens to still decode to a plausible
+  Unicode string is still a failure.
+- *Consequence of the alternative* (Unicode-string-first): simpler for
+  human review, but could mask a byte-level bug that doesn't happen to
+  break Unicode decoding.
+- *Oracle evidence sufficient?* Partial — the fixtures show both are
+  already recorded, which supports treating bytes as primary (they are
+  the more fundamental of the two data points already captured), but no
+  case was found this pass where the two comparison bases actually
+  disagree, so the practical stakes of this choice remain unmeasured.
