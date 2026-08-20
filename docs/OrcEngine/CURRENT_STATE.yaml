@@ -1,7 +1,7 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-08-18"
+  date: "2026-08-19"
   timezone: America/Los_Angeles
   # Three distinct authorities -- do not conflate. "repository"/"branch" below
   # point at whichever worktree is CURRENTLY ACTIVE for the work this file is
@@ -36,7 +36,7 @@ as_of:
     native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_4_complete_frozen_phase_5a_in_progress
+  lifecycle: phase_4_complete_frozen_phase_5a_closure_complete_awaiting_maintainer_freeze_approval
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -550,9 +550,9 @@ phases:
         real_5way_composed_differential as an actual CTest). See
         DECISION_LOG.md OE-ADR-028 and PHASE5A_KV_CACHE_SPEC.md's
         "Freeze-closure pass results" section for full per-finding evidence.
-      active_gate_status: closure_pass_complete_pending_new_independent_review_see_OE_ADR_028
-      proposed_verdict: READY_FOR_FINAL_INDEPENDENT_FREEZE_REVIEW_recommendation_not_self_authorization
-      independent_review: closure_pass_done_new_review_pending
+      active_gate_status: closure_pass_complete_2026_08_19_full_plus_adversary_review_completed_against_af2dc59b_confirmed_findings_resolved_focused_diff_review_clean_awaiting_maintainer_freeze_approval
+      proposed_verdict: READY_FOR_MAINTAINER_FREEZE_APPROVAL_recommendation_not_self_authorization
+      independent_review: full_plus_adversary_review_completed_against_af2dc59b_1_blocker_and_3_fix_before_freeze_findings_resolved_2_optional_deferred_focused_diff_review_clean_see_DECISION_LOG_OE_ADR_028
       freeze_tag: absent
       branch_push: not_done
     note: >-
