@@ -1,6 +1,6 @@
 # Phase 5B: Tokenizer / Text-Token Boundary Reference
 
-Status: **DRAFT FOR MAINTAINER REVIEW — NO IMPLEMENTATION AUTHORIZED**
+Status: **SPECIFICATION ACCEPTED FOR IMPLEMENTATION — IMPLEMENTATION NOT STARTED**
 
 Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 `F:\Ai\OrchestratorIDE-phase5b-tokenizer`, forked from `orcengine-phase5a-freeze`.
@@ -8,6 +8,16 @@ Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 Prepared: 2026-08-20 America/Los_Angeles, specification-only pass.
 Corrected: 2026-08-20, same day, following a focused review pass
 (evidence/policy corrections only — see Sections 4, 5, 7, 11, 18, 19).
+**Accepted: 2026-08-20, same day.** The maintainer explicitly approved
+all seven Section 19 policy recommendations as binding Phase 5B
+implementation requirements (see the "Maintainer-approved" markers in
+Sections 18-19 and `DECISION_LOG.md`'s new ADR). This is a
+specification-acceptance decision, not an implementation-completion or
+freeze decision — Phase 5B implementation has not started. Acceptance
+does not waive the required llama.cpp secondary-oracle comparison
+(Section 9's availability note) — that remains an outstanding
+validation dependency before Phase 5B can be considered complete or
+frozen.
 
 ## 1. Authority and baseline
 
@@ -530,15 +540,23 @@ integration proof actually requires exercising the full frozen engine.
 
 ## 14. Acceptance criteria
 
-Phase 5B must not be accepted or frozen until all required claims have
-direct evidence. At minimum, later implementation must prove:
+**Note:** this section governs acceptance/freeze of a future Phase 5B
+*implementation*, distinct from the specification acceptance recorded
+2026-08-20 (Section 18-19, `DECISION_LOG.md`'s new ADR) — approving the
+seven policy decisions this document specifies is not the same as
+satisfying these criteria, none of which can be evaluated before
+implementation exists.
+
+Phase 5B implementation must not be accepted as complete or frozen
+until all required claims have direct evidence. At minimum, later
+implementation must prove:
 
 - Exact agreement for the pinned compatibility tuple (Section 3)
 - Exact IDs for all required fixtures (Sections 5, 9)
 - Explicit and tested BOS/EOS behavior (Section 7, Decision Register
   items 3-4)
-- Explicit and tested special-token policy (Section 7, Decision
-  Register items 1-2, 5)
+- Explicit and tested special-token policy per the seven approved
+  contracts (Section 7, Decision Register items 1-2, 5; Section 19)
 - Exact decoded-byte behavior (Section 6)
 - Safe partial-UTF-8 streaming behavior (Section 6, Decision Register
   item 7)
@@ -546,6 +564,11 @@ direct evidence. At minimum, later implementation must prove:
 - No change to frozen engine numerical results (Section 11)
 - No unintended modification of frozen Phase 1-5A files
 - Clean required validation lanes (Section 13)
+- **The llama.cpp secondary-oracle comparison (Section 9's
+  availability note), still outstanding as of the specification
+  acceptance date** — not satisfied by specification acceptance, and
+  required before Phase 5B can be considered complete or frozen, not
+  merely before implementation begins
 - Independent review findings reconciled
 
 ## 15. Explicit non-goals
@@ -586,43 +609,58 @@ scaffolding are pre-created by this specification pass.
 
 ## 17. Stop gate
 
-This document is a **draft**. No implementation is authorized by this
-commit. Maintainer review is required. Any unresolved policy decision
-in Section 18 (Decision Register) must be resolved — either by
-maintainer confirmation of the recommended contract, or by an
-explicit alternative decision — before implementation begins. Phase 5C
-remains prohibited until Phase 5B is separately accepted and frozen.
+**Updated 2026-08-20:** all seven previously-unresolved policy
+decisions in Section 18 (Decision Register) have been explicitly
+approved by the maintainer (Section 19, `DECISION_LOG.md`'s new ADR).
+This specification is now **ACCEPTED FOR IMPLEMENTATION**, not merely
+a draft. This is still not authorization for implementation to be
+considered complete or frozen — Section 14's acceptance criteria,
+including the outstanding llama.cpp secondary-oracle comparison, remain
+unsatisfied until implementation exists and is validated against them.
+No implementation has been created by this or any prior commit against
+this specification. Phase 5C remains prohibited until Phase 5B is
+separately accepted (as an implementation, not just this specification)
+and frozen.
 
 ## 18. Decision register
 
-| # | Decision | Existing evidence | Recommended Phase 5B contract | Maintainer confirmation required? |
+| # | Decision | Existing evidence | Phase 5B contract | Maintainer decision |
 |---|---|---|---|---|
-| 1 | Default encoding treatment of literal special-token-looking text | **Directly confirmed this pass** (Section 7 evidence subsection): the pinned oracle's own *default* (`encode_special_tokens=False`) already recognizes literal `<\|endoftext\|>`/`<\|im_start\|>`/`<\|im_end\|>` substrings and maps them to their special IDs — it does NOT treat them as ordinary text by default. `add_special_tokens` (the encode-call parameter) was confirmed to have no effect on this recognition either way. | Mode A (literal/ordinary-text, `encode_special_tokens=True` on the pinned oracle) as the Phase 5B default for ordinary user text — this is now a genuinely evidence-backed recommendation, not merely a safety instinct, since Mode A is confirmed independently producible against the primary oracle. This is a deliberate DEPARTURE from the pinned oracle's own default (Mode B), made explicitly and for a stated reason (safety against literal user text silently invoking control tokens), not silently inherited. | **Yes** — the mechanism is now proven, but choosing to depart from the oracle's own default is still a policy decision requiring maintainer sign-off, not something Section 7's evidence alone can settle |
-| 2 | Whether control-token recognition requires explicit caller opt-in | **Directly confirmed this pass**: Mode B (`encode_special_tokens=False`, the oracle's default) and Mode A (`encode_special_tokens=True`) are both independently producible and empirically distinct (Section 7). `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "special-token recognition policy" principle supports opt-in. | Yes, require explicit opt-in per call to select Mode B; Mode A (literal text) is the default. Now backed by a concrete, tested mechanism (the `encode_special_tokens` property), not merely a naming convention borrowed from HF's `add_special_tokens`. | **Yes** — the mechanism exists and is proven; whether opt-in is mandatory (vs. a permissive default) is still a policy choice |
-| 3 | BOS insertion default | GGUF `add_bos_token = false`, confirmed | Do not insert BOS by default, matching the pinned metadata exactly | No — metadata is unambiguous; implementation should follow it directly |
-| 4 | EOS insertion default | GGUF `add_eos_token = false`, confirmed | Do not insert EOS by default, matching the pinned metadata exactly | No — metadata is unambiguous |
-| 5 | Default decode `skip_special_tokens` behavior | Directly confirmed divergence: `True` drops literal `<\|endoftext\|>` substrings; `False` round-trips exactly | Default to `skip_special_tokens=false` (preserve bytes exactly, fail-safe for a decode boundary) with an explicit, separately-named caller option to strip special tokens for display purposes | **Yes** — this is a deliberate behavior choice with a real, demonstrated user-visible consequence either way, not a metadata-determined fact |
-| 6 | Invalid UTF-8 input behavior | None found locally — no fixture exercises this; Section 3's architectural note establishes there is no vocabulary-level "unknown" path, but says nothing about malformed *input bytes* (which is a different failure class from "valid UTF-8 the vocabulary can't represent," which cannot happen given the byte-level design) | Reject with an explicit error at the encode boundary (fail closed) rather than silently substituting a replacement character | **Yes** — no local evidence determines this; it is a genuinely open policy choice |
-| 7 | Incomplete UTF-8 at end-of-stream behavior | None found locally; `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "Streaming decode" section states the general principle only, never implemented or tested | Buffer incomplete trailing bytes; treat end-of-stream with a still-incomplete sequence as an explicit error condition surfaced to the caller, not silently discarded or replaced | **Yes** |
-| 8 | Invalid token-ID decode behavior | None found locally | Reject with an explicit error at the decode boundary (fail closed) rather than silently mapping to a placeholder token | **Yes** |
-| 9 | Exact GGUF metadata fields required for construction | Fully confirmed this pass (Section 8's field list) | Require exactly the 9 fields listed in Section 8; reject construction if any is missing or malformed | No — this is now directly evidenced, not a policy choice |
-| 10 | Round-trip correctness basis (Unicode string / raw bytes / both) | Existing fixtures already record both `raw_bytes_sha256`-style hashes and decoded text; no explicit prior decision on which is authoritative | Both — compare raw bytes as the primary correctness criterion (bytes are what the byte-level decoder actually produces), with Unicode-string comparison as a secondary, human-readable check | **Yes** — both are currently recorded in fixtures without a stated priority between them |
+| 1 | Default encoding treatment of literal special-token-looking text | **Directly confirmed this pass** (Section 7 evidence subsection): the pinned oracle's own *default* (`encode_special_tokens=False`) already recognizes literal `<\|endoftext\|>`/`<\|im_start\|>`/`<\|im_end\|>` substrings and maps them to their special IDs — it does NOT treat them as ordinary text by default. `add_special_tokens` (the encode-call parameter) was confirmed to have no effect on this recognition either way. | Mode A (literal/ordinary-text, `encode_special_tokens=True` on the pinned oracle) as the Phase 5B default for ordinary user text — a deliberate DEPARTURE from the pinned oracle's own default (Mode B), made explicitly and for a stated reason (safety against literal user text silently invoking control tokens), not silently inherited. | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
+| 2 | Whether control-token recognition requires explicit caller opt-in | **Directly confirmed this pass**: Mode B (`encode_special_tokens=False`, the oracle's default) and Mode A (`encode_special_tokens=True`) are both independently producible and empirically distinct (Section 7). `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "special-token recognition policy" principle supports opt-in. | Explicit opt-in per call to select Mode B; Mode A (literal text) is the default. Backed by a concrete, tested mechanism (the `encode_special_tokens` property), not merely a naming convention borrowed from HF's `add_special_tokens`. | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
+| 3 | BOS insertion default | GGUF `add_bos_token = false`, confirmed | Do not insert BOS by default, matching the pinned metadata exactly | No maintainer decision needed — metadata is unambiguous; implementation should follow it directly |
+| 4 | EOS insertion default | GGUF `add_eos_token = false`, confirmed | Do not insert EOS by default, matching the pinned metadata exactly | No maintainer decision needed — metadata is unambiguous |
+| 5 | Default decode `skip_special_tokens` behavior | Directly confirmed divergence: `True` drops literal `<\|endoftext\|>` substrings; `False` round-trips exactly | Default to `skip_special_tokens=false` (preserve bytes exactly, fail-safe for a decode boundary) with an explicit, separately-named caller option to strip special tokens for display purposes | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
+| 6 | Invalid UTF-8 input behavior | None found locally — no fixture exercises this; Section 3's architectural note establishes there is no vocabulary-level "unknown" path, but says nothing about malformed *input bytes* (which is a different failure class from "valid UTF-8 the vocabulary can't represent," which cannot happen given the byte-level design) | Reject with an explicit error at the encode boundary (fail closed) rather than silently substituting a replacement character | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
+| 7 | Incomplete UTF-8 at end-of-stream behavior | None found locally; `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "Streaming decode" section states the general principle only, never implemented or tested | Buffer incomplete trailing bytes; treat end-of-stream with a still-incomplete sequence as an explicit error condition surfaced to the caller, not silently discarded or replaced | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
+| 8 | Invalid token-ID decode behavior | None found locally | Reject with an explicit error at the decode boundary (fail closed) rather than silently mapping to a placeholder token | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
+| 9 | Exact GGUF metadata fields required for construction | Fully confirmed this pass (Section 8's field list) | Require exactly the 9 fields listed in Section 8; reject construction if any is missing or malformed | No maintainer decision needed — this is directly evidenced, not a policy choice |
+| 10 | Round-trip correctness basis (Unicode string / raw bytes / both) | Existing fixtures already record both `raw_bytes_sha256`-style hashes and decoded text; no explicit prior decision on which is authoritative | Both — compare raw bytes as the primary correctness criterion (bytes are what the byte-level decoder actually produces), with Unicode-string comparison as a secondary, human-readable check | **APPROVED 2026-08-20** — binding implementation requirement; see Section 19 |
 
-Where this table says "Yes" under maintainer confirmation, this
-specification deliberately does not silently select a final policy —
-an explicit unresolved decision is recorded instead of an unsupported
-claim. **Seven of the ten items above (1, 2, 5, 6, 7, 8, 10) require
-maintainer confirmation**; the other three (3, 4, 9) are directly
-determined by confirmed metadata and need no policy decision.
+**Seven of the ten items above (1, 2, 5, 6, 7, 8, 10) were unresolved
+policy questions requiring maintainer confirmation; all seven were
+explicitly approved by the maintainer on 2026-08-20** (Section 19 has
+the full decision packet for each). The other three (3, 4, 9) were
+never policy questions — they are directly determined by confirmed
+metadata and needed no decision. **Approval of these seven is a
+specification-acceptance decision, not an implementation-completion
+decision — Phase 5B implementation has still not started.** Changing
+any of the seven approved contracts after this point requires a later,
+separately documented decision (a new dated entry here or in
+`DECISION_LOG.md`), not a silent edit.
 
 ## 19. Maintainer decision packet
 
-None of the seven items below is silently marked accepted by this
-document. Each is presented with its evidence, a recommended choice,
-the consequence of accepting versus rejecting it, and whether the
-oracle evidence gathered this pass is sufficient to support the
-recommendation — so the maintainer can confirm, reject, or request
-more evidence per item, not rubber-stamp a bundle.
+**All seven items below were explicitly approved by the maintainer on
+2026-08-20**, recorded in `DECISION_LOG.md`'s new ADR. None was
+silently marked accepted — each was presented with its evidence, a
+recommended choice, the consequence of accepting versus rejecting it,
+and whether the oracle evidence gathered this pass was sufficient to
+support the recommendation, and the maintainer confirmed the
+recommendation for each individually. These are now **binding Phase 5B
+implementation requirements**. Implementation has not started.
+Changing any of them later requires a new, separately documented
+decision — not a silent edit to this document.
 
 **1. Ordinary user text does not activate control tokens by default
 (Decision Register item 1).**
@@ -631,7 +669,7 @@ more evidence per item, not rubber-stamp a bundle.
   control tokens for literal matches; Mode A
   (`encode_special_tokens=True`) is confirmed to suppress that and is
   independently producible.
-- *Recommended choice:* accept — default to Mode A (literal text) for
+- *Maintainer decision (APPROVED 2026-08-20):* accept — default to Mode A (literal text) for
   ordinary user text.
 - *Consequence of accepting:* Phase 5B's default behavior deliberately
   diverges from the pinned oracle's own default. Every fixture and
@@ -652,7 +690,7 @@ more evidence per item, not rubber-stamp a bundle.
 (Decision Register item 2).**
 - *Existing evidence:* same as item 1 — both modes are independently
   producible and distinct.
-- *Recommended choice:* accept — Mode B requires an explicit,
+- *Maintainer decision (APPROVED 2026-08-20):* accept — Mode B requires an explicit,
   separately-named caller flag; it is never implicit.
 - *Consequence of accepting:* every call site that intends to tokenize
   an already-formatted, control-token-bearing prompt must say so
@@ -669,7 +707,7 @@ item 5).**
   `<|im_start|>`/`<|im_end|>` substrings on decode;
   `skip_special_tokens=False` round-trips exactly for both affected
   fixtures.
-- *Recommended choice:* accept — default to `skip_special_tokens=false`
+- *Maintainer decision (APPROVED 2026-08-20):* accept — default to `skip_special_tokens=false`
   equivalent (preserve special-token text), with an explicit,
   separately-named option to strip them for display.
 - *Consequence of accepting:* decode is byte-exact by default, at the
@@ -685,7 +723,7 @@ item 5).**
 **4. Invalid UTF-8 input is rejected explicitly (Decision Register item 6).**
 - *Existing evidence:* none found locally — no fixture in the 20-fixture
   corpus or elsewhere exercises malformed UTF-8 input.
-- *Recommended choice:* reject explicitly (fail closed) rather than
+- *Maintainer decision (APPROVED 2026-08-20):* reject explicitly (fail closed) rather than
   substitute a replacement character.
 - *Consequence of accepting:* callers must handle an explicit error for
   malformed input; no silent data loss or corruption is possible.
@@ -702,7 +740,7 @@ Register item 7).**
   `TOKENIZER_AND_PROMPT_PIPELINE.md`'s "Streaming decode" section
   states the general principle only, never implemented or tested
   against this tokenizer.
-- *Recommended choice:* buffer incomplete trailing bytes during
+- *Maintainer decision (APPROVED 2026-08-20):* buffer incomplete trailing bytes during
   streaming; treat a still-incomplete sequence at end-of-stream as an
   explicit error surfaced to the caller.
 - *Consequence of accepting:* streaming callers must handle an explicit
@@ -716,7 +754,7 @@ Register item 7).**
 
 **6. Invalid token IDs are rejected explicitly (Decision Register item 8).**
 - *Existing evidence:* none found locally.
-- *Recommended choice:* reject with an explicit error at the decode
+- *Maintainer decision (APPROVED 2026-08-20):* reject with an explicit error at the decode
   boundary rather than silently mapping to a placeholder token.
 - *Consequence of accepting:* a caller that (through its own bug)
   passes an out-of-vocabulary ID gets a clear error instead of a
@@ -737,7 +775,7 @@ Unicode comparison secondary for valid UTF-8 (Decision Register item 10).**
   `raw_bytes_sha256`/`decoded_bytes_sha256`-style hashes and
   human-readable `decoded_text_repr`, without a stated priority between
   them.
-- *Recommended choice:* accept — raw bytes are authoritative (that is
+- *Maintainer decision (APPROVED 2026-08-20):* accept — raw bytes are authoritative (that is
   what the `ByteLevel` decoder actually produces); Unicode-string
   comparison is a secondary, human-readable check, valid only when the
   bytes happen to be valid UTF-8.

@@ -191,13 +191,13 @@ done:** [Phase 5A KV-Cached Decode Specification](PHASE5A_KV_CACHE_SPEC.md).
 
 **Status: formally frozen 2026-08-20.** Freeze authority:
 `orcengine-phase5a-freeze` (annotated tag, local/unpushed;
-`DECISION_LOG.md` OE-ADR-029). Phase 5B specification drafting started
-2026-08-20 on `feat/orcengine-phase5b-tokenizer` (forked from the
-freeze tag); Phase 5B implementation has not started and is not
-authorized. Phase 5C remains deferred until Phase 5B closes, per the
-dependency ordering below.
+`DECISION_LOG.md` OE-ADR-029). Phase 5B specification accepted for
+implementation 2026-08-20 on `feat/orcengine-phase5b-tokenizer` (forked
+from the freeze tag; `DECISION_LOG.md` OE-ADR-030); Phase 5B
+implementation has not started. Phase 5C remains deferred until Phase
+5B closes, per the dependency ordering below.
 
-### Phase 5B — Tokenizer / text-token boundary (specification drafted, implementation not started)
+### Phase 5B — Tokenizer / text-token boundary (specification accepted for implementation, implementation not started)
 
 Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,
 BOS/EOS, byte/Unicode/whitespace handling, special-token policy,
@@ -207,11 +207,14 @@ implementation. Phase 0's oracle already proved `tokenizer_dual_source_
 agreement` and `raw_prompt_identity` at the Python level (see
 `PHASE_0_ACCEPTANCE.yaml`); this sub-phase's job is wiring an equivalent,
 independently re-proven path into the C++ engine itself, which currently
-takes only explicit token IDs. **Specification drafting started
-2026-08-20:** see
+takes only explicit token IDs. **Specification accepted for
+implementation 2026-08-20** (maintainer approved all seven previously-
+unresolved policy decisions; `DECISION_LOG.md` OE-ADR-030): see
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) (status:
-draft for maintainer review, no implementation authorized). Phase 5B
-implementation has not started and is not yet authorized.
+specification accepted for implementation, implementation not started).
+The llama.cpp secondary-oracle comparison remains an outstanding
+validation dependency, required before Phase 5B can be considered
+complete or frozen, not before implementation may begin.
 
 ### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (deferred, not yet specified)
 

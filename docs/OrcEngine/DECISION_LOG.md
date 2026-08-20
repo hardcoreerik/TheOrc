@@ -1554,3 +1554,68 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   explicitly authorized phase or corrective process -- the same
   discipline already established for `orcengine-phase1-freeze` through
   `orcengine-phase4-freeze`.
+
+## OE-ADR-030 — Phase 5B tokenizer specification accepted for implementation
+
+- **Date:** 2026-08-20, America/Los_Angeles.
+- **Decision:** the maintainer explicitly approved the Phase 5B
+  tokenizer/text-token-boundary specification
+  (`docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md`) for implementation,
+  including all seven previously-unresolved policy decisions in that
+  document's Decision Register (Section 18) and Maintainer decision
+  packet (Section 19). This is a specification-acceptance decision,
+  not an implementation-completion decision -- Phase 5B implementation
+  has not started.
+- **Base authority:** Phase 5A is frozen under the annotated tag
+  `orcengine-phase5a-freeze`, exact commit
+  `db3e5f38b37e6b342e28e6d208737ab8288b0c05` (`DECISION_LOG.md`
+  OE-ADR-029). The Phase 5B specification and this acceptance decision
+  both build on that frozen authority and change nothing about it.
+- **The seven approved policies** (full evidence, consequences, and
+  per-item evidence-sufficiency assessment in `PHASE5B_TOKENIZER_SPEC.md`
+  Section 19 -- not repeated in full here):
+  1. Mode A (literal/ordinary-text encoding, `encode_special_tokens=
+     True` on the pinned oracle) is the default for ordinary user
+     text -- a deliberate departure from the pinned oracle's own
+     default.
+  2. Mode B (explicit-control-token recognition) requires explicit
+     caller opt-in; it is never implicit.
+  3. Decode preserves special-token text by default
+     (`skip_special_tokens=false` equivalent); stripping for display is
+     an explicit, separately-named caller option.
+  4. Invalid UTF-8 input is rejected with an explicit error at the
+     encode boundary (fail closed), not silently replaced.
+  5. An incomplete UTF-8 sequence at end-of-stream is an explicit error
+     surfaced to the caller, not silently discarded or replaced.
+  6. Invalid or out-of-vocabulary token IDs are rejected with an
+     explicit error at the decode boundary (fail closed), not silently
+     mapped to a placeholder token.
+  7. Raw decoded bytes are the primary round-trip correctness
+     authority; Unicode-string comparison is a secondary,
+     human-readable check, valid only for inputs that are valid UTF-8.
+- **Specification acceptance vs. implementation completion:** approving
+  these seven contracts authorizes them as the binding target for a
+  future bounded native implementation. It does **not** authorize that
+  implementation to be considered complete, validated, accepted, or
+  frozen -- `PHASE5B_TOKENIZER_SPEC.md` Section 14's acceptance
+  criteria remain the governing bar for that separate, later decision,
+  and none of those criteria can be evaluated before implementation
+  exists.
+- **Outstanding validation dependency, not a blocker to beginning
+  implementation:** the llama.cpp secondary-oracle comparison
+  (`PHASE5B_TOKENIZER_SPEC.md` Section 9's availability note) remains
+  unsatisfied -- no `llama-tokenize`/`llama-server` binary was found
+  locally and `ORC_LLAMA_TOKENIZE_PATH` was unset when this was last
+  checked (2026-08-20). This gap does **not** block starting the
+  bounded native implementation the accepted specification describes,
+  and it is **not** evidence of disagreement between oracles -- it is
+  simply unperformed. It **is** a required validation dependency that
+  must be satisfied before Phase 5B can be accepted as complete or
+  frozen, and this entry does not grant permission to remove that
+  secondary-oracle gate from Section 14's criteria.
+- **Explicitly not authorized by this entry:** implementing Phase 5B
+  tokenizer source code, tests, CMake targets, or scaffolding; pushing
+  the branch; creating a Phase 5B freeze tag; merging anything; opening
+  or modifying a PR; modifying any frozen Phase 1-5A file; beginning
+  Phase 5C, Phase 6, quantization, CUDA, benchmarking, or product
+  integration.

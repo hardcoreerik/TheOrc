@@ -107,11 +107,17 @@ status:
   phase5a_real_model_validation: done_debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_plus_8_of_8_confirmed_by_direct_invocation_see_validation_matrix_composed_post_closure_and_DECISION_LOG_OE_ADR_028
   phase5a_gate_item_15_backing_io_granularity: accepted_bounded_partial_run_level_measured_not_per_step
   phase5a_optional_real_gguf_resident_ledger_assertion: deferred_future_strengthening_not_a_freeze_blocker
-  # Phase 5B specification drafting started; implementation has not started
-  # and is not authorized. See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md
-  # (status: draft for maintainer review, no implementation authorized).
-  phase5b_status: specification_drafting_started_2026_08_20_implementation_not_started_not_authorized
+  # Phase 5B specification accepted for implementation 2026-08-20
+  # (maintainer approved all seven previously-unresolved policy
+  # decisions; see DECISION_LOG.md OE-ADR-030). Implementation has NOT
+  # started -- specification acceptance is not implementation
+  # completion. The llama.cpp secondary-oracle comparison remains an
+  # outstanding validation dependency, required before Phase 5B can be
+  # considered complete or frozen, not before implementation may begin.
+  # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
+  phase5b_status: specification_accepted_for_implementation_2026_08_20_implementation_not_started_llama_cpp_secondary_oracle_comparison_outstanding
   phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
+  phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
   cuda_backend: not_implemented
@@ -270,8 +276,14 @@ status:
     strengthening, not a freeze blocker. The tag and branch remain local and have not
     been pushed. Phase 5B specification drafting started 2026-08-20 on
     feat/orcengine-phase5b-tokenizer (forked from the freeze tag via a
-    separate worktree); Phase 5B implementation has not started and is
-    not authorized.
+    separate worktree); the maintainer subsequently approved that
+    specification for implementation the same day, including all seven
+    previously-unresolved policy decisions (see DECISION_LOG.md
+    OE-ADR-030). Phase 5B implementation has NOT started -- specification
+    acceptance is not implementation completion. The llama.cpp
+    secondary-oracle comparison remains an outstanding validation
+    dependency required before Phase 5B can be considered complete or
+    frozen. Phase 5C remains deferred and unauthorized.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source
