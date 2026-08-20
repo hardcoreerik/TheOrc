@@ -1,10 +1,14 @@
 # Phase 5A: KV-Cached Incremental Decode Reference
 
 Status: **VIRTUALIZED CACHED DECODE (Reference Path C) IMPLEMENTED AND
-PROVEN EQUIVALENT TO PHASE 4'S RESIDENCY ARCHITECTURE. PROPOSED VERDICT:
-READY FOR INDEPENDENT FREEZE REVIEW (19/20 gate items fully satisfied, one
-partially) -- MAINTAINER/INDEPENDENT REVIEW STILL REQUIRED BEFORE ANY
-FREEZE TAG.**
+PROVEN EQUIVALENT TO PHASE 4'S RESIDENCY ARCHITECTURE. THE PHASE 5A
+CLOSURE PASS IS COMPLETE: THE REQUIRED FULL + ADVERSARIAL INDEPENDENT
+FREEZE REVIEW COMPLETED AGAINST `af2dc59b`, ITS CONFIRMED FINDINGS WERE
+RESOLVED, AND FOCUSED REVIEWS OF THOSE CORRECTIONS CAME BACK CLEAN.
+CURRENT VERDICT: READY FOR MAINTAINER FREEZE APPROVAL (19/20 gate items
+fully satisfied, one -- item 15, per-step backing-I/O granularity --
+explicitly accepted as a bounded, partially-satisfied gap). NO FREEZE
+TAG MAY BE CREATED WITHOUT EXPLICIT MAINTAINER APPROVAL.**
 
 Branch: `feat/orcengine-phase5a-kv-cache`, worktree
 `F:\Ai\OrchestratorIDE-phase5a-kv-cache`, forked from `orcengine-phase4-freeze`.
@@ -762,21 +766,24 @@ freeze review:**
 19. No hidden full-resident fallback exists anywhere in Reference Path C's execution. **SATISFIED** -- `peak_resident_weight_bytes` matches Phase 4's single-layer peak exactly on the real model, not the ~630 MiB fully-resident footprint; the residency-guard non-vacuity attack (10) proves this isn't just an unexercised code path.
 20. Documentation (`PROJECT_TRUTH.md`, `CURRENT_STATE.yaml`, `DECISION_LOG.md`, this document) is reconciled with the evidence above. **SATISFIED** -- this pass.
 
-Verdict is exactly one of `READY FOR INDEPENDENT FREEZE REVIEW` or
+Verdict is exactly one of `READY FOR MAINTAINER FREEZE APPROVAL` or
 `NOT READY — BLOCKERS REMAIN` -- no weaker middle category.
 
-**Proposed verdict: `READY FOR INDEPENDENT FREEZE REVIEW`.** 19 of 20
+**Proposed verdict: `READY FOR MAINTAINER FREEZE APPROVAL`.** 19 of 20
 items are fully satisfied; item 15 (per-step backing-I/O granularity) is
 partially satisfied with the underlying experimental question already
 answered at run-level granularity, recorded as a known, bounded gap rather
-than silently completed. This verdict is a recommendation for the
-maintainer to weigh, not a self-authorized freeze: per this document's own
-"Independent-review requirement" below and OE-ADR-026's acceptance
-trigger, independent (non-self-authored) review is still required before
-any `orcengine-phase5a-freeze` tag is created. Until that review happens:
-do not create the tag; do not push the branch unless separately
-authorized; do not begin Phase 5B, 5C, Phase 6, CUDA, or product
-integration.
+than silently completed. The independent-review requirement itself has
+been completed: a full + adversarial independent review ran against
+`af2dc59b` (per this document's own "Independent-review requirement"
+below and OE-ADR-026's acceptance trigger), its confirmed BLOCKER and
+FIX-BEFORE-FREEZE findings were resolved in subsequent bounded commits,
+and focused reviews of those corrections came back clean (see
+"Freeze-closure pass results" below). This verdict is a recommendation
+for the maintainer to weigh, not a self-authorized freeze -- maintainer
+approval, freeze tagging, pushing the branch, and beginning Phase 5B,
+5C, Phase 6, CUDA, or product integration all remain separate,
+unauthorized actions until the maintainer explicitly approves them.
 
 ## Freeze-closure pass results (2026-08-18, OE-ADR-028)
 
@@ -919,12 +926,19 @@ lanes (Debug/Release/strict `/W4 /WX /permissive- /EHsc`/ASan) run with
 `ORCENGINE_HF_SOURCE_DIR` all configured. See the closure commit history
 and `DECISION_LOG.md` OE-ADR-028 for the full per-lane pass/fail report.
 
-**New proposed verdict pending re-review: `READY FOR FINAL INDEPENDENT
-FREEZE REVIEW`.** All CRITICAL and MAJOR findings from the prior review
-are closed with real, re-run evidence; all MINOR findings, including
-P5A-RVW-010, are closed with a direct code assertion (manual trace
-retained only as supporting evidence -- see P5A-RVW-010 above). This is
-still a recommendation, not a self-authorized freeze -- see below.
+**Final closure disposition: `READY FOR MAINTAINER FREEZE APPROVAL`.**
+All CRITICAL and MAJOR findings from the prior review are closed with
+real, re-run evidence; all MINOR findings, including P5A-RVW-010, are
+closed with a direct code assertion (manual trace retained only as
+supporting evidence -- see P5A-RVW-010 above). The required full +
+adversarial independent review subsequently ran against this closure
+candidate at `af2dc59b`; its confirmed BLOCKER and FIX-BEFORE-FREEZE
+findings were resolved in the subsequent bounded commits, and a focused
+diff review of those corrections completed cleanly. The one remaining
+optional finding -- a real-GGUF-path duplicate of the synthetic
+resident-weight-ledger assertion (P5A-RVW-010's attack 8d) -- remains
+explicitly deferred as future strengthening, not a freeze blocker. This
+is still a recommendation, not a self-authorized freeze -- see below.
 
 ## Independent-review requirement
 
@@ -932,6 +946,16 @@ Per this project's established precedent (Phase 2/3/4 all required
 independent review before freeze), Phase 5A requires the same before any
 `orcengine-phase5a-freeze`-style tag is created. This document does not
 authorize self-tagging on completion.
+
+**Current disposition:** this requirement has been satisfied. A full +
+adversarial independent review ran against the closure candidate at
+`af2dc59b`; its confirmed findings were resolved in subsequent bounded
+commits, and focused reviews of those corrections completed cleanly
+(see "Freeze-closure pass results" above). Independent review having
+occurred is distinct from maintainer approval, which is still required
+before any freeze action. This document does not authorize self-
+tagging, pushing the branch, or beginning Phase 5B on the strength of
+the completed review alone.
 
 ## Stop gate
 
