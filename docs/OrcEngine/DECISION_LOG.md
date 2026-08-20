@@ -1465,3 +1465,92 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   `orcengine-phase5a-freeze`; do not push the branch unless separately
   authorized; do not begin Phase 5B, 5C, Phase 6, CUDA, or product
   integration.
+  *(Historical, as of this entry's date -- that NEW independent review
+  subsequently ran, its findings were resolved, and the maintainer
+  approved a formal freeze; see OE-ADR-029 for the current status. This
+  entry's own text is preserved unedited above.)*
+
+## OE-ADR-029 — Phase 5A formal maintainer freeze
+
+- **Date:** 2026-08-20, America/Los_Angeles.
+- **Decision:** the maintainer explicitly granted approval for OrcEngine
+  Phase 5A's formal local freeze. This is a maintainer decision, not a
+  self-authorization by the implementing agent.
+- **Frozen parent:** `orcengine-phase4-freeze`, commit
+  `944f07b86428ec53d46ca19dc66c3d0d5b1e207d` (peeled, remote-verified,
+  unchanged by this entry).
+- **Phase 5A freeze tag:** `orcengine-phase5a-freeze`, an annotated tag.
+  This documentation commit (the one containing this entry) is intended
+  to be that tag's target. The exact tag target is verified after tag
+  creation via `git rev-list -n 1 orcengine-phase5a-freeze`, not
+  asserted here in advance -- this entry deliberately does not embed
+  its own containing commit's hash, since a commit cannot truthfully
+  contain its own hash before it exists.
+- **Three reference paths, their roles (unchanged by this freeze):**
+  - **A. Frozen Phase-4 virtualized full-prefix reference** -- unmodified,
+    from `orcengine-phase4-freeze`. Proves virtualized (transient-weight)
+    execution is correct for full-prefix recompute.
+  - **B. Phase-5A fully-resident cached semantic reference** -- proves
+    cached-decode math is correct, independent of residency
+    architecture; a fixed comparison point, not required to become
+    Phase-4-compatible.
+  - **C. Phase-5A virtualized cached target** -- proven `B == C` on
+    complete logits while holding only one transformer layer resident
+    at a time, matching Phase 4's bounded-residency invariant. A, B,
+    and C produce bit-identical OrcEngine logits under the established
+    comparisons; independent HF/PyTorch comparisons pass within the
+    established tolerance; real KV-cache contents were independently
+    checked; GQA, RoPE, cache position, isolation, capacity,
+    transactional failure, materialization, and corruption paths
+    received bounded adversarial coverage.
+- **Validation matrix (30 registered tests, up from 18 pre-closure):**
+  Debug 30/30; Release 30/30; strict (`/W4 /WX /permissive- /EHsc`)
+  30/30, zero warnings. **ASan is reported as the honest split it is,
+  not as a green CTest run:** CTest itself reports 22/30 passed, 8
+  timed out, exit code 8 (inherited 300-900s `TIMEOUT` properties in
+  frozen Phase 2/3 `CMakeLists.txt`, not modified this pass, exceeded
+  by ASan's ~28-40x real-model slowdown -- a harness budget issue, not
+  a correctness or memory-safety defect); those same 8 exact
+  invocations were additionally confirmed by direct invocation outside
+  CTest's timeout mechanism, all exit 0 with no ASan diagnostic. The
+  CTest exit code is not characterized as passing anywhere in this
+  record. Full per-test evidence table in this document's OE-ADR-028
+  entry above.
+- **Independent review status:** the original independent full +
+  adversarial review (OE-ADR-028) found 11 findings, all closed with
+  new/hardened tests. A follow-up full + adversarial freeze review
+  (2026-08-19) ran against the resulting closure candidate at
+  `af2dc59b` and found 1 BLOCKER and 3 FIX-BEFORE-FREEZE items (a CMake
+  environment-fallback ordering bug; stale P5A-RVW-003/010 disposition
+  wording; a `CURRENT_STATE.yaml` internal contradiction; gate item
+  18's overly-literal "all pass" criterion), plus 2 OPTIONAL
+  strengthening opportunities. All BLOCKER and FIX-BEFORE-FREEZE
+  findings were resolved in subsequent bounded commits, and focused
+  diff reviews of each correction round completed cleanly (CLEAN
+  verdicts, `.orc/reviews/grok_quick_20260819_222537.md` and
+  `grok_diff_20260819_224518.md`). The independent-review requirement
+  is therefore satisfied.
+- **Accepted bounded gap:** gate item 15 (per-step backing-I/O
+  granularity) remains partially satisfied. Run-level measurements
+  (not per-step) answered the actual experimental question ("does
+  caching eliminate weight reread") this item exists to answer. This
+  is recorded as an accepted, explicitly bounded gap -- not silently
+  upgraded to fully satisfied.
+- **Accepted optional deferral:** the real-GGUF forced-materialization-
+  failure attack in `test_real_composed_evidence.cpp` does NOT
+  duplicate synthetic attack 8d's exact
+  `current_resident_weight_bytes == FinalNorm bookend` assertion (it
+  asserts only throw + `current_length()==0`). The materialize-then-
+  release cleanup path being checked is shared code, already directly
+  asserted on the synthetic path. This asymmetry is real and remains
+  optional future strengthening -- it is NOT described as implemented,
+  and it is NOT a Phase 5A freeze blocker.
+- **Explicitly not authorized by this entry:** pushing the branch or
+  tag; merging anything; opening or modifying a PR; product
+  integration; beginning Phase 5B, Phase 5C, Phase 6, quantization,
+  CUDA, or benchmarking work.
+- **Immutability:** once tagged, Phase 5A as captured by
+  `orcengine-phase5a-freeze` is immutable except through a new,
+  explicitly authorized phase or corrective process -- the same
+  discipline already established for `orcengine-phase1-freeze` through
+  `orcengine-phase4-freeze`.

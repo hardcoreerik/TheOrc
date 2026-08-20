@@ -435,6 +435,8 @@ OE-ADR-027.
 **Proposed verdict: `READY FOR INDEPENDENT FREEZE REVIEW`** -- a
 recommendation, not a self-authorization. No `orcengine-phase5a-freeze`
 tag has been created; the branch remains unpushed pending that review.
+*(Historical, as of this entry's date -- superseded by OE-ADR-028's
+review and OE-ADR-029's formal freeze below; not the current status.)*
 
 ## OE-ADR-028: freeze-closure pass, review findings closed, 2026-08-18
 
@@ -475,15 +477,48 @@ pass counts.
 **Proposed verdict pending a NEW independent review:
 `READY FOR FINAL INDEPENDENT FREEZE REVIEW`** -- a recommendation, not a
 self-authorization. No tag created, branch still unpushed.
+*(Historical, as of this entry's date -- that NEW independent review
+subsequently ran and completed; see OE-ADR-029 below for the current
+status, not this paragraph.)*
+
+## OE-ADR-029: Phase 5A formal maintainer freeze, 2026-08-20
+
+**ACCEPTED AND FROZEN.** The full + adversarial independent review
+required by OE-ADR-026's acceptance trigger and referenced above
+subsequently ran (2026-08-19) against the closure candidate at
+`af2dc59b`. Its confirmed BLOCKER and FIX-BEFORE-FREEZE findings (a
+CMake environment-fallback ordering bug; stale P5A-RVW-003/010
+disposition wording; a `CURRENT_STATE.yaml` internal contradiction;
+gate item 18's overly-literal "all pass" criterion) were resolved in
+subsequent bounded commits, and focused diff reviews of those
+corrections completed cleanly. The independent-review requirement is
+therefore complete. On 2026-08-20 the maintainer explicitly approved
+Phase 5A for formal local freeze. Phase 5A is now frozen under the
+annotated tag `orcengine-phase5a-freeze`. Gate item 15 (per-step
+backing-I/O granularity) remains an accepted, explicitly bounded
+partial -- the underlying experimental question was already answered
+at run-level granularity, and this was never silently upgraded to
+fully satisfied. The optional real-GGUF resident-weight-ledger
+duplicate assertion (a real-model equivalent of synthetic attack 8d's
+check) remains deferred future strengthening, not a freeze blocker --
+the cleanup path it would duplicate-check is shared code, already
+directly asserted synthetically. The tag and branch remain local and
+unpushed. Phase 5B has not started and is not yet specified; it must
+begin as a separately scoped specification/worktree/branch from this
+frozen authority. Full detail in `DECISION_LOG.md` OE-ADR-029 and
+`PHASE5A_KV_CACHE_SPEC.md`'s current status sections.
 
 ## Current blockers
 
-None remaining for Phase 4, which is formally frozen. Phase 5A's
-correctness gate, composition gate, and freeze-closure pass
-(OE-ADR-026/027/028) are all satisfied. The sole remaining blocker before
-a freeze tag is a NEW independent (non-self-authored) review confirming
-the closure evidence. See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-028
-for the full record.
+None remaining for Phase 4, which is formally frozen. None remaining
+for Phase 5A, which is formally frozen as of 2026-08-20 under
+`orcengine-phase5a-freeze` (OE-ADR-029) -- the independent review that
+was the sole remaining blocker has completed, its findings were
+resolved, and the maintainer has approved the freeze. Gate item 15's
+bounded partial and the optional real-GGUF ledger assertion remain
+recorded, accepted gaps, not blockers. Phase 5B is the next separately
+gated sub-phase but has not started and has no specification yet. See
+`DECISION_LOG.md` OE-ADR-022 through OE-ADR-029 for the full record.
 
 ## How to update this document
 

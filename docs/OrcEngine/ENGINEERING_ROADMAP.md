@@ -189,6 +189,12 @@ adversarial fault injection, rather than the reverse.
 **Scope, oracle, memory model, fault-injection plan, and definition of
 done:** [Phase 5A KV-Cached Decode Specification](PHASE5A_KV_CACHE_SPEC.md).
 
+**Status: formally frozen 2026-08-20.** Freeze authority:
+`orcengine-phase5a-freeze` (annotated tag, local/unpushed;
+`DECISION_LOG.md` OE-ADR-029). Phase 5B remains next but has not
+started and has no specification yet; Phase 5C remains deferred until
+Phase 5B closes, per the dependency ordering below.
+
 ### Phase 5B — Tokenizer / text-token boundary (deferred, not yet specified)
 
 Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,

@@ -1,7 +1,7 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-08-19"
+  date: "2026-08-20"
   timezone: America/Los_Angeles
   # Three distinct authorities -- do not conflate. "repository"/"branch" below
   # point at whichever worktree is CURRENTLY ACTIVE for the work this file is
@@ -36,7 +36,7 @@ as_of:
     native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_4_complete_frozen_phase_5a_closure_complete_awaiting_maintainer_freeze_approval
+  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_not_started
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -85,11 +85,22 @@ status:
   phase4_freeze_verdict: frozen_2026_08_18
   phase4_freeze_tag: orcengine-phase4-freeze
   phase4_freeze_commit: 944f07b86428ec53d46ca19dc66c3d0d5b1e207d
-  phase5a_kv_cache_status: implemented_composed_virtualized_path_c_real_model_validated_closure_pass_complete
+  phase5a_kv_cache_status: accepted_and_formally_frozen_by_maintainer_2026_08_20
+  # phase5a_freeze_commit is intentionally omitted -- the same self-reference
+  # problem as the removed active_worktree_head field: a commit cannot
+  # truthfully contain its own hash. orcengine-phase5a-freeze is the durable
+  # authority; verify its peeled target with `git rev-list -n 1
+  # orcengine-phase5a-freeze` rather than trusting a hash recorded here.
+  phase5a_freeze_tag: orcengine-phase5a-freeze
+  phase5a_freeze_verdict: accepted_and_frozen_by_maintainer_2026_08_20
   phase5a_branch: feat/orcengine-phase5a-kv-cache
+  phase5a_branch_push: not_done
   phase5a_synthetic_differential: bit_exact_all_9_steps
   phase5a_fault_injection_cases_passing: 86_check_assertions_2026_08_19_grep_derived_across_test_cache_position_safety_test_real_cache_attacks_test_virtualized_cache_attacks_test_real_composed_evidence_cpp
   phase5a_real_model_validation: done_debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_plus_8_of_8_confirmed_by_direct_invocation_see_validation_matrix_composed_post_closure_and_DECISION_LOG_OE_ADR_028
+  phase5a_gate_item_15_backing_io_granularity: accepted_bounded_partial_run_level_measured_not_per_step
+  phase5a_optional_real_gguf_resident_ledger_assertion: deferred_future_strengthening_not_a_freeze_blocker
+  phase5b_status: not_started_not_yet_specified
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
@@ -236,8 +247,15 @@ status:
     top-level fields, being corrected in this same pass), 3 FIX-BEFORE-FREEZE items
     (a CMake environment-fallback ordering bug, now fixed; two closure-record wording
     corrections), and 2 OPTIONAL strengthening opportunities, none of which reopen any
-    of the 11 original findings. Phase 5A is NOT yet frozen: no orcengine-phase5a-freeze
-    tag exists, and the branch has not been pushed.
+    of the 11 original findings. All confirmed BLOCKER and FIX-BEFORE-FREEZE findings
+    were resolved in subsequent bounded commits, and focused diff reviews of those
+    corrections came back clean. On 2026-08-20 the maintainer explicitly approved Phase
+    5A for formal local freeze; Phase 5A is now ACCEPTED AND FROZEN under the annotated
+    tag orcengine-phase5a-freeze (see DECISION_LOG.md OE-ADR-029). Gate item 15
+    (per-step backing-I/O granularity) remains an accepted, explicitly bounded partial;
+    the optional real-GGUF resident-ledger duplicate assertion remains deferred future
+    strengthening, not a freeze blocker. The tag and branch remain local and have not
+    been pushed; Phase 5B has not started.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source
@@ -466,7 +484,7 @@ phases:
     decision: OE-ADR-024
     phase5a_status:
       lifecycle_summary: >-
-        composition_with_phase4_implemented_and_verified_equivalent_proposed_ready_for_independent_review
+        composition_with_phase4_implemented_and_verified_equivalent_independent_review_completed_maintainer_approved_and_formally_frozen_2026_08_20
       worktree: "F:\\Ai\\OrchestratorIDE-phase5a-kv-cache"
       branch: feat/orcengine-phase5a-kv-cache
       head: 0a80477d
@@ -550,10 +568,10 @@ phases:
         real_5way_composed_differential as an actual CTest). See
         DECISION_LOG.md OE-ADR-028 and PHASE5A_KV_CACHE_SPEC.md's
         "Freeze-closure pass results" section for full per-finding evidence.
-      active_gate_status: closure_pass_complete_2026_08_19_full_plus_adversary_review_completed_against_af2dc59b_confirmed_findings_resolved_focused_diff_review_clean_awaiting_maintainer_freeze_approval
-      proposed_verdict: READY_FOR_MAINTAINER_FREEZE_APPROVAL_recommendation_not_self_authorization
+      active_gate_status: accepted_and_formally_frozen_by_maintainer_2026_08_20_see_OE_ADR_029
+      proposed_verdict: ACCEPTED_AND_FROZEN_BY_MAINTAINER_2026_08_20_no_longer_a_proposal
       independent_review: full_plus_adversary_review_completed_against_af2dc59b_1_blocker_and_3_fix_before_freeze_findings_resolved_2_optional_deferred_focused_diff_review_clean_see_DECISION_LOG_OE_ADR_028
-      freeze_tag: absent
+      freeze_tag: orcengine-phase5a-freeze
       branch_push: not_done
     note: >-
       Renumbered/assigned 2026-08-18 (OE-ADR-024) -- the phase number
