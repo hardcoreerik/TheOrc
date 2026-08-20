@@ -191,11 +191,13 @@ done:** [Phase 5A KV-Cached Decode Specification](PHASE5A_KV_CACHE_SPEC.md).
 
 **Status: formally frozen 2026-08-20.** Freeze authority:
 `orcengine-phase5a-freeze` (annotated tag, local/unpushed;
-`DECISION_LOG.md` OE-ADR-029). Phase 5B remains next but has not
-started and has no specification yet; Phase 5C remains deferred until
-Phase 5B closes, per the dependency ordering below.
+`DECISION_LOG.md` OE-ADR-029). Phase 5B specification drafting started
+2026-08-20 on `feat/orcengine-phase5b-tokenizer` (forked from the
+freeze tag); Phase 5B implementation has not started and is not
+authorized. Phase 5C remains deferred until Phase 5B closes, per the
+dependency ordering below.
 
-### Phase 5B — Tokenizer / text-token boundary (deferred, not yet specified)
+### Phase 5B — Tokenizer / text-token boundary (specification drafted, implementation not started)
 
 Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,
 BOS/EOS, byte/Unicode/whitespace handling, special-token policy,
@@ -205,7 +207,11 @@ implementation. Phase 0's oracle already proved `tokenizer_dual_source_
 agreement` and `raw_prompt_identity` at the Python level (see
 `PHASE_0_ACCEPTANCE.yaml`); this sub-phase's job is wiring an equivalent,
 independently re-proven path into the C++ engine itself, which currently
-takes only explicit token IDs. Not started; spec to be written when 5A closes.
+takes only explicit token IDs. **Specification drafting started
+2026-08-20:** see
+[Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) (status:
+draft for maintainer review, no implementation authorized). Phase 5B
+implementation has not started and is not yet authorized.
 
 ### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (deferred, not yet specified)
 

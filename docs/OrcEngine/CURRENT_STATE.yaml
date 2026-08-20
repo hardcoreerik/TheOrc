@@ -5,10 +5,17 @@ as_of:
   timezone: America/Los_Angeles
   # Three distinct authorities -- do not conflate. "repository"/"branch" below
   # point at whichever worktree is CURRENTLY ACTIVE for the work this file is
-  # describing (Phase 5A composition, as of this update); it is not the
-  # frozen parent and not the shipped product baseline.
-  repository: "F:\\Ai\\OrchestratorIDE-phase5a-kv-cache"
-  branch: feat/orcengine-phase5a-kv-cache
+  # describing (Phase 5B specification drafting, as of this update); it is
+  # not the frozen parent and not the shipped product baseline.
+  repository: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
+  branch: feat/orcengine-phase5b-tokenizer
+  # phase5a_base_authority: the frozen tag/commit this Phase 5B worktree was
+  # forked from (git worktree add ... orcengine-phase5a-freeze). Distinct
+  # from frozen_parent below, which is Phase 5A's OWN frozen parent (Phase
+  # 4) -- this records Phase 5B's immediate base, one level further in.
+  phase5a_base_authority:
+    tag: orcengine-phase5a-freeze
+    commit: db3e5f38b37e6b342e28e6d208737ab8288b0c05
   # active_worktree_head removed 2026-08-19: a static field claiming to be
   # the "current" HEAD is falsified the instant the commit that updates it
   # lands, and a repository search found no consumer of the old field. Git
@@ -36,7 +43,7 @@ as_of:
     native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_not_started
+  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_specification_drafting_started_2026_08_20_implementation_not_started_not_authorized
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -100,7 +107,13 @@ status:
   phase5a_real_model_validation: done_debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_plus_8_of_8_confirmed_by_direct_invocation_see_validation_matrix_composed_post_closure_and_DECISION_LOG_OE_ADR_028
   phase5a_gate_item_15_backing_io_granularity: accepted_bounded_partial_run_level_measured_not_per_step
   phase5a_optional_real_gguf_resident_ledger_assertion: deferred_future_strengthening_not_a_freeze_blocker
-  phase5b_status: not_started_not_yet_specified
+  # Phase 5B specification drafting started; implementation has not started
+  # and is not authorized. See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md
+  # (status: draft for maintainer review, no implementation authorized).
+  phase5b_status: specification_drafting_started_2026_08_20_implementation_not_started_not_authorized
+  phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
+  phase5b_branch: feat/orcengine-phase5b-tokenizer
+  phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
@@ -255,7 +268,10 @@ status:
     (per-step backing-I/O granularity) remains an accepted, explicitly bounded partial;
     the optional real-GGUF resident-ledger duplicate assertion remains deferred future
     strengthening, not a freeze blocker. The tag and branch remain local and have not
-    been pushed; Phase 5B has not started.
+    been pushed. Phase 5B specification drafting started 2026-08-20 on
+    feat/orcengine-phase5b-tokenizer (forked from the freeze tag via a
+    separate worktree); Phase 5B implementation has not started and is
+    not authorized.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source

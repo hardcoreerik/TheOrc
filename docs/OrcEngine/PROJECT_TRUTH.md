@@ -503,10 +503,13 @@ duplicate assertion (a real-model equivalent of synthetic attack 8d's
 check) remains deferred future strengthening, not a freeze blocker --
 the cleanup path it would duplicate-check is shared code, already
 directly asserted synthetically. The tag and branch remain local and
-unpushed. Phase 5B has not started and is not yet specified; it must
-begin as a separately scoped specification/worktree/branch from this
-frozen authority. Full detail in `DECISION_LOG.md` OE-ADR-029 and
-`PHASE5A_KV_CACHE_SPEC.md`'s current status sections.
+unpushed. Phase 5B specification drafting started 2026-08-20 on
+`feat/orcengine-phase5b-tokenizer` (forked from this frozen authority
+via a separate worktree, per this document's own requirement); Phase
+5B implementation has not started and is not authorized. Full detail
+in `DECISION_LOG.md` OE-ADR-029, `PHASE5A_KV_CACHE_SPEC.md`'s current
+status sections, and `PHASE5B_TOKENIZER_SPEC.md` (draft for maintainer
+review, no implementation authorized).
 
 ## Current blockers
 
@@ -517,7 +520,9 @@ was the sole remaining blocker has completed, its findings were
 resolved, and the maintainer has approved the freeze. Gate item 15's
 bounded partial and the optional real-GGUF ledger assertion remain
 recorded, accepted gaps, not blockers. Phase 5B is the next separately
-gated sub-phase but has not started and has no specification yet. See
+gated sub-phase; its specification drafting started 2026-08-20
+(`PHASE5B_TOKENIZER_SPEC.md`, draft for maintainer review), but its
+implementation has not started and is not authorized. See
 `DECISION_LOG.md` OE-ADR-022 through OE-ADR-029 for the full record.
 
 ## How to update this document
