@@ -13,6 +13,43 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
+
+# Real-artifact configuration, normalized (P5A-RVW-006 closure; ordering fix
+# 2026-08-19, confirmed by adversary review). This MUST run BEFORE
+# add_subdirectory(Phase 3) below: Phase 3 pulls in Phase 2, and Phase 2's
+# own CMakeLists.txt unconditionally declares these same three names as
+# CACHE variables with an empty default (`set(ORCENGINE_REAL_F32_GGUF ""
+# CACHE FILEPATH ...)`, etc.). A CACHE `set()` without FORCE is a no-op if
+# the cache entry already exists -- so populating the cache entry ourselves
+# FIRST (from an explicit -D, or as a fallback from the environment) makes
+# Phase 2's own empty-default declaration a no-op instead of the reverse.
+# The previous placement of this block AFTER add_subdirectory meant Phase
+# 2's empty-default entry always existed first, so `NOT DEFINED` here was
+# always false (DEFINED does not distinguish an empty cache entry from a
+# meaningfully configured one) and the environment fallback could never
+# fire -- silently dropping `real_cache_attacks` and every inherited
+# Phase 2/3 real-artifact test whenever only the environment variable, not
+# `-D`, was set.
+#
+# Precedence: an explicit `-D` on the command line creates its cache entry
+# before ANY CMakeLists.txt runs, so it is already DEFINED here and the
+# environment fallback below is skipped for it (explicit wins). The
+# environment variable is used only when no `-D` was given. Leaving both
+# unset preserves the original empty-default behavior via Phase 2's own
+# declaration once add_subdirectory runs.
+if(NOT DEFINED ORCENGINE_REAL_F32_GGUF AND DEFINED ENV{ORCENGINE_REAL_F32_GGUF})
+    set(ORCENGINE_REAL_F32_GGUF "$ENV{ORCENGINE_REAL_F32_GGUF}" CACHE FILEPATH
+        "Optional real F32 GGUF for frozen-core differential test (from environment)")
+endif()
+if(NOT DEFINED ORCENGINE_REAL_TIED_F32_GGUF AND DEFINED ENV{ORCENGINE_REAL_TIED_F32_GGUF})
+    set(ORCENGINE_REAL_TIED_F32_GGUF "$ENV{ORCENGINE_REAL_TIED_F32_GGUF}" CACHE FILEPATH
+        "Optional real tied F32 GGUF for output-head equivalence (from environment)")
+endif()
+if(NOT DEFINED ORCENGINE_HF_SOURCE_DIR AND DEFINED ENV{ORCENGINE_HF_SOURCE_DIR})
+    set(ORCENGINE_HF_SOURCE_DIR "$ENV{ORCENGINE_HF_SOURCE_DIR}" CACHE PATH
+        "Optional original Hugging Face source for direct PyTorch differential (from environment)")
+endif()
+
 # Pull in Phase 3 (which itself pulls in Phase 2, which pulls in Phase 1) so
 # both the real-model driver (Reference Path B, fully-resident) and the
 # virtualized composed path (Reference Path C) can be built from one
@@ -20,21 +57,6 @@ enable_testing()
 # that would double-define their targets.
 add_subdirectory(../OrcEnginePhase3 phase3)
 
-# Real-artifact configuration, normalized (P5A-RVW-006 closure): prefer an
-# explicit CMake -D variable (matching Phase 3/4's own convention), fall
-# back to the environment-variable form already used by real_cache_attacks
-# for backward compatibility. All new conditional real-model test
-# registrations below key off the normalized CMake variable, not raw
-# environment magic.
-if(NOT DEFINED ORCENGINE_REAL_F32_GGUF AND DEFINED ENV{ORCENGINE_REAL_F32_GGUF})
-    set(ORCENGINE_REAL_F32_GGUF "$ENV{ORCENGINE_REAL_F32_GGUF}")
-endif()
-if(NOT DEFINED ORCENGINE_REAL_TIED_F32_GGUF AND DEFINED ENV{ORCENGINE_REAL_TIED_F32_GGUF})
-    set(ORCENGINE_REAL_TIED_F32_GGUF "$ENV{ORCENGINE_REAL_TIED_F32_GGUF}")
-endif()
-if(NOT DEFINED ORCENGINE_HF_SOURCE_DIR AND DEFINED ENV{ORCENGINE_HF_SOURCE_DIR})
-    set(ORCENGINE_HF_SOURCE_DIR "$ENV{ORCENGINE_HF_SOURCE_DIR}")
-endif()
 # Phase 3's own find_package(Python3 ...) result (Python3_EXECUTABLE) is a
 # normal variable scoped to Phase 3's own CMakeLists.txt, not visible here
 # via add_subdirectory alone -- re-resolve it in this directory's own scope
