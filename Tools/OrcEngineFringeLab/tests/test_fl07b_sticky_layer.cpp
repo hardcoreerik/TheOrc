@@ -294,6 +294,62 @@ void run_planner_tests() {
         }
         check(threw, "FirstK: duplicate layer descriptor id rejected");
     }
+
+    // --- FirstK is independent of the input vector's element order (Commit 2A) ---
+    {
+        // Vector order is {id 1, id 0} -- require_contiguous_layer_descriptors
+        // only checks the SET of ids is {0,1}, not that element 0 of the
+        // vector is id 0. FirstK must still select {0}, never {1}, for a
+        // budget that fits exactly one layer.
+        std::vector<LayerCostInfo> layers;
+        LayerCostInfo l1;
+        l1.layer_id = 1;
+        l1.resident_bytes = 100;
+        LayerCostInfo l0;
+        l0.layer_id = 0;
+        l0.resident_bytes = 100;
+        layers.push_back(l1);  // id 1 stored FIRST in the vector
+        layers.push_back(l0);  // id 0 stored SECOND
+        StickyLayerPlan p = plan_first_k(layers, 100);  // budget for exactly one layer
+        check(p.sticky_layer_ids() == std::vector<int64_t>({0}),
+              "FirstK: selects layer id 0 (not 1) for a one-layer budget even when the input vector "
+              "stores id 1 before id 0 -- result depends on layer_id, never on vector element order");
+    }
+    {
+        std::vector<LayerCostInfo> layers;
+        LayerCostInfo l2;
+        l2.layer_id = 2;
+        l2.resident_bytes = 100;
+        LayerCostInfo l0;
+        l0.layer_id = 0;
+        l0.resident_bytes = 100;
+        LayerCostInfo l1;
+        l1.layer_id = 1;
+        l1.resident_bytes = 100;
+        layers.push_back(l2);
+        layers.push_back(l0);
+        layers.push_back(l1);
+        StickyLayerPlan p = plan_first_k(layers, 200);  // budget for exactly two layers
+        check(p.sticky_layer_ids() == std::vector<int64_t>({0, 1}),
+              "FirstK: selects {0,1} (the true ascending prefix), not {2,0} or any vector-order-derived "
+              "prefix, for a fully scrambled input vector");
+    }
+
+    // --- validate_plan itself now enforces the contiguous-descriptor
+    // precondition on `layers`, not just on the plan's own selected ids
+    // (Commit 2A) ---
+    {
+        std::vector<LayerCostInfo> layers = uniform_layers(4, 100);
+        layers[3].layer_id = 5;  // gap in the descriptor set itself
+        StickyLayerPlan plan("Probe", 1000, {0}, 100);
+        bool threw = false;
+        try {
+            validate_plan(plan, layers);
+        } catch (const StickyPlanError&) {
+            threw = true;
+        }
+        check(threw, "validate_plan: rejects a gap in `layers` itself, not only a gap in the plan's own ids");
+    }
 }
 
 // ---------------------------------------------------------------------

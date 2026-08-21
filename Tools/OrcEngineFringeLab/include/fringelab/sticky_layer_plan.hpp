@@ -88,8 +88,12 @@ public:
 // byte_budget() (which governs sticky TRANSFORMER-LAYER bytes only --
 // bookend tensors and the single transient cold layer are accounted for
 // separately by the caller's own residency invariant, not by this budget);
-// sticky_layer_ids() is sorted ascending. Throws StickyPlanError on any
-// violation. Does not mutate `plan`.
+// sticky_layer_ids() is sorted ascending. ALSO verifies `layers` itself is
+// a complete, contiguous, non-duplicate descriptor set for [0,
+// layers.size()) (delegates to require_contiguous_layer_descriptors() --
+// Commit 2A: this makes validate_plan's own public contract self-contained
+// rather than assuming its caller already checked that). Throws
+// StickyPlanError on any violation. Does not mutate `plan`.
 void validate_plan(const StickyLayerPlan& plan, const std::vector<LayerCostInfo>& layers);
 
 // Shared precondition every plan_*() function below requires: `layers` must
@@ -108,7 +112,11 @@ void require_contiguous_layer_descriptors(const std::vector<LayerCostInfo>& laye
 // overflow) stays within `byte_budget`; stop at the first layer that would
 // exceed it. An empty result (byte_budget too small for even layer 0) is
 // valid and equivalent to full streaming. Selecting all layers is valid
-// only when the budget is sufficient for their full sum.
+// only when the budget is sufficient for their full sum. Resolves layer id
+// 0, 1, 2, ... by explicit lookup (Commit 2A) -- the result never depends
+// on what ORDER `layers` happens to store its elements in, only on the ids
+// present (which require_contiguous_layer_descriptors() already requires
+// to be exactly [0, layers.size())).
 StickyLayerPlan plan_first_k(const std::vector<LayerCostInfo>& layers, uint64_t byte_budget);
 
 // ExplicitSet: accepts a caller-supplied list of exact layer IDs in any

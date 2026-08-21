@@ -56,6 +56,16 @@ bool StickyLayerPlan::is_sticky(int64_t layer_id) const {
 }
 
 void validate_plan(const StickyLayerPlan& plan, const std::vector<LayerCostInfo>& layers) {
+    // Commit 2A: validate_plan's own public contract is now self-contained
+    // -- it no longer merely ASSUMES `layers` describes exactly one
+    // descriptor per contiguous id in [0, layers.size()); it verifies that
+    // itself, via the same shared helper every plan_*() policy already
+    // calls. Redundant when the caller already called it (which every
+    // plan_*() function and layer_costs_from_source() do), but closes the
+    // gap for any caller that constructs a StickyLayerPlan directly and
+    // hands it to validate_plan() without going through a plan_*() policy
+    // first (e.g. StickyLayerModel/StickyLayerCachedModel's constructors).
+    require_contiguous_layer_descriptors(layers);
     const int64_t n_layers = static_cast<int64_t>(layers.size());
 
     if (!std::is_sorted(plan.sticky_layer_ids().begin(), plan.sticky_layer_ids().end())) {
@@ -89,17 +99,25 @@ void validate_plan(const StickyLayerPlan& plan, const std::vector<LayerCostInfo>
 
 StickyLayerPlan plan_first_k(const std::vector<LayerCostInfo>& layers, uint64_t byte_budget) {
     require_contiguous_layer_descriptors(layers);
+    // Commit 2A fix: iterate layer id 0, 1, 2, ... explicitly and look each
+    // descriptor up by id (find_layer), rather than iterating `layers` in
+    // whatever order its caller happened to store it. The prior version
+    // iterated the vector directly -- require_contiguous_layer_descriptors
+    // only proves the SET of ids is complete and contiguous, not that the
+    // vector's ELEMENT ORDER matches ascending id, so a caller-supplied
+    // `layers` ordered e.g. {id 1, id 0} could silently make FirstK select
+    // layer 1 before layer 0, breaking its documented "starts at layer 0"
+    // guarantee while still passing validate_plan (a single selected id is
+    // trivially "sorted"). This makes FirstK's result independent of the
+    // input vector's iteration order, by construction.
     std::vector<int64_t> selected;
     uint64_t total = 0;
-    for (const LayerCostInfo& l : layers) {
-        const uint64_t candidate_total = checked_add(total, l.resident_bytes);
+    for (int64_t id = 0; id < static_cast<int64_t>(layers.size()); ++id) {
+        const uint64_t candidate_total = checked_add(total, find_layer(layers, id).resident_bytes);
         if (candidate_total > byte_budget) break;
-        selected.push_back(l.layer_id);
+        selected.push_back(id);
         total = candidate_total;
     }
-    // `layers` is expected in ascending layer_id order (validated below via
-    // validate_plan's is_sorted check on the result, which will surface a
-    // caller bug rather than silently accept an unordered input).
     StickyLayerPlan plan("FirstKBaseline", byte_budget, std::move(selected), total);
     validate_plan(plan, layers);
     return plan;

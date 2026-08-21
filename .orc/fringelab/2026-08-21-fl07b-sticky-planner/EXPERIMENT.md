@@ -1,6 +1,6 @@
 # FL-07B — Multi-Step Sticky-Layer Planning
 
-Status: **IN PROGRESS — Commit 2 of 3 landed (multi-step cached-decode integration); Commit 3 (real-GGUF evidence) not yet started; stopped here for Codex review per the authorizing instruction**
+Status: **IN PROGRESS — Commit 2A landed (Commit 2 corrected/hardened per Codex review); Commit 3 (real-GGUF evidence) not yet started; stopped here for Codex review per the authorizing instruction**
 
 Worktree: `F:\Ai\OrchestratorIDE-fringelab-fl07b`
 Branch: `research/orcengine-fl07b-sticky-planner`
@@ -314,7 +314,23 @@ for later commits, not the answer to FL-07B's actual research questions.
   (Commit 2/3) would need its own equivalent naming to reuse this exact
   technique -- noted here so Commit 2 does not assume it transfers for free.
 
-## Scope of this commit (Commit 2)
+## Scope of this commit (Commit 2, original -- see Commit 2A below for corrections)
+
+**This section is preserved as history and is NOT rewritten.** A Codex
+review of Commit 2 found four gaps: `plan_first_k()` could select the
+wrong layer for an unordered input vector; the cumulative
+materialization/I-O evidence was a bare "nonzero" check rather than exact
+formulas; the "cold-layer execution fault" test fired its hook BEFORE
+`execute_cached_transformer_layer` ran, never actually exercising a
+failure from inside cached-layer execution despite this section's own
+"during the execute call itself" wording below; and the phrase "physical
+KV-cache contents" overstated what the comparison helper actually checked
+(committed rows only, not unused capacity). None were found to be a
+PRODUCTION correctness defect in the checked-in Commit 2 code -- see
+"Commit 2A: corrections and hardened evidence" below for what changed and
+why. Wherever the text below says "physical", the accurate word is
+"committed" (see Commit 2A finding 4) -- left as originally written here
+rather than silently edited.
 
 Multi-step cached-decode integration: threads Phase 5A's KV-cache seam
 (`execute_cached_transformer_layer`, called via `forward_cached_step` for
@@ -497,3 +513,180 @@ unambiguous non-prefix selection, not derived from any real measurement.
 - The 5-step schedule is fixed and hand-authored for this commit; it is
   not a real decode trace and does not exercise `max_positions` boundary
   behavior, cache eviction, or sequences longer than a handful of steps.
+
+## Commit 2A: corrections and hardened evidence
+
+Addresses every finding from a Codex review of Commit 2, in the order
+raised.
+
+1. **`plan_first_k()` could select the wrong layer for an unordered input
+   vector.** `require_contiguous_layer_descriptors()` only proved the SET
+   of layer ids in `layers` was complete and contiguous -- it never
+   required the VECTOR's element order to match ascending `layer_id`.
+   `plan_first_k()` iterated `layers` directly, so a caller-supplied
+   vector ordered e.g. `{id 1, id 0}` could make FirstK select layer 1
+   before layer 0 for a one-layer budget, silently breaking its documented
+   "starts at layer 0" guarantee (`validate_plan()` could not catch this:
+   a single selected id is trivially "sorted"). **Fixed** in
+   `sticky_layer_plan.cpp`: `plan_first_k()` now iterates layer id `0, 1,
+   2, ...` explicitly and looks each descriptor up by id (`find_layer`),
+   so its result depends only on which ids are present, never on the input
+   vector's iteration order. `validate_plan()` now also calls
+   `require_contiguous_layer_descriptors(layers)` itself at the top of its
+   own body, making its public contract self-contained rather than merely
+   assuming every caller already checked that (defense in depth; every
+   `plan_*()` policy and `layer_costs_from_source()` already called it
+   before this change, so this is redundant for those callers but closes
+   the gap for a caller that builds a `StickyLayerPlan` directly and hands
+   it to `validate_plan()` without going through a policy function first).
+   Two new regression tests in `test_fl07b_sticky_layer.cpp` construct
+   deliberately scrambled `layers` vectors (`{id 1, id 0}` and `{id 2, id
+   0, id 1}`) and confirm `plan_first_k` still selects the true ascending
+   prefix (`{0}` and `{0,1}` respectively, never a vector-order-derived
+   set); a third new test confirms `validate_plan()` now rejects a gap in
+   `layers` itself, not only a gap in the plan's own selected ids.
+2. **Cumulative materialization/I-O evidence was a bare "nonzero" check.**
+   `test_fl07b_cached_decode.cpp`'s cumulative-proof block asserted only
+   `telemetry().backing_bytes_read > 0`, which does not establish the
+   exact deterministic schedule the charter and Commit 2's own report
+   claimed. **Fixed:** every named plan in the main per-plan loop now
+   asserts EXACT formulas, computed independently from `layer_costs` and
+   the plan's own sticky/cold split, against every relevant
+   `StreamingTelemetry` field:
+   `materialization_count == bookend_tensor_count + sticky_count*9 +
+   steps*cold_count*9`; `release_count == steps*cold_count*9` (bookends
+   and sticky layers never release); `backing_bytes_read == bookend_backing
+   + sticky_backing + steps*cold_backing_per_step`;
+   `repeated_backing_bytes_read == (steps-1)*cold_backing_per_step`
+   (`ResidencyLedger::materialized()` keys repetition by
+   `backing_identity` via its own `seen_extents_` set -- only cold-layer
+   reads, which recur every step, ever count as repeated; bookends and
+   sticky layers materialize exactly once, ever); `peak_active_layers == 1`
+   iff the plan has at least one cold layer, else `0`;
+   `peak_resident_weight_bytes == baseline + the largest single cold
+   layer's resident bytes among the plan's cold set` (exactly one cold
+   layer is ever resident at an instant, proven by
+   `ResidencyLedger::enter_layer`'s own more-than-one-resident guard, so
+   the peak is never the SUM of multiple cold layers even when a plan's
+   cold set has more than one member). `sticky_resident_bytes() ==
+   plan.planned_resident_bytes()` is also now asserted for the cached
+   model (it was already asserted for `StickyLayerModel` in Commit 1A but
+   missing here). The permanent baseline
+   (`current_resident_weight_bytes == expected_baseline`) is now asserted
+   after EVERY individual step, not only once after the full sequence.
+   The bare `> 0` check that used to end the identity-aware
+   `TrackingMaterializer` block was removed as redundant once the exact
+   formulas above cover the same plan construction under a different
+   check name.
+3. **The "cold-layer execution fault" test never exercised a genuine
+   in-execution failure.** Its `fault_before_cold_execute` hook fires
+   BEFORE `execute_cached_transformer_layer` is called at all -- the test
+   proved that fully-materialized cold-layer weights are released
+   correctly when a PRE-execution hook throws, but Commit 2's own "Design"
+   section above claims the failure occurs "during the execute call
+   itself", which that test did not actually exercise. **Fixed:** replaced
+   with a genuine in-execution failure using a new
+   `CorruptingMaterializer` (test-only): it lets the real materializer run
+   normally, then on a specifically-targeted occurrence of one named
+   tensor, overwrites every element of the already-materialized
+   `ResidentView` with NaN. Targeting `layer1.ffn_down`'s 4th
+   materialization call (armed from before any step runs, so the
+   occurrence counter advances correctly across steps 0, 1, 2 before the
+   4th call -- an initial version of this fix armed the target only right
+   before the intended step and silently missed the fault entirely,
+   caught by the retried step's own position-invariant guard throwing an
+   unrelated, uncaught `KVCacheError` later in the run; fixed by arming
+   before the warm-up steps) makes Phase 5A's own `check_finite()`
+   (`forward_cached.cpp`'s local helper, called on
+   `"layer1.post_ffn_residual"` inside `execute_cached_transformer_layer`,
+   unmodified) throw from strictly INSIDE that function -- after layer 1's
+   K/V has already been written into the cache for this step (K/V writes
+   happen near the top of `execute_cached_transformer_layer`, before the
+   FFN), but strictly before `step()`'s commit-on-success-only
+   `cache.set_current_length()` call. The test asserts: the exception
+   message contains `"NaN/Inf detected"`, confirming it genuinely
+   originated from Phase 5A's own finite-check, not a test-injected
+   stand-in; `cache.current_length()` unchanged; the COMMITTED prefix
+   (every layer/kv_head/position below the pre-fault length, snapshotted
+   before the fault and compared byte-for-byte after) is untouched, across
+   BOTH layers, not only the one that failed; resident bytes return to
+   baseline; a retried call succeeds and is bit-identical to the
+   reference; and -- the direct "retry overwrites uncommitted data" proof
+   the review specifically asked for -- the retried step's own new
+   position's K/V, for every layer and kv_head, is compared directly
+   against the reference cache's K/V at that same position immediately
+   after the retry, confirming the previously-NaN-poisoned-but-uncommitted
+   row was genuinely overwritten with the correct values, not merely that
+   `current_length()` advanced past it.
+4. **"Physical" cache-comparison wording was overstated.** The comparison
+   helper only ever compared committed rows (`[0, current_length())`), not
+   unused capacity out to `max_positions()` -- correct and sufficient for
+   Phase 5A's own committed-cache contract (`context.hpp`), but "physical"
+   implies comparing every byte of underlying storage including
+   never-written capacity, which this helper never did. Per the review's
+   explicit recommendation, NO physical zeroing or rollback machinery was
+   added (unnecessary complexity for what Phase 5A's contract actually
+   guarantees) -- only the wording was corrected. **Fixed:** the helper is
+   renamed `caches_committed_contents_identical()` (was
+   `caches_physically_identical()`), its doc comment states explicitly
+   what it does and does not compare, and every call site's check label
+   now says "complete committed KV-cache contents", not "complete physical
+   KV-cache contents".
+
+### Commit 2A verification
+
+**213/213 checks pass, 0 failures** in `test_fl07b_cached_decode`
+(up from Commit 2's 136 -- the increase is the new per-plan exact-formula
+block times six plans, the rewritten fault-injection-2 test's added
+committed-prefix and retry-overwrite proofs, and per-step baseline
+assertions). **91/91 checks pass, 0 failures** in `test_fl07b_sticky_layer`
+(up from Commit 1A's 88 -- the three new FirstK-order-independence and
+validate_plan-descriptor-check regression tests). Both across all four
+required lanes:
+
+| Lane | Command | cached_decode | sticky_layer |
+|---|---|---|---|
+| Debug | `cmake --build ... --config Debug --target test_fl07b_cached_decode test_fl07b_sticky_layer` | 213/213, exit 0 | 91/91, exit 0 |
+| Release | `cmake --build ... --config Release --target test_fl07b_cached_decode test_fl07b_sticky_layer` | 213/213, exit 0 | 91/91, exit 0 |
+| Strict | `-DCMAKE_CXX_FLAGS="/permissive- /WX /EHsc"` (confirmed present in actual `cl.exe` invocations for every changed source file, zero real warnings) | 213/213, exit 0 | 91/91, exit 0 |
+| ASan | `-DCMAKE_CXX_FLAGS="/fsanitize=address /EHsc"` (confirmed present in actual `cl.exe` invocations, `C4530` absent; `clang_rt.asan_dynamic-x86_64.dll` copied next to the Debug-config executables) | 213/213, exit 0, zero AddressSanitizer diagnostics | 91/91, exit 0, zero AddressSanitizer diagnostics |
+
+No source file outside `Tools/OrcEngineFringeLab/` was touched; no frozen
+Phase 1-5A file was touched; `CMakeLists.txt` was not modified in this
+commit (Commit 2's targets already build both test files unchanged).
+
+## Disposition (Commit 2A)
+
+The correctness/evidence gaps a Codex review found in Commit 2 are closed:
+FirstK is now genuinely order-independent of its input vector; the
+cumulative materialization/I-O claims are now exact formulas, not a
+"nonzero" placeholder; the second fault-injection test now exercises a
+genuine in-execution failure with committed-prefix and retry-overwrite
+proof, not a pre-execution stand-in; and "physical" cache-content claims
+are now accurately worded as "committed". This does not change FL-07B's
+research disposition from Commit 2: questions 1, 3, and 4 have stronger
+synthetic evidence than before, question 2 (cumulative I/O divergence
+across budgets) still has only descriptive numbers with no comparative
+conclusion, and question 5 (honest tie/null reporting against a real
+model) remains unexercised. Commit 3 (real-GGUF evidence) is still the
+next and only remaining step before FL-07B's actual research questions can
+be answered.
+
+## Limitations (Commit 2A)
+
+All limitations listed under "Limitations (Commit 2)" above still apply
+unchanged (synthetic fixture only, 2 layers, fabricated
+`MaterializationCostPerByte` benefit data, no timing data, fixed
+hand-authored schedule). Additionally:
+
+- `CorruptingMaterializer`'s occurrence-counting is a test-harness
+  convention (1-indexed calls to one named tensor), not a `ModelSource`
+  guarantee -- a real GGUF-backed materializer (Commit 3) would need its
+  own equivalent mechanism to reuse this exact fault-injection technique.
+- The exact telemetry formulas in this commit are specific to this test's
+  own 5-step schedule and 2-layer fixture (e.g. `steps=5`); they are
+  correct DERIVATIONS from `ResidencyLedger`'s documented counting
+  semantics, not a general formula proven for arbitrary schedules or layer
+  counts -- a longer or differently-shaped schedule would need its own
+  (differently-parameterized) formula, not a verbatim reuse of these
+  numbers.
