@@ -424,6 +424,36 @@ void run_adversarial_checks(const GgufArtifact& valid) {
         [](GgufArtifact& a) { a.metadata["tokenizer.ggml.model"] = string_value(""); });
     expect_rejects(valid, "empty tokenizer.ggml.pre string", EF::FromTokenizerProfile, "tokenizer.ggml.pre",
         [](GgufArtifact& a) { a.metadata["tokenizer.ggml.pre"] = string_value(""); });
+
+    // Stage 2B reconciliation (Codex finding 1): merge_rank_'s internal key
+    // join (left + '\x01' + right) is only collision-free if no vocabulary
+    // token can ever contain a raw 0x01 byte. Before this check existed,
+    // nothing in from_gguf_metadata enforced that -- a GGUF could carry a
+    // token with an embedded 0x01 and still construct successfully. This
+    // case must FAIL against that old (missing-check) behavior and PASS
+    // once the trust-boundary rejection exists. Index 100 is an ordinary
+    // base token untouched by any other invariant in this fixture, so this
+    // exercises the check in isolation, not tangled with merge validation.
+    expect_rejects(valid, "vocabulary token contains reserved separator byte 0x01", EF::FromTokenizerProfile, "0x01",
+        [](GgufArtifact& a) {
+            auto& elems = std::get<std::vector<GgufValue>>(a.metadata["tokenizer.ggml.tokens"].data);
+            elems[100] = string_value(std::string("bad") + '\x01' + "token");
+        });
+
+    // Stage 2B reconciliation (Codex finding 2): RecognizeControlTokens'
+    // fixed-ID-order scan of tokens_[0..control_count_) is only precedence-
+    // safe if no CONTROL spelling is a literal prefix of another. Before
+    // this check existed, nothing enforced that either -- this case makes
+    // control token 1 exactly "control token 0's spelling + one more
+    // character" (token[0] is a literal prefix of token[1]) and must FAIL
+    // against the old (missing-check) behavior, PASS once the construction-
+    // time rejection exists.
+    expect_rejects(valid, "CONTROL token is a literal prefix of another CONTROL token", EF::FromTokenizerProfile,
+        "prefix", [](GgufArtifact& a) {
+            auto& elems = std::get<std::vector<GgufValue>>(a.metadata["tokenizer.ggml.tokens"].data);
+            const std::string& first = std::get<std::string>(elems[0].data);
+            elems[1] = string_value(first + "X");
+        });
 }
 
 // Shared by the explicit-positive contract: exercises the real, committed

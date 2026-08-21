@@ -8,10 +8,13 @@
 //   trim_offsets=true, use_regex=true)
 // pretokenization sequence, established and empirically validated against
 // the live tokenizers==0.22.2 oracle (see
-// Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py). Produces byte
-// RANGE boundaries only -- no byte-to-Unicode alphabet remapping, no BPE
-// merge execution, no token-ID production, no decoding. Those remain
-// separate, not-yet-authorized stages.
+// Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py). `pretokenize()`
+// itself produces byte RANGE boundaries only -- no byte-to-Unicode alphabet
+// remapping, no BPE merge execution, no token-ID production happen in this
+// file. Those are implemented as Stage 2B (DECISION_LOG.md OE-ADR-034),
+// consuming this file's output: see `TokenizerProfile::encode()` in
+// orcengine/tokenizer.hpp, which calls `pretokenize()` internally. Decoding
+// remains a separate, not-yet-authorized stage.
 #pragma once
 
 #include <cstddef>

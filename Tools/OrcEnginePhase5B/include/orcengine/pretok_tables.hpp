@@ -13,9 +13,10 @@
 //                           93efa2f097d58c2a74874c7e644dbc9b0cee75a2, sha256-pinned
 //                           and contract-verified by the generator before use
 //
-// Full hash record (tokenizer.json, generator, and all three generated
-// headers) is recorded in docs/OrcEngine/DECISION_LOG.md OE-ADR-033, not
-// embedded in this file (a file must not carry its own hash).
+// Full hash record (tokenizer.json, generator, and all 5 generated headers
+// -- this file plus the fixture/byte-alphabet/encode headers) is recorded in
+// docs/OrcEngine/DECISION_LOG.md OE-ADR-033/OE-ADR-034, not embedded in this
+// file (a file must not carry its own hash).
 //
 // L (\p{L}) / N (\p{N}) candidate ranges: Unicode General Category
 // L*(Lu,Ll,Lt,Lm,Lo) / N*(Nd,Nl,No), computed from the unicodedata version

@@ -54,7 +54,7 @@ accepted at commit `83083145` — is removed as a requirement. The three
 real-artifact contracts are now independent and each returns exit 0
 only when its own checks pass:
 
-- `tokenizer_metadata` (synthetic suite): 136/136 checks pass.
+- `tokenizer_metadata` (synthetic suite): 142/142 checks pass.
 - `tokenizer_metadata_real_explicit` (canonical positive suite against
   `smollm2-135m.gguf`): all checks pass.
 - `tokenizer_metadata_legacy_tied_rejection` (expected-rejection suite
@@ -112,8 +112,12 @@ hard-coded list. The GPT-2 byte-to-Unicode alphabet and the
 against the live oracle before being relied on — see OE-ADR-034 for the
 counterintuitive-polarity finding. `test_encode` compares native
 `encode()` against a 386-entry oracle fixture corpus (including
-exhaustive 17×17 CONTROL-adjacency coverage) plus a 256-entry
-byte-alphabet cross-check plus invalid-UTF-8/structural checks:
+exhaustive 17×17 CONTROL-adjacency coverage) plus a 256-entry check
+comparing an independently reconstructed reference byte-to-codepoint
+table against the oracle-generated one (not a direct comparison
+against `tokenizer.cpp`'s own private production table, which uses the
+identical closed-form construction but is not itself invoked by the
+test) plus invalid-UTF-8/structural checks:
 1,182/1,182 checks pass, 0 failures, across Debug, Release, strict, and
 ASan. Matches the pinned oracle across that corpus and the described
 cases; exhaustive equivalence over every possible input or BPE merge
@@ -613,18 +617,25 @@ unjustified claim until measured).
 
 ## 13. Future validation lanes
 
-Eventual validation expectations, not run in this pass:
+Eventual validation expectations. Status as of Stage 2B (2026-08-20):
 
-- Debug
-- Release
-- Strict warnings-as-errors
-- ASan
+- Debug — **run**, targeted Phase 5B tests, every stage (1, 2A, 2B)
+- Release — **run**, targeted Phase 5B tests, every stage
+- Strict warnings-as-errors — **run** (`/W4 /WX /permissive- /EHsc`,
+  confirmed present in actual compile commands, zero warnings)
+- ASan — **run** (`/fsanitize=address /EHsc`, confirmed present in
+  actual compile commands, zero AddressSanitizer diagnostics)
 - Golden-fixture oracle comparison (the 20-fixture corpus plus the
   dual-source and raw-prompt-identity fixtures, re-run against the new
-  native implementation)
-- Malformed-metadata attacks (Section 10)
-- Frozen-engine integration proof (Section 11)
-- Independent review before freeze
+  native implementation) — **run**: exercised by both `test_pretokenize`
+  (pretoken boundaries) and `test_encode` (exact token IDs, both
+  special-token modes)
+- Malformed-metadata attacks (Section 10) — **run**, 43 adversarial
+  cases in `test_tokenizer_metadata`'s synthetic suite (see Section 16)
+- Frozen-engine integration proof (Section 11) — **not run**; requires
+  decoding to exist first, which remains unimplemented
+- Independent review before freeze — **outstanding**; the llama.cpp
+  secondary-oracle comparison (Section 9) also remains outstanding
 
 No test counts are invented here — exact counts come from
 implementation and actual test discovery, not from this document.
@@ -702,25 +713,31 @@ item below as later stages deliver them:
 - One concrete native tokenizer component — **Stage 1 delivered
   2026-08-20**: `Tools/OrcEnginePhase5B/` constructs and validates the
   immutable tokenizer table from GGUF metadata (`TokenizerProfile`).
-  Encoding/decoding are separate, not-yet-authorized stages.
+  **Encoding delivered as Stage 2B** (`TokenizerProfile::encode()`,
+  same day); decoding remains a separate, not-yet-authorized stage.
 - One focused test executable, or the smallest existing test target
   that fits, for the golden-fixture and adversarial comparisons —
   **Stage 1 delivered a metadata-construction test executable**
   (`test_tokenizer_metadata`) exposing three independent contracts: the
-  synthetic suite (136 checks, no arguments), the canonical explicit
+  synthetic suite (142 checks, no arguments), the canonical explicit
   real-artifact positive suite (`--real-explicit <path>`, against
   `smollm2-135m.gguf`), and the legacy tied-artifact expected-rejection
   suite (`--expect-missing-tokenizer <path>`, against
-  `smollm2-135m-tied.gguf`, per `DECISION_LOG.md` OE-ADR-031); the
-  golden-fixture/adversarial *encode/decode* comparisons this bullet
-  also describes remain unimplemented, since encoding/decoding do not
-  exist yet.
-- Reused golden fixtures (Section 9) — not recreated; not yet exercised
-  (no encode/decode to run them against)
+  `smollm2-135m-tied.gguf`, per `DECISION_LOG.md` OE-ADR-031). **The
+  golden-fixture/adversarial *encode* comparisons this bullet describes
+  were delivered as Stage 2B** (`test_encode`, 1,182 checks against a
+  386-entry oracle fixture corpus); *decode* comparisons remain
+  unimplemented, since decoding does not exist yet.
+- Reused golden fixtures (Section 9) — not recreated; exercised by both
+  `test_pretokenize` (pretoken boundaries) and `test_encode` (exact
+  token IDs); decode comparisons remain unexercised (no decode to run
+  them against)
 - Targeted malformed-metadata tests (Section 8, 10) — **Stage 1
-  delivered these** (41 adversarial cases × 3 checks each -- throws,
-  correct exception type, diagnostic fragment -- in the synthetic suite
-  of `test_tokenizer_metadata`)
+  delivered these, extended in the Stage 2B reconciliation pass**
+  (43 adversarial cases × 3 checks each -- throws, correct exception
+  type, diagnostic fragment -- in the synthetic suite of
+  `test_tokenizer_metadata`; the two additions enforce the merge-rank-
+  key and CONTROL-prefix invariants Stage 2B's `encode()` relies on)
 - One frozen-engine integration test (Section 11) — not implemented;
   requires encode/decode to exist first
 - Documentation evidence — this section and Section 17
@@ -757,7 +774,7 @@ OE-ADR-031):** Stage 1 (native GGUF tokenizer-metadata construction and
 fail-closed validation, `Tools/OrcEnginePhase5B/`) has been implemented
 and targeted-validated across Debug, Release, strict, and ASan. All
 three registered test contracts are clean in every lane: the synthetic
-suite (136/136), the canonical explicit real-artifact positive suite
+suite (142/142), the canonical explicit real-artifact positive suite
 (against `smollm2-135m.gguf`), and the legacy tied-artifact
 expected-rejection suite (against `smollm2-135m-tied.gguf`, whose
 missing `tokenizer.ggml.*` metadata is the required, passing outcome

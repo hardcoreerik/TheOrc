@@ -54,11 +54,14 @@ std::vector<std::string> extract_string_array(const GgufArtifact& artifact, cons
     return out;
 }
 
-// Merge-rank map key: an unambiguous join of the two components. '\x01' can
-// never appear inside a real vocabulary/merge component -- every component
-// was already validated (Stage 1) to resolve against tokenizer.ggml.tokens,
-// none of which contains a raw control byte (only printable GPT-2-mapped
-// alphabet characters, U+0021 and above).
+// Merge-rank map key: an unambiguous join of the two components. '\x01' is
+// an ENFORCED reserved separator, not merely an assumed-safe one: every
+// tokenizer.ggml.tokens entry is explicitly rejected at the GGUF trust
+// boundary (from_gguf_metadata(), below) if it contains a raw 0x01 byte,
+// specifically so this join can never collide -- every merge component was
+// already separately validated (Stage 1) to resolve against
+// tokenizer.ggml.tokens, so no successfully constructed TokenizerProfile can
+// ever reach this function with a component containing 0x01.
 std::string merge_key(std::string_view left, std::string_view right) {
     std::string key;
     key.reserve(left.size() + 1 + right.size());
@@ -70,13 +73,17 @@ std::string merge_key(std::string_view left, std::string_view right) {
 
 // GPT-2's closed-form byte_encoder: bytes in [0x21,0x7E]∪[0xA1,0xAC]∪
 // [0xAE,0xFF] map to themselves; the remaining 68 "unprintable" byte values
-// map to 0x100+n in ascending byte-value order. Confirmed byte-for-byte
-// against the live tokenizers==0.22.2 oracle (DECISION_LOG.md OE-ADR-034;
-// see Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py's
-// build_byte_to_unicode()/verify_byte_to_unicode() for the exact
-// methodology, and tests/test_encode.cpp for the compiled-in proof against
-// the generated oracle table). Not exposed as a general Unicode facility --
-// used only to map the raw bytes of one Stage 2A pretoken span before BPE.
+// map to 0x100+n in ascending byte-value order. This same closed-form
+// construction was validated byte-for-byte against the live
+// tokenizers==0.22.2 oracle in Python (DECISION_LOG.md OE-ADR-034; see
+// generate_pretok_tables.py's build_byte_to_unicode()/
+// verify_byte_to_unicode()) before these 256 literal values were written
+// here. tests/test_encode.cpp's compiled-in proof cross-checks an
+// INDEPENDENT C++ reconstruction of this same algorithm against the
+// oracle-generated table -- it does not call into this private array
+// directly (this array is not reachable outside this translation unit).
+// Not exposed as a general Unicode facility -- used only to map the raw
+// bytes of one Stage 2A pretoken span before BPE.
 constexpr std::array<uint32_t, 256> kByteToCodepoint = {
     0x100, 0x101, 0x102, 0x103, 0x104, 0x105, 0x106, 0x107, 0x108, 0x109, 0x10A, 0x10B, 0x10C, 0x10D, 0x10E, 0x10F,
     0x110, 0x111, 0x112, 0x113, 0x114, 0x115, 0x116, 0x117, 0x118, 0x119, 0x11A, 0x11B, 0x11C, 0x11D, 0x11E, 0x11F,
@@ -161,6 +168,16 @@ TokenizerProfile TokenizerProfile::from_gguf_metadata(const GgufArtifact& artifa
         if (tokens[i].empty()) {
             throw TokenizerMetadataError("tokenizer.ggml.tokens[" + std::to_string(i) + "] is empty");
         }
+        // Reserved for merge_rank_'s internal key join (see merge_key()
+        // below); rejecting it here at the trust boundary makes that join's
+        // "canonical tokens never contain 0x01" assumption an ENFORCED
+        // invariant of every successfully constructed profile, not merely a
+        // documented one.
+        if (tokens[i].find('\x01') != std::string::npos) {
+            throw TokenizerMetadataError("tokenizer.ggml.tokens[" + std::to_string(i) + "] ('" + tokens[i] +
+                                         "') contains the reserved byte 0x01, which Stage 2B's internal "
+                                         "merge-rank key join requires to never appear in a vocabulary token");
+        }
         if (!vocab_set.insert(tokens[i]).second) {
             throw TokenizerMetadataError("tokenizer.ggml.tokens contains a duplicate entry: '" +
                                          tokens[i] + "' (index " + std::to_string(i) +
@@ -203,6 +220,28 @@ TokenizerProfile TokenizerProfile::from_gguf_metadata(const GgufArtifact& artifa
                                          std::to_string(kExpectedControlTokenCount - 1) +
                                          " -- found a CONTROL token at unexpected index " +
                                          std::to_string(control_indices[i]));
+        }
+    }
+    // encode()'s RecognizeControlTokens scan walks tokens_[0..control_count_)
+    // in fixed ID order and relies on the property that no CONTROL spelling
+    // is a literal prefix of another (in EITHER direction) -- otherwise the
+    // fixed scan order would silently decide a real precedence ambiguity
+    // instead of merely being iteration-order-independent bookkeeping.
+    // Enforced here, at construction, rather than only documented: checked
+    // over exactly the 17 validated CONTROL entries, not a generic
+    // added-token framework.
+    for (size_t i = 0; i < control_indices.size(); ++i) {
+        for (size_t j = 0; j < control_indices.size(); ++j) {
+            if (i == j) continue;
+            const std::string& a = tokens[i];
+            const std::string& b = tokens[j];
+            if (a.size() < b.size() && b.compare(0, a.size(), a) == 0) {
+                throw TokenizerMetadataError("CONTROL token '" + a + "' (index " + std::to_string(i) +
+                                             ") is a literal prefix of CONTROL token '" + b + "' (index " +
+                                             std::to_string(j) +
+                                             ") -- RecognizeControlTokens scanning requires no CONTROL "
+                                             "spelling to prefix another");
+            }
         }
     }
 

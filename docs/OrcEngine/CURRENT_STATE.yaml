@@ -121,6 +121,7 @@ status:
   phase5b_tied_artifact_classification_decision: DECISION_LOG.md OE-ADR-031
   phase5b_stage2a_pretokenization_decision: DECISION_LOG.md OE-ADR-032
   phase5b_stage2b_encoding_decision: DECISION_LOG.md OE-ADR-034
+  phase5b_stage2b_reconciliation_decision: DECISION_LOG.md OE-ADR-035
   phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
@@ -304,7 +305,7 @@ status:
     separately (tokenizer_metadata, tokenizer_metadata_real_explicit,
     tokenizer_metadata_legacy_tied_rejection). Targeted-validated across
     Debug/Release/strict/ASan: all three contracts pass in every lane --
-    the synthetic suite (136/136 checks), the canonical explicit
+    the synthetic suite (142/142 checks), the canonical explicit
     real-artifact positive suite, and the legacy tied-artifact
     expected-rejection suite. No registered Phase 5B test intentionally
     fails. Stage 1 constructs and validates tables only. Same day,
@@ -346,8 +347,10 @@ status:
     both established empirically before being relied on. test_encode
     compares native encode() against a 386-entry oracle fixture corpus
     (including exhaustive 17x17 CONTROL-adjacency coverage) plus a
-    256-entry byte-alphabet cross-check plus invalid-UTF-8/structural
-    checks: 1,182/1,182 checks pass, 0 failures, across
+    256-entry check comparing an independently reconstructed reference
+    byte-to-codepoint table against the oracle-generated one (not a
+    direct comparison against the production table) plus
+    invalid-UTF-8/structural checks: 1,182/1,182 checks pass, 0 failures, across
     Debug/Release/strict/ASan. Matches the pinned oracle across that
     corpus and the described cases; exhaustive equivalence over every
     possible input or BPE merge interaction is not claimed. Decode,
@@ -356,7 +359,15 @@ status:
     complete, accepted as a finished implementation, or frozen. The
     llama.cpp secondary-oracle comparison remains an outstanding
     validation dependency required before Phase 5B can be considered
-    complete or frozen. Phase 5C remains deferred and
+    complete or frozen. Same day, a Stage 2B reconciliation pass
+    (DECISION_LOG.md OE-ADR-035) closed a read-only Codex review: two
+    previously-documented-but-unenforced invariants (merge-rank key
+    collision safety, CONTROL-token prefix precedence) are now explicit
+    fail-closed rejections in from_gguf_metadata(), with new adversarial
+    tests (synthetic suite now 142/142 checks, 43 adversarial cases);
+    invalid-UTF-8 encode evidence now requires exactly PretokenizeError;
+    and stale "not yet implemented"/count wording across the generator
+    and truth documents was corrected. Phase 5C remains deferred and
     unauthorized.
 
 truth_labels:

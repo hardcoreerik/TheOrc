@@ -40,11 +40,12 @@ public:
         : std::runtime_error("Phase 5B tokenizer metadata validation failed: " + message) {}
 };
 
-// Thrown by TokenizerProfile::encode() for input-independent internal
-// failures only: invalid UTF-8 (propagated from Stage 2A's
-// PretokenizeError) or a BPE final symbol that cannot resolve to a
-// vocabulary ID (a fail-closed invariant violation -- never silently
-// substituted with an unknown-token ID or byte fallback).
+// Thrown by TokenizerProfile::encode() only for a fail-closed encoding
+// INVARIANT violation: a final BPE symbol that cannot resolve to any
+// vocabulary ID (never silently substituted with an unknown-token ID or
+// byte fallback). Invalid UTF-8 is a separate, input-dependent condition
+// and propagates as Stage 2A's PretokenizeError instead -- callers must
+// not conflate the two exception types.
 class EncodingError : public std::runtime_error {
 public:
     explicit EncodingError(const std::string& message)

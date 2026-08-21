@@ -2003,3 +2003,111 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   Phase 5C. The llama.cpp secondary-oracle comparison remains
   independently outstanding. No frozen Phase 1-5A source file was
   modified. Nothing was pushed, tagged, merged, rebased, or amended.
+
+## OE-ADR-035 — Phase 5B Stage 2B reconciliation: fail-closed invariants, exact exception evidence, stale-language cleanup
+
+- **Date:** 2026-08-20, America/Los_Angeles.
+- **Decision:** closes a read-only Codex review of OE-ADR-034's Stage 2B
+  commit (`15302fd2`). No production scanner defect was found; four
+  narrow findings were addressed.
+- **Finding 1 (merge-rank key collision safety) -- resolved by explicit
+  fail-closed rejection, not by changing the key representation:**
+  `merge_key()`'s `left + '\x01' + right` join was previously safe only
+  because canonical vocabulary tokens happen not to contain a raw 0x01
+  byte -- an assumption stated in a comment but not enforced by
+  `from_gguf_metadata()`. `from_gguf_metadata()` now explicitly rejects
+  any `tokenizer.ggml.tokens` entry containing byte 0x01 with
+  `TokenizerMetadataError`, at the same point duplicate/empty tokens are
+  already rejected. A new `test_tokenizer_metadata` adversarial case
+  ("vocabulary token contains reserved separator byte 0x01") injects a
+  0x01 byte into an ordinary synthetic base token; it is written to fail
+  against the pre-fix code (which had no such check and would have
+  constructed successfully) and pass against the corrected code.
+- **Finding 2 (CONTROL-token prefix assumption) -- resolved by explicit
+  fail-closed rejection over exactly the 17 validated entries, no
+  generic added-token framework:** `RecognizeControlTokens`'s fixed-ID-
+  order scan is precedence-safe only if no CONTROL spelling is a literal
+  prefix of another -- also previously documented, not enforced.
+  `from_gguf_metadata()` now checks all 17×16 ordered pairs of the
+  validated CONTROL entries (both directions) and rejects with
+  `TokenizerMetadataError` if any is a literal prefix of another. A new
+  adversarial case makes CONTROL token 1 exactly "CONTROL token 0's
+  spelling plus one character" and requires the throw, correct exception
+  type, and a diagnostic fragment containing "prefix"; it fails against
+  the pre-fix code and passes against the corrected code. Canonical
+  matching semantics are unchanged -- no longest-match machinery was
+  added, since the pinned profile's real 17 strings still have no
+  prefix relationship (confirmed unaffected by this change).
+- **Finding 3 (invalid-UTF-8 encode evidence tightened):**
+  `test_encode.cpp`'s invalid-UTF-8 cases previously passed on any
+  `std::exception`. Now require exactly `PretokenizeError`; any other
+  exception type (including `EncodingError`) is a reported failure.
+  `EncodingError`'s doc comment in `tokenizer.hpp` was corrected --
+  invalid UTF-8 is an input-dependent condition that propagates as
+  `PretokenizeError`, never `EncodingError`, which is reserved for the
+  fail-closed encoding invariant (an unresolvable final BPE symbol).
+  Both `SpecialTokenMode` values remain covered for all 8 malformed
+  inputs (16 checks, was 8).
+- **Finding 4 (stale-language reconciliation):** `generate_pretok_
+  tables.py`'s usage/provenance comments corrected from "three
+  generated headers" to the actual 5-output count (Stage 2B added two
+  more). `pretokenize.hpp`'s file comment corrected -- it previously
+  said BPE/token-ID production were "separate, not-yet-authorized
+  stages"; they are Stage 2B, delivered, and now accurately described as
+  implemented in `tokenizer.hpp`'s `encode()` (which calls
+  `pretokenize()` internally), with only decoding remaining not-yet-
+  authorized. `PHASE5B_TOKENIZER_SPEC.md` Section 13 updated from
+  "not run in this pass" to the actual per-lane status (Debug/Release/
+  strict/ASan run; frozen-engine integration and independent review
+  still outstanding). Section 16 updated to reflect Stage 2B's delivery
+  and the corrected 142/142 and 43-adversarial-case counts (the two new
+  cases above). The stale 136/136 check count was corrected to 142/142
+  everywhere it appeared (`PHASE5B_TOKENIZER_SPEC.md` ×2,
+  `PROJECT_TRUTH.md`, `CURRENT_STATE.yaml`).
+- **Byte-alphabet evidence wording narrowed:** the prior "256-entry
+  byte-alphabet cross-check" phrasing could be read as directly
+  exercising `tokenizer.cpp`'s private production table. It does not --
+  `kByteToCodepoint` is private to `tokenizer.cpp`'s anonymous namespace
+  and unreachable from the test binary. `test_encode.cpp` compares an
+  INDEPENDENTLY reconstructed reference implementation of the same
+  closed-form algorithm against the oracle-generated table
+  (`kOracleByteToCodepoint`). Comments in `tokenizer.cpp` and
+  `test_encode.cpp`, and every status-document occurrence of this
+  claim, were corrected to state this precisely rather than implying
+  direct production-table access. Adding a second, direct-access proof
+  was judged unnecessary architecture (would require widening the
+  public API solely for a test hook) given the closed-form algorithm's
+  own determinism already provides high confidence that production and
+  reference tables agree; this is recorded as a deliberate, narrower
+  evidence claim, not a gap silently dropped.
+- **Independent review context (not acted on beyond what's listed
+  above):** two other automated reviews were also received this session.
+  Grok's review (through commit `7c4b40fd`, predating this session's
+  Stage 2B work) raised no blockers against Stage 1/2A; its sole
+  actionable item (llama.cpp secondary-oracle comparison) is already the
+  standing outstanding dependency, and its other suggestions (sticky-
+  layer residency policy, telemetry ABI) are Phase 5A/future-roadmap
+  research outside Stage 2B's bounded scope. DeepSeek's review raised
+  one claimed BLOCKER (ORC-REV-005, token-type validation "not
+  implemented") that is factually incorrect against the code at review
+  time -- `tokenizer.cpp` has thrown `TokenizerMetadataError` for any
+  `tokenizer.ggml.token_type` value outside `{1, 3}` since Stage 1, with
+  a dedicated adversarial test predating this session; no action taken
+  on that finding. DeepSeek's FIX-BEFORE-PHASE item (ORC-REV-001, GGUF
+  tensor-name UTF-8 validation) targets frozen Phase 2 code and is out
+  of scope for a Phase 5B-only pass regardless of merit.
+- **Verification:** targeted Phase 5B tests only (`tokenizer_metadata`,
+  `tokenizer_metadata_real_explicit`,
+  `tokenizer_metadata_legacy_tied_rejection`, `pretokenize`, `encode`,
+  via an explicit CTest regex excluding inherited Phase 1/2 targets) all
+  pass across Debug, Release, strict (`/W4 /WX /permissive- /EHsc`,
+  confirmed present in actual compile commands, zero warnings), and
+  ASan (`/fsanitize=address /EHsc`, confirmed present in actual compile
+  commands, C4530 absent, zero AddressSanitizer diagnostics). The
+  generator's `--check` mode passes against the pinned tokenizer.json,
+  confirming the one comment-only header change (`pretok_tables.hpp`,
+  reflecting the 5-header count) is the only generated-content drift.
+- **Explicitly not authorized by this entry:** decoding, streaming
+  decode, engine integration, Phase 5C, chat templates, performance
+  work. No frozen Phase 1-5A file was modified. Nothing was pushed,
+  tagged, merged, rebased, or amended.

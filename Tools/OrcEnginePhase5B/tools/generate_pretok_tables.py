@@ -21,7 +21,9 @@
 # exiting nonzero (without writing anything) if they differ. This is the
 # mode CI/reviewers should run to confirm the committed headers are still
 # exactly what this script (with this environment) produces. Without
-# --check, the three generated headers are written.
+# --check, all 5 generated headers are written (Stage 2A's tables/fixtures/
+# invalid-UTF-8 headers plus Stage 2B's byte-alphabet and encode-fixture
+# headers, added by DECISION_LOG.md OE-ADR-034).
 #
 # Requires: the exact pinned `tokenizers==0.22.2` oracle installed (this
 # script verifies the installed version itself and aborts before doing
@@ -34,7 +36,7 @@
 # own declared pretokenizer contract doesn't match what Stage 2A assumes.
 #
 # All repository-relative paths (golden fixtures, raw-prompt manifest, and
-# the three generated header destinations) are resolved relative to this
+# the 5 generated header destinations) are resolved relative to this
 # script's own location (`Path(__file__).resolve()`), not the caller's
 # current working directory -- running this script from the repository
 # root or from its own directory produces identical results.
@@ -707,9 +709,10 @@ def emit_tables_header(ranges, s_ranges, python_version, unicodedata_version):
     L.append("//                           93efa2f097d58c2a74874c7e644dbc9b0cee75a2, sha256-pinned")
     L.append("//                           and contract-verified by the generator before use")
     L.append("//")
-    L.append("// Full hash record (tokenizer.json, generator, and all three generated")
-    L.append("// headers) is recorded in docs/OrcEngine/DECISION_LOG.md OE-ADR-033, not")
-    L.append("// embedded in this file (a file must not carry its own hash).")
+    L.append("// Full hash record (tokenizer.json, generator, and all 5 generated headers")
+    L.append("// -- this file plus the fixture/byte-alphabet/encode headers) is recorded in")
+    L.append("// docs/OrcEngine/DECISION_LOG.md OE-ADR-033/OE-ADR-034, not embedded in this")
+    L.append("// file (a file must not carry its own hash).")
     L.append("//")
     L.append("// L (\\p{L}) / N (\\p{N}) candidate ranges: Unicode General Category")
     L.append("// L*(Lu,Ll,Lt,Lm,Lo) / N*(Nd,Nl,No), computed from the unicodedata version")

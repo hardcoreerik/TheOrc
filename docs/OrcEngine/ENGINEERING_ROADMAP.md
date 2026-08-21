@@ -250,7 +250,9 @@ The GPT-2 byte alphabet and the oracle's counterintuitive
 `encode_special_tokens` polarity were established empirically, not
 assumed. `test_encode` matches a 386-entry oracle fixture corpus
 (including exhaustive 17×17 CONTROL-adjacency coverage) plus a
-256-entry byte-alphabet cross-check: 1,182/1,182 checks, 0 failures,
+256-entry check comparing an independently reconstructed reference
+byte-to-codepoint table against the oracle-generated one (not a direct
+comparison against the production table): 1,182/1,182 checks, 0 failures,
 across Debug/Release/strict/ASan. Matches the pinned oracle across that
 corpus and the described cases; exhaustive equivalence is not claimed.
 Decoding and frozen-engine integration remain unimplemented. See

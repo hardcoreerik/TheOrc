@@ -518,7 +518,7 @@ head-equivalence fixture with no `tokenizer.ggml.*` metadata, and its
 rejection is a required, passing test outcome, not a gap. Three
 independent test contracts (synthetic, explicit real-artifact positive,
 legacy tied-artifact expected-rejection) are all clean across
-Debug/Release/strict/ASan (synthetic 136/136; the other two contracts
+Debug/Release/strict/ASan (synthetic 142/142; the other two contracts
 pass in full) -- no registered Phase 5B test intentionally fails. The
 same day, Stage 2A (`DECISION_LOG.md` OE-ADR-032) implemented exact
 native pretokenization (`pretokenize.cpp`), reproducing the pinned
@@ -549,7 +549,9 @@ and the oracle's counterintuitive `encode_special_tokens` polarity
 them as ordinary text) were both established empirically before being
 relied on. `test_encode` matches a 386-entry oracle fixture corpus
 (including exhaustive 17x17 CONTROL-adjacency coverage) plus a
-256-entry byte-alphabet cross-check: 1,182/1,182 checks, 0 failures,
+256-entry check comparing an independently reconstructed reference
+byte-to-codepoint table against the oracle-generated one (not a direct
+comparison against the production table): 1,182/1,182 checks, 0 failures,
 across Debug/Release/strict/ASan. Matches the pinned oracle across that
 corpus and the described cases; exhaustive equivalence is not claimed.
 Decoding, streaming decode, model execution, chat templates, and
@@ -558,7 +560,7 @@ is not complete, accepted as a finished implementation, or frozen. The
 llama.cpp secondary-oracle comparison remains an outstanding validation
 dependency, required before Phase 5B can be considered complete or
 frozen. Full detail in `DECISION_LOG.md`
-OE-ADR-029/OE-ADR-030/OE-ADR-031/OE-ADR-032/OE-ADR-033/OE-ADR-034,
+OE-ADR-029/OE-ADR-030/OE-ADR-031/OE-ADR-032/OE-ADR-033/OE-ADR-034/OE-ADR-035,
 `PHASE5A_KV_CACHE_SPEC.md`'s current status sections, and
 `PHASE5B_TOKENIZER_SPEC.md` (status: implementation in progress,
 Stage 1 + Stage 2A + Stage 2B complete).
@@ -588,7 +590,7 @@ execution, chat templates, and frozen-engine integration remain
 unimplemented. The llama.cpp secondary-oracle comparison remains
 the sole outstanding validation dependency before Phase 5B can be
 considered complete or frozen. See `DECISION_LOG.md` OE-ADR-022 through
-OE-ADR-034 for the full record.
+OE-ADR-035 for the full record.
 
 ## How to update this document
 

@@ -29,11 +29,19 @@ void check(bool cond, const std::string& name) {
     if (!cond) ++g_failures;
 }
 
-// GPT-2's closed-form byte_encoder, reconstructed independently here (not
-// including tokenizer.cpp's internal table) purely to compile-time-cross-
-// check against the oracle-generated table below -- this is the "direct
-// test proving all 256 mapping entries agree with the pinned oracle"
-// requirement, kept separate from production code's own copy.
+// GPT-2's closed-form byte_encoder, reconstructed independently HERE from
+// the published algorithm -- NOT by calling into tokenizer.cpp's own
+// kByteToCodepoint (that table is private to tokenizer.cpp's anonymous
+// namespace and is not reachable from this test binary at all). What this
+// check actually proves: an independent reconstruction of the closed-form
+// algorithm matches the oracle-generated table (kOracleByteToCodepoint,
+// built from tokenizers==0.22.2 in generate_pretok_tables.py) at all 256
+// entries. It does NOT execute or directly compare tokenizer.cpp's own
+// production array; that array uses the identical published construction
+// (same source values, verified by inspection when written) but is not
+// itself invoked by this test. Widening the public API to expose it purely
+// for this comparison was judged unnecessary architecture for what the
+// closed-form algorithm's determinism already gives high confidence in.
 uint32_t reference_byte_to_codepoint(unsigned int byte) {
     static const auto table = [] {
         std::array<uint32_t, 256> t{};
@@ -64,7 +72,7 @@ int main(int argc, char** argv) {
     }
 
     try {
-        std::printf("=== Phase 5B Stage 2B: byte-alphabet cross-check ===\n");
+        std::printf("=== Phase 5B Stage 2B: independent byte-alphabet reconstruction vs. oracle table ===\n");
         int byte_mismatches = 0;
         for (int b = 0; b < 256; ++b) {
             const uint32_t expected = pretok_fixtures::kOracleByteToCodepoint[b];
@@ -72,7 +80,8 @@ int main(int argc, char** argv) {
             if (expected != got) ++byte_mismatches;
         }
         check(byte_mismatches == 0,
-              "all 256 byte-to-codepoint entries agree with the oracle-generated table");
+              "all 256 independently-reconstructed entries agree with the oracle-generated table "
+              "(does not directly execute tokenizer.cpp's own production table)");
 
         std::printf("\n=== Loading canonical explicit tokenizer profile ===\n");
         const TokenizerProfile profile = load_tokenizer_profile(argv[1]);
@@ -153,22 +162,33 @@ int main(int argc, char** argv) {
 
         {
             // Invalid UTF-8 must reject the ENTIRE operation -- no partial
-            // ID vector, an explicit exception, for both modes.
+            // ID vector -- with EXACTLY PretokenizeError (the input-dependent
+            // UTF-8 boundary), for both modes. EncodingError (or any other
+            // exception type) is a FAILURE here: it would mean invalid input
+            // is being misreported as an internal encoding-invariant
+            // violation rather than the input problem it actually is.
             for (std::size_t i = 0; i < pretok_fixtures::kInvalidUtf8CaseCount; ++i) {
                 const auto& c = pretok_fixtures::kInvalidUtf8Cases[i];
                 for (SpecialTokenMode mode :
                      {SpecialTokenMode::LiteralText, SpecialTokenMode::RecognizeControlTokens}) {
                     bool threw = false;
+                    bool right_type = false;
                     try {
                         std::vector<int64_t> ids = profile.encode(c.bytes, mode);
                         (void)ids;
                     } catch (const PretokenizeError&) {
                         threw = true;
+                        right_type = true;
                     } catch (const std::exception&) {
                         threw = true;
+                        right_type = false;
                     }
-                    check(threw, std::string("invalid UTF-8 '") + c.id + "' rejects the whole operation (mode=" +
-                                     (mode == SpecialTokenMode::LiteralText ? "A" : "B") + ")");
+                    const std::string mode_label = mode == SpecialTokenMode::LiteralText ? "A" : "B";
+                    check(threw, std::string("invalid UTF-8 '") + c.id + "' throws (mode=" + mode_label + ")");
+                    check(right_type, std::string("invalid UTF-8 '") + c.id +
+                                           "' throws exactly PretokenizeError, not EncodingError or any other "
+                                           "type (mode=" +
+                                           mode_label + ")");
                 }
             }
         }
