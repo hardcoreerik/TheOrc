@@ -35,3 +35,20 @@ target_compile_options(test_tokenizer_metadata PRIVATE
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
 )
 add_test(NAME tokenizer_metadata COMMAND test_tokenizer_metadata)
+
+# Real-artifact test (Correction 1, closure pass): reuses the SAME
+# ORCENGINE_REAL_F32_GGUF / ORCENGINE_REAL_TIED_F32_GGUF cache variables
+# Phase 2's own CMakeLists.txt already declares (visible here because
+# add_subdirectory(phase2) above has already run) -- matching the existing
+# OrcEngine convention of reusing one variable name across phases rather
+# than inventing Phase-5B-specific names or baking in machine-specific
+# absolute paths. Registered ONLY when BOTH are configured, since the
+# explicit/tied identity comparison requires both real artifacts.
+if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_TIED_F32_GGUF)
+    message(STATUS "Phase 5B Stage 1 real-artifact test: REGISTERED")
+    add_test(NAME tokenizer_metadata_real
+        COMMAND test_tokenizer_metadata "${ORCENGINE_REAL_F32_GGUF}" "${ORCENGINE_REAL_TIED_F32_GGUF}")
+else()
+    message(STATUS "Phase 5B Stage 1 real-artifact test: SKIPPED -- "
+                    "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_TIED_F32_GGUF not configured")
+endif()

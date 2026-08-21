@@ -30,6 +30,28 @@ llama.cpp secondary-oracle comparison (Section 9's availability
 note) — that remains an outstanding validation dependency before Phase
 5B can be considered complete or frozen.
 
+**Stage 1 closure-correction pass: 2026-08-20, same day.** Real pinned
+GGUF artifacts now exercised (not synthetic metadata only); merge-
+result (concatenation) validation added and confirmed against real
+metadata before being enforced; adversarial tests now verify exception
+type and diagnostic content, not merely "some exception was thrown";
+two tautological `check(true, ...)` runtime passes removed. **Real
+finding, not a Phase 5B defect:** `smollm2-135m-tied.gguf` has zero
+`tokenizer.ggml.*` metadata keys (15 architecture-only fields vs. the
+explicit artifact's 24) — `load_tokenizer_profile` correctly rejects
+it with `GgufError`, and the explicit-vs-tied identity comparison this
+document originally required is reported as an honest, understood
+failure, not fabricated as a pass. This is a property of the existing,
+committed tied artifact, not something this pass may fix (modifying or
+regenerating that artifact is out of scope here) — it is a new,
+explicit blocker for the "explicit and tied produce identical tables"
+requirement, separate from the llama.cpp secondary-oracle gap, pending
+a maintainer decision on how to proceed (e.g. reconverting the tied
+artifact with tokenizer metadata in a later pass). The explicit
+artifact fully validates. Honest executable check count as of this
+pass: 136 (synthetic-only invocation) / 149 (with both real GGUF
+paths, of which 2 are the tied-artifact finding above).
+
 ## 1. Authority and baseline
 
 Phase 5B begins from `orcengine-phase5a-freeze` (annotated tag). The
@@ -604,9 +626,9 @@ implementation must prove:
 
 ## 16. Deliverables
 
-Future implementation deliverables, defined narrowly but **not
-created by the specification-drafting/acceptance passes this section
-was originally written during**:
+Future implementation deliverables, defined narrowly. None of these
+existed when this section was first drafted; status is annotated per
+item below as later stages deliver them:
 
 - One concrete native tokenizer component — **Stage 1 delivered
   2026-08-20**: `Tools/OrcEnginePhase5B/` constructs and validates the
@@ -615,13 +637,16 @@ was originally written during**:
 - One focused test executable, or the smallest existing test target
   that fits, for the golden-fixture and adversarial comparisons —
   **Stage 1 delivered a metadata-construction test executable**
-  (`test_tokenizer_metadata`, 53 checks); the golden-fixture/adversarial
-  *encode/decode* comparisons this bullet also describes remain
-  unimplemented, since encoding/decoding do not exist yet.
+  (`test_tokenizer_metadata`, 136 checks synthetic-only / 149 with both
+  real GGUF paths); the golden-fixture/adversarial *encode/decode*
+  comparisons this bullet also describes remain unimplemented, since
+  encoding/decoding do not exist yet.
 - Reused golden fixtures (Section 9) — not recreated; not yet exercised
   (no encode/decode to run them against)
 - Targeted malformed-metadata tests (Section 8, 10) — **Stage 1
-  delivered these** (38 adversarial cases in `test_tokenizer_metadata`)
+  delivered these** (41 adversarial cases × 3 checks each -- throws,
+  correct exception type, diagnostic fragment -- in
+  `test_tokenizer_metadata`)
 - One frozen-engine integration test (Section 11) — not implemented;
   requires encode/decode to exist first
 - Documentation evidence — this section and Section 17
@@ -643,14 +668,17 @@ including the outstanding llama.cpp secondary-oracle comparison, remain
 unsatisfied until implementation exists and is validated against them.
 **Updated again 2026-08-20:** Stage 1 (native GGUF tokenizer-metadata
 construction and fail-closed validation, `Tools/OrcEnginePhase5B/`) has
-been implemented and targeted-validated (Debug/Release/strict/ASan, all
-clean). Stage 1 constructs and validates tables only -- text encoding,
-BPE merge execution, pretokenization, decoding, streaming, and
-frozen-engine integration are separate, not-yet-authorized stages.
-Section 14's acceptance criteria remain unsatisfied. Phase 5B is not
-complete, accepted as a finished implementation, or frozen. Phase 5C
-remains prohibited until Phase 5B is separately accepted (as an
-implementation, not just this specification) and frozen.
+been implemented and targeted-validated (Debug/Release/strict/ASan;
+synthetic metadata clean in all four lanes, 136/136; real-artifact runs
+147/149, with the 2 failures being the honestly-reported tied-GGUF
+metadata gap described above, not a Phase 5B code defect). Stage 1
+constructs and validates tables only -- text encoding, BPE merge
+execution, pretokenization, decoding, streaming, and frozen-engine
+integration are separate, not-yet-authorized stages. Section 14's
+acceptance criteria remain unsatisfied. Phase 5B is not complete,
+accepted as a finished implementation, or frozen. Phase 5C remains
+prohibited until Phase 5B is separately accepted (as an implementation,
+not just this specification) and frozen.
 
 ## 18. Decision register
 

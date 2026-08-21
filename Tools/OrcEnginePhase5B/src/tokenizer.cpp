@@ -175,6 +175,20 @@ TokenizerProfile TokenizerProfile::from_gguf_metadata(const GgufArtifact& artifa
                                          "]'s right component '" + right +
                                          "' cannot be resolved against the vocabulary");
         }
+        // The merged RESULT (concatenation, no separator) must also exist in the
+        // vocabulary and resolve unambiguously to a token ID. Confirmed empirically
+        // against both real pinned GGUF artifacts (explicit and tied) before adding
+        // this check: all 48,900 real merges satisfy left+right -- exists in vocab
+        // with zero exceptions, so this is enforced as a hard invariant, not a
+        // best-effort heuristic.
+        const std::string merged = left + right;
+        const auto merged_it = vocab_set.find(merged);
+        if (merged_it == vocab_set.end()) {
+            throw TokenizerMetadataError("tokenizer.ggml.merges[" + std::to_string(i) +
+                                         "]'s merged result '" + merged +
+                                         "' (from left '" + left + "' + right '" + right +
+                                         "') does not exist in tokenizer.ggml.tokens");
+        }
         if (!merge_set.insert(merge).second) {
             throw TokenizerMetadataError("tokenizer.ggml.merges contains a duplicate or ambiguous entry: '" +
                                          merge + "' (index " + std::to_string(i) + ")");

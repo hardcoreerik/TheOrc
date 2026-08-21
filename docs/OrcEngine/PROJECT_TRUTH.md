@@ -510,16 +510,21 @@ maintainer subsequently approved that specification for implementation
 the same day, including all seven previously-unresolved policy
 decisions (`DECISION_LOG.md` OE-ADR-030). Stage 1 (native GGUF
 tokenizer-metadata construction and fail-closed validation,
-`Tools/OrcEnginePhase5B/`) was implemented and targeted-validated the
-same day (Debug/Release/strict/ASan clean). Encoding, decoding, and
+`Tools/OrcEnginePhase5B/`) was implemented and closure-corrected the
+same day, targeted-validated against both synthetic metadata and the
+real pinned GGUF artifacts (Debug/Release/strict/ASan: synthetic
+136/136 clean in all four lanes; real-artifact runs 147/149, the 2
+failures being an honestly-reported real finding -- `smollm2-135m-
+tied.gguf` has zero `tokenizer.ggml.*` metadata keys, not a Phase 5B
+defect -- rather than a fabricated pass). Encoding, decoding, and
 frozen-engine integration are NOT implemented -- Phase 5B is not
 complete, accepted as a finished implementation, or frozen. The
-llama.cpp secondary-oracle comparison remains an outstanding
-validation dependency, required before Phase 5B can be considered
-complete or frozen. Full detail in `DECISION_LOG.md`
-OE-ADR-029/OE-ADR-030, `PHASE5A_KV_CACHE_SPEC.md`'s current status
-sections, and `PHASE5B_TOKENIZER_SPEC.md` (status: implementation in
-progress, Stage 1 complete).
+llama.cpp secondary-oracle comparison and the tied-GGUF metadata gap
+both remain outstanding validation dependencies, required before Phase
+5B can be considered complete or frozen. Full detail in
+`DECISION_LOG.md` OE-ADR-029/OE-ADR-030, `PHASE5A_KV_CACHE_SPEC.md`'s
+current status sections, and `PHASE5B_TOKENIZER_SPEC.md` (status:
+implementation in progress, Stage 1 complete and closure-corrected).
 
 ## Current blockers
 
@@ -533,11 +538,13 @@ recorded, accepted gaps, not blockers. Phase 5B is the next separately
 gated sub-phase; its specification was accepted for implementation
 2026-08-20 (`PHASE5B_TOKENIZER_SPEC.md`; `DECISION_LOG.md` OE-ADR-030)
 and Stage 1 (metadata construction and validation) was implemented and
-targeted-validated the same day -- encoding, decoding, and
-frozen-engine integration remain unimplemented, and the llama.cpp
-secondary-oracle comparison remains an outstanding validation
-dependency before Phase 5B can be considered complete or frozen. See
-`DECISION_LOG.md` OE-ADR-022 through OE-ADR-030 for the full record.
+closure-corrected the same day -- encoding, decoding, and
+frozen-engine integration remain unimplemented. The llama.cpp
+secondary-oracle comparison and a newly-discovered gap (the tied GGUF
+artifact has no tokenizer metadata at all) both remain outstanding
+validation dependencies before Phase 5B can be considered complete or
+frozen. See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-030 for the
+full record.
 
 ## How to update this document
 
