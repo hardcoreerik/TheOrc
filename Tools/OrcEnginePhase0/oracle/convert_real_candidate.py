@@ -61,8 +61,8 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def _load_config() -> dict:
-    with open(os.path.join(SOURCE_DIR, "config.json"), encoding="utf-8") as f:
+def _load_config(source_dir: str | None = None) -> dict:
+    with open(os.path.join(source_dir or SOURCE_DIR, "config.json"), encoding="utf-8") as f:
         return json.load(f)
 
 

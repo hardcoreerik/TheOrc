@@ -1,6 +1,6 @@
 # OrcEngine documentation index
 
-> Status: documentation foundation only
+> Status: Phase 3 frozen; Phase 4 implemented and self-reviewed, awaiting independent freeze review
 >
 > Product posture: experimental backend candidate; not a replacement for the current production/default runtime
 >
@@ -10,7 +10,10 @@
 
 OrcEngine is the working name for a from-scratch model inference engine developed for TheOrc. “From scratch” means OrcEngine would own model-format interpretation, tensor execution, model graphs, tokenization, cache state, and decoding. It may initially use established operating-system, BLAS, or CUDA libraries, but it must not disguise LLamaSharp, llama.cpp, Ollama, or another complete inference engine behind a new name.
 
-This directory is a reviewable research and design corpus, not an implementation claim. No OrcEngine source code, runnable engine, supported model, performance result, or integration exists merely because these documents exist.
+This directory contains both the original design corpus and verified Phase-1/2
+implementation evidence. Documentation alone remains non-evidence: current
+implementation claims are limited to the frozen commits, commands, artifacts,
+and measurements recorded in Project Truth. No production integration exists.
 
 ## Truth labels
 
@@ -37,8 +40,14 @@ Every document should distinguish these states:
 8. [Phase 0 Reference Oracle](PHASE_0_REFERENCE_ORACLE.md)
 9. [Phase 0 Architecture Profile](PHASE_0_ARCHITECTURE_PROFILE.md)
 10. [Phase 0 Acceptance Contract](PHASE_0_ACCEPTANCE.yaml)
-11. Technical-design documents in pipeline order
-12. Verification, risk, security, licensing, and review documents
+11. [Phase 1 Implementation](PHASE1_IMPLEMENTATION.md)
+12. [Phase 2 GGUF Implementation](PHASE2_GGUF_IMPLEMENTATION.md)
+13. [Phase 2 Freeze Hardening](PHASE2_FREEZE_HARDENING.md)
+14. [Phase 3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md)
+15. [Phase 3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md)
+16. [Phase 4 Bookend Virtualization](PHASE4_BOOKEND_VIRTUALIZATION.md)
+17. Technical-design documents in pipeline order
+18. Verification, risk, security, licensing, and review documents
 
 ## Document index
 
@@ -55,6 +64,12 @@ Every document should distinguish these states:
 | [Phase 0 Reference Oracle](PHASE_0_REFERENCE_ORACLE.md) | Correctness foundation | Deterministic comparison methodology. |
 | [Phase 0 Architecture Profile](PHASE_0_ARCHITECTURE_PROFILE.md) | Executable semantics | Exact synthetic model mathematics and pinned real-model candidate. |
 | [Phase 0 Acceptance Contract](PHASE_0_ACCEPTANCE.yaml) | Machine-readable gate | Required Phase 0 evidence; missing or skipped checks fail. |
+| [Phase 1 Implementation](PHASE1_IMPLEMENTATION.md) | Frozen implementation evidence | Synthetic F32 core, differential, decode, residency, and hardening results. |
+| [Phase 2 GGUF Implementation](PHASE2_GGUF_IMPLEMENTATION.md) | Frozen implementation evidence | Real GGUF ingestion, F32 execution, artifacts, and support boundary. |
+| [Phase 2 Freeze Hardening](PHASE2_FREEZE_HARDENING.md) | Freeze evidence | Independent closure tests, matrix, re-attack, and limitations. |
+| [Phase 3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md) | Proposed phase gate | Real-model layer-streaming mission, baseline, risks, metrics, and completion gates. |
+| [Phase 3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md) | Freeze evidence | Controlled budget, format-neutral source, observer, persistent timing, cross-freeze differential, and final matrix. |
+| [Phase 4 Bookend Virtualization](PHASE4_BOOKEND_VIRTUALIZATION.md) | Candidate implementation evidence | Logical row regions, sparse embedding access, chunked output projection, real-model residency, adversarial tests, and reproduction commands. |
 | [Model Format and GGUF](MODEL_FORMAT_AND_GGUF.md) | Model ingestion | File parsing, validation, tensor mapping, and compatibility posture. |
 | [Tensor Engine Design](TENSOR_ENGINE_DESIGN.md) | Compute core | Tensor representation, operators, allocation, and graph execution. |
 | [CPU Backend Design](CPU_BACKEND_DESIGN.md) | CPU execution | Reference kernels, threading, SIMD, and optimization gates. |

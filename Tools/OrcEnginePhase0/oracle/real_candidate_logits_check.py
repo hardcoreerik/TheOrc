@@ -56,15 +56,22 @@ TOP_K_FOR_TOLERANCE = 3
 LOGPROB_ATOL = 0.2
 
 
-def load_real_weights() -> tuple[ModelWeights, ModelConfig]:
-    config_json = _load_config()
+def load_real_weights(source_dir: str | None = None) -> tuple[ModelWeights, ModelConfig]:
+    """Loads the pinned real candidate's weights directly from its Hugging
+    Face source directory. Defaults to the in-repo SOURCE_DIR (the
+    conventional Tools/OrcEnginePhase0/artifacts/smollm2-135m location) for
+    backward compatibility; pass an explicit source_dir to load from any
+    other location -- e.g. a different worktree's artifacts directory --
+    without requiring the caller to be inside that worktree or to symlink/
+    junction the directory into place first."""
+    config_json = _load_config(source_dir)
     hidden = config_json["hidden_size"]
     n_layers = config_json["num_hidden_layers"]
     intermediate = config_json["intermediate_size"]
     n_heads = config_json["num_attention_heads"]
     n_kv_heads = config_json["num_key_value_heads"]
 
-    safetensors_path = os.path.join(SOURCE_DIR, "model.safetensors")
+    safetensors_path = os.path.join(source_dir or SOURCE_DIR, "model.safetensors")
     with safe_open(safetensors_path, framework="pt") as f:
         def get(name: str) -> np.ndarray:
             return f.get_tensor(name).to(dtype=torch.float32).numpy()

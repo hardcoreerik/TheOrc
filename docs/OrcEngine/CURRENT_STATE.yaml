@@ -1,38 +1,230 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-08-15"
+  date: "2026-08-20"
   timezone: America/Los_Angeles
-  repository: "F:\\Ai\\OrchestratorIDE-dev"
-  branch: feat/orcengine-phase0
-  verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
-  pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
-  native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
-  native_runtime_fix_branch_head: 198f5db8
-  native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
+  # Three distinct authorities -- do not conflate. "repository"/"branch" below
+  # point at whichever worktree is CURRENTLY ACTIVE for the work this file is
+  # describing (Phase 5B specification drafting, as of this update); it is
+  # not the frozen parent and not the shipped product baseline.
+  repository: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
+  branch: feat/orcengine-phase5b-tokenizer
+  # phase5a_base_authority: the frozen tag/commit this Phase 5B worktree was
+  # forked from (git worktree add ... orcengine-phase5a-freeze). Distinct
+  # from frozen_parent below, which is Phase 5A's OWN frozen parent (Phase
+  # 4) -- this records Phase 5B's immediate base, one level further in.
+  phase5a_base_authority:
+    tag: orcengine-phase5a-freeze
+    commit: db3e5f38b37e6b342e28e6d208737ab8288b0c05
+  # active_worktree_head removed 2026-08-19: a static field claiming to be
+  # the "current" HEAD is falsified the instant the commit that updates it
+  # lands, and a repository search found no consumer of the old field. Git
+  # HEAD on `branch` above remains the live authority for current state.
+  # This instead records the HEAD an independent review actually evaluated
+  # -- a durable fact that does not self-invalidate on the next commit.
+  last_independently_reviewed_head: af2dc59b
+  frozen_parent:
+    description: >-
+      The immutable, independently-reviewed Phase-4 result Phase 5A forks
+      from and must remain compatible with. Never advances except by a new
+      formal freeze of a later phase.
+    tag: orcengine-phase4-freeze
+    commit: 944f07b86428ec53d46ca19dc66c3d0d5b1e207d
+    repository: "F:\\Ai\\OrchestratorIDE-phase4-bookend-virtualization"
+    branch: feat/orcengine-phase4-bookend-virtualization
+  product_baseline:
+    description: >-
+      TheOrc product's own integration state -- unrelated to OrcEngine's
+      research branches, tracked separately, not advanced by OrcEngine work.
+    verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
+    pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
+    native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
+    native_runtime_fix_branch_head: 198f5db8
+    native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_0_complete_phase_1_not_started
-  implementation_exists: false
-  runnable_engine_exists: false
+  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_specification_drafting_started_2026_08_20_implementation_not_started_not_authorized
+  implementation_exists: true
+  phase1_cpp_reference_core: implemented
+  phase1_differential_tests_passing: true
+  phase1_autoregressive_decode_proven: true
+  phase1_accumulation_semantic: f32_deliberate_default_f64_comparison_only
+  phase1_metamorphic_residency_tests_passing: true
+  phase1_fixture_completeness_enforced: true
+  phase1_model_validation_enforced: true
+  phase1_ctest_registered_total: 7
+  phase1_freeze_commit: b27bc9323b89b9151c811c30d41145bb672a2943
+  phase1_freeze_tag: orcengine-phase1-freeze
+  real_model_loading: implemented_for_f32_dense_llama_reference_only
+  gguf_parser: implemented_v3_little_endian_strict_bounded
+  gguf_real_model_mapping: implemented_for_dense_llama
+  gguf_quantized_indexing: implemented_for_selected_ggml_encodings
+  gguf_quantized_execution: not_implemented
+  gguf_beyond_4gib_indexing_proven: true_sparse_synthetic_64bit_extent
+  gguf_real_tied_output_execution_proven: true_bit_identical_to_explicit_head
+  gguf_independent_hf_pytorch_differential_passing: true
+  gguf_metadata_key_policy: strict_canonical_hierarchical_lower_snake_case
+  phase2_freeze_verdict: accept_for_phase_2_freeze
+  phase2_freeze_commit: b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7
+  phase2_freeze_tag: orcengine-phase2-freeze
+  phase2_freeze_tag_remote_verified: true
+  phase2_completed_date: "2026-08-16"
+  phase3_specification: PHASE3_WORKING_SET_SPEC.md
+  phase3_implementation_started: true
+  phase3_working_set_implemented: true
+  phase3_full_streamed_bit_identical: true
+  phase3_real_four_step_sequence: "1,5,28,284,260,198"
+  phase3_explicit_peak_weight_bytes: 240655104
+  phase3_tied_peak_weight_bytes: 127408896
+  phase3_freeze_verdict: accepted_frozen
+  phase3_freeze_commit: 98dbcf1f370a93574da32dc02ebdcfeff8a60b3d
+  phase3_freeze_tag: orcengine-phase3-freeze
+  phase4_bookend_virtualization_implemented: true
+  phase4_row_region_materialization_format_neutral: true
+  phase4_arbitrary_region_slicing: not_implemented
+  phase4_real_four_step_sequence: "1,5,28,284,260,198"
+  phase4_explicit_peak_weight_bytes: 14162688
+  phase4_tied_peak_weight_bytes: 14162688
+  phase4_peak_condition: output_chunk_rows_le_6146_for_this_model
+  phase4_test_count_is_configuration_dependent: true
+  phase4_hf_source_dir_override_supported: true
+  phase4_row_region_observer_failure_specifically_tested: true
+  phase4_freeze_verdict: frozen_2026_08_18
+  phase4_freeze_tag: orcengine-phase4-freeze
+  phase4_freeze_commit: 944f07b86428ec53d46ca19dc66c3d0d5b1e207d
+  phase5a_kv_cache_status: accepted_and_formally_frozen_by_maintainer_2026_08_20
+  # phase5a_freeze_commit is intentionally omitted -- the same self-reference
+  # problem as the removed active_worktree_head field: a commit cannot
+  # truthfully contain its own hash. orcengine-phase5a-freeze is the durable
+  # authority; verify its peeled target with `git rev-list -n 1
+  # orcengine-phase5a-freeze` rather than trusting a hash recorded here.
+  phase5a_freeze_tag: orcengine-phase5a-freeze
+  phase5a_freeze_verdict: accepted_and_frozen_by_maintainer_2026_08_20
+  phase5a_branch: feat/orcengine-phase5a-kv-cache
+  phase5a_branch_push: not_done
+  phase5a_synthetic_differential: bit_exact_all_9_steps
+  phase5a_fault_injection_cases_passing: 86_check_assertions_2026_08_19_grep_derived_across_test_cache_position_safety_test_real_cache_attacks_test_virtualized_cache_attacks_test_real_composed_evidence_cpp
+  phase5a_real_model_validation: done_debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_plus_8_of_8_confirmed_by_direct_invocation_see_validation_matrix_composed_post_closure_and_DECISION_LOG_OE_ADR_028
+  phase5a_gate_item_15_backing_io_granularity: accepted_bounded_partial_run_level_measured_not_per_step
+  phase5a_optional_real_gguf_resident_ledger_assertion: deferred_future_strengthening_not_a_freeze_blocker
+  # Phase 5B specification accepted for implementation 2026-08-20
+  # (maintainer approved all seven previously-unresolved policy
+  # decisions; see DECISION_LOG.md OE-ADR-030). Implementation has NOT
+  # started -- specification acceptance is not implementation
+  # completion. The llama.cpp secondary-oracle comparison remains an
+  # outstanding validation dependency, required before Phase 5B can be
+  # considered complete or frozen, not before implementation may begin.
+  # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
+  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_closure_corrected_and_green_lane_classified_2026_08_20_stage2a_exact_native_pretokenization_complete_and_oracle_validated_2026_08_20_encode_bpe_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
+  phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
+  phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
+  phase5b_tied_artifact_classification_decision: DECISION_LOG.md OE-ADR-031
+  phase5b_stage2a_pretokenization_decision: DECISION_LOG.md OE-ADR-032
+  phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
+  phase5b_branch: feat/orcengine-phase5b-tokenizer
+  phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
+  cuda_backend: not_implemented
+  quantization: indexing_only_no_materialization_or_compute
+  paged_execution: research_only
+  production_theorc_integration: not_implemented
+  runnable_engine_exists: true_reference_cli_only
   theorc_integration_exists: false
   production_ready: false
   default_runtime: false
   experimental_backend_available: false
   ablation_diagnostic_tooling_exists: true
   streaming_oversized_model_execution_proven: true
+  fringe_lab_exists: true
   summary: >-
+    Phase 3 is frozen at 98dbcf1f under orcengine-phase3-freeze. Phase 4 is
+    FORMALLY FROZEN as of 2026-08-18 (OE-ADR-024) at 944f07b8 under the
+    immutable pushed annotated tag orcengine-phase4-freeze, remote-verified.
+    Independent review (OE-ADR-022, ACCEPT WITH FIXES) and self-validated
+    closure (OE-ADR-023) preceded the freeze; no engine defect was found at
+    any point. Phase 5 (practical CPU inference semantics) is now assigned
+    and IN PROGRESS as 5A (KV-cached incremental decode reference) on a new
+    worktree/branch; old Phase 5 (quantization) renumbered to Phase 6 -- see
+    OE-ADR-024 for the full chronology and renumbering table. Logical row
+    regions supply unique embedding rows and output
+    chunks while preserving Phase-3 layer streaming. Explicit and tied real
+    artifacts are bit-identical to frozen Phase 3 across six chunk sizes and
+    four generated steps, and match Hugging Face/PyTorch. Measured peak is
+    14,162,688 bytes for both artifacts CONDITIONAL on output_chunk_rows
+    staying at or below 6,146 rows for this model (all six tested chunk sizes
+    qualify) -- found during independent review (adversarial Grok pass,
+    confirmed against streaming.cpp): a documentation-precision correction,
+    not a code defect, since the residency budget check correctly enforces
+    whatever limit is configured for any chunk size. Frozen Phase 3 rejects
+    that budget, Phase 4 succeeds exactly there for the tested range, and
+    peak-minus-one rejects. Independent review reproduced: 12/12 deterministic
+    tests (Debug and Release, no real-artifact options), 20/20 real-artifact
+    Release campaign (after a directory-junction workaround for a known
+    pre-existing Phase-2 oracle path issue, same fix Phase 3's own hardening
+    report already documents), 12/12 strict /W4 /WX /permissive- lane. ASan
+    not independently re-run. See PHASE4_BOOKEND_VIRTUALIZATION.md for
+    corrected evidence.
+
+    Phase 2 is implemented and freeze-hardened on feat/orcengine-phase2-gguf. The
+    strict GGUF v3 reader indexes real file-backed
+    tensor extents without loading payloads, maps one dense Llama profile into semantic
+    tensors, materializes F32 and F16-to-F32 only, and executes a converted real
+    SmolLM2-135M through the unchanged Phase-1 operators. Direct Hugging Face/PyTorch,
+    the Phase-0 oracle, explicit-output GGUF execution, and tied-output GGUF execution
+    generated [1, 5, 28, 284, 260, 198] identically, with all compared elements
+    satisfying the declared 1e-3 absolute-or-relative gate; tied and explicit artifacts
+    were bit-identical in logits and taps. A sparse synthetic tensor beyond 4 GiB proves
+    the default cap is configurable policy and that extent arithmetic remains 64-bit. A real
+    mixed-quantized SmolLM2-360M artifact indexes and cross-checks exactly against
+    gguf-py but is deliberately not executable. Debug 14/14, Release 14/14, strict
+    /W4 /WX 10/10, and ASan 11/11 lanes pass with explicit exclusions documented in
+    PHASE2_FREEZE_HARDENING.md. No CUDA, quantized compute, tokenizer, paging, or
+    product integration exists.
+
     Phase 0 (deterministic reference oracle) is COMPLETE as of 2026-08-15: all 14
     required checks in PHASE_0_ACCEPTANCE.yaml read pass, and the maintainer
     (hardcoreerik) approved the bounded product-value thesis (OE-ADR-016) as written.
     This proves the oracle/comparison methodology is correct against hand-derived
     ground truth, an independently-written second implementation, a pinned llama.cpp
     deployment oracle, and the real HuggingFace reference implementation for the real-
-    model candidate (SmolLM2-135M) -- it does NOT mean an OrcEngine tensor-execution
-    engine exists. Zero engine code has been written; only Python oracle/test code
-    (Tools/OrcEnginePhase0/). Existing TheOrc runtime paths remain authoritative and
-    unchanged. Phase 1 (tiny synthetic float32 CPU transformer, C++20) is the next
-    unblocked phase per ENGINEERING_ROADMAP.md and has NOT started.
+    model candidate (SmolLM2-135M).
+
+    Phase 1 (tiny synthetic float32 CPU transformer, C++20) is IMPLEMENTED as of
+    2026-08-15 on branch feat/orcengine-phase1 (worktree
+    F:/Ai/OrchestratorIDE-phase1), based on feat/orcengine-phase0's tip. A real,
+    dependency-free C++ project (Tools/OrcEnginePhase1/) reuses Phase 0's Fixture C
+    dimensions, implements every operator in one transformer block, and its
+    differential test harness passes every intermediate tap plus final logits plus
+    greedy argmax against Python-oracle-exported fixtures (tied AND untied lm_head),
+    with measured divergence at float32 machine-epsilon scale (~1e-7), four orders of
+    magnitude inside the 1e-3 acceptance threshold. The harness was verified to
+    actually catch injected faults, not just pass trivially. This is still a
+    synthetic-fixture-only reference core: it does NOT load GGUF, does NOT execute a
+    real model, has NO CUDA/quantization/batching, and has NO TheOrc product
+    integration. Existing TheOrc runtime paths remain authoritative and unchanged.
+    Per the steering document's explicit instruction, Phase 1 stopped for review at
+    that checkpoint and was subsequently accepted and frozen. See
+    PHASE1_IMPLEMENTATION.md for full detail.
+
+    On 2026-08-16 the independent Codex freeze review's confirmed findings were
+    hardened into executable regressions. The gate now requires 36 structural
+    expectations per fixture (72 total), decode tolerances and positive step work
+    are enforced, malformed models fail through central validation before forward
+    math, all six F32/F64 variants are registered with CTest, and the storage test
+    now materializes every weight from retained in-memory F32Raw BackingExtents.
+    This remains a narrow synthetic reference proof, not GGUF or production support.
+
+    A separate, explicitly non-architectural research track ("Fringe Lab",
+    research/orcengine-fringe-lab) also exists as of 2026-08-15, testing
+    unconventional memory/execution assumptions in isolation from both Phase 0
+    and Phase 1: chunked lm_head streaming (both in-RAM NumPy slicing and, as a
+    freeze-audit follow-up, real disk seek()/read() I/O against the real local
+    Meta-Llama-3.1-8B output head -- exact argmax held at every chunk size down
+    to single-row reads, though the disk-bandwidth-bound cost is still unmeasured
+    due to a warm page cache) and cache-policy simulation across 5 execution
+    shapes (single-context decode, staggered multi-context, MoE routing,
+    speculative verification) -- finding NextUse's advantage over LRU is real but
+    regime-dependent, not universal. See FRINGE_LAB.md.
+    Nothing from it has been promoted into OrcEngine architecture.
 
     Since Phase 0 closed, the same session extended the fault-injection suite into
     ablation-study diagnostic tooling (oracle/ablation_sweep*.py) and, while making that
@@ -59,6 +251,94 @@ status:
     0 failed on the full C# suite), and pushed to fix/native-runtime-grammar-and-admission --
     a separate branch off master, not merged into feat/orcengine-phase0, pending maintainer
     review/merge.
+
+    Phase 5A (KV-cached incremental decode reference, feat/orcengine-phase5a-kv-cache)
+    is implemented, composed with Phase 3/4's virtualized streaming path (Reference
+    Path C, OE-ADR-027), and real-model validated. A 2026-08-18 independent review
+    (OE-ADR-028) found 11 findings against the composition candidate; all are closed
+    with new/hardened tests. The registered CTest suite grew from 18 to 30 tests. Full
+    four-lane validation matrix against the closure HEAD: Debug 30/30, Release 30/30,
+    strict (/W4 /WX /permissive- /EHsc) 30/30 zero warnings. MSVC ASan is reported as
+    an honest split, not a clean CTest pass: CTest itself reports 22/30 with 8 timeouts
+    and exit code 8 (inherited 300-900s TIMEOUT properties in frozen Phase 2/3
+    CMakeLists.txt, exceeded by ASan's ~28-40x real-model slowdown, not a correctness
+    defect); those same 8 exact invocations were confirmed by direct invocation outside
+    CTest's timeout mechanism, all exit 0 with no ASan diagnostic. See DECISION_LOG.md
+    OE-ADR-028 for the full per-test evidence table. A follow-up 2026-08-19 Grok
+    full+adversary freeze review against af2dc59b found 1 BLOCKER (this file's own
+    top-level fields, being corrected in this same pass), 3 FIX-BEFORE-FREEZE items
+    (a CMake environment-fallback ordering bug, now fixed; two closure-record wording
+    corrections), and 2 OPTIONAL strengthening opportunities, none of which reopen any
+    of the 11 original findings. All confirmed BLOCKER and FIX-BEFORE-FREEZE findings
+    were resolved in subsequent bounded commits, and focused diff reviews of those
+    corrections came back clean. On 2026-08-20 the maintainer explicitly approved Phase
+    5A for formal local freeze; Phase 5A is now ACCEPTED AND FROZEN under the annotated
+    tag orcengine-phase5a-freeze (see DECISION_LOG.md OE-ADR-029). Gate item 15
+    (per-step backing-I/O granularity) remains an accepted, explicitly bounded partial;
+    the optional real-GGUF resident-ledger duplicate assertion remains deferred future
+    strengthening, not a freeze blocker. The tag and branch remain local and have not
+    been pushed. Phase 5B specification drafting started 2026-08-20 on
+    feat/orcengine-phase5b-tokenizer (forked from the freeze tag via a
+    separate worktree); the maintainer subsequently approved that
+    specification for implementation the same day, including all seven
+    previously-unresolved policy decisions (see DECISION_LOG.md
+    OE-ADR-030). Phase 5B implementation Stage 1 (native GGUF
+    tokenizer-metadata construction and fail-closed validation,
+    Tools/OrcEnginePhase5B/) was implemented 2026-08-20 and closure-
+    corrected the same day: real pinned GGUF artifacts now exercised
+    (not synthetic-only), merge-result concatenation validated,
+    adversarial tests verify exception type and diagnostic content, and
+    two tautological runtime checks removed. The closure-correction pass
+    surfaced that smollm2-135m-tied.gguf has zero tokenizer.ggml.*
+    metadata keys, leaving an open artifact-classification question. On
+    the same day the maintainer resolved it (DECISION_LOG.md OE-ADR-031):
+    smollm2-135m.gguf is the canonical, positive, tokenizer-bearing Phase
+    5B artifact; smollm2-135m-tied.gguf is a frozen legacy tensor/
+    output-head-equivalence fixture, not a positive tokenizer-bearing
+    artifact, and its missing metadata is now a REQUIRED fail-closed
+    rejection case, not a temporary gap. Explicit-vs-tied tokenizer-table
+    equality -- never part of the specification accepted at commit
+    83083145 -- was removed as a requirement. test_tokenizer_metadata now
+    exposes three independent contracts, each registered and run
+    separately (tokenizer_metadata, tokenizer_metadata_real_explicit,
+    tokenizer_metadata_legacy_tied_rejection). Targeted-validated across
+    Debug/Release/strict/ASan: all three contracts pass in every lane --
+    the synthetic suite (136/136 checks), the canonical explicit
+    real-artifact positive suite, and the legacy tied-artifact
+    expected-rejection suite. No registered Phase 5B test intentionally
+    fails. Stage 1 constructs and validates tables only. Same day,
+    Stage 2A (DECISION_LOG.md OE-ADR-032) implemented exact native
+    pretokenization (Tools/OrcEnginePhase5B/src/pretokenize.cpp),
+    reproducing the pinned Digits(individual_digits=true)->
+    ByteLevel(add_prefix_space=false, trim_offsets=true, use_regex=true)
+    sequence and producing pretoken byte-range boundaries only (no
+    byte-to-Unicode mapping, no BPE, no token IDs). Classification
+    tables (\p{L}/\p{N}/\s) were generated from Python's unicodedata and
+    then validated against the live tokenizers==0.22.2 oracle: 2,831
+    range-boundary probes plus a 4,974-codepoint seeded random sample
+    found 0 mismatches after correcting one discovered gap (Python
+    str.isspace() incorrectly includes U+001C-U+001F, which the oracle
+    does not treat as whitespace); a further 565-probe check confirmed
+    the Digits stage's isolation predicate is identical to the \p{N}
+    table. test_pretokenize compares the scanner byte-for-byte against a
+    63-entry oracle-derived fixture corpus plus 8 invalid-UTF-8
+    rejection cases: 209/209 checks pass, 0 failures, across
+    Debug/Release/strict/ASan. Matches the pinned oracle across the
+    63-entry corpus, all generated category boundaries, and the
+    recorded seeded sample; exhaustive equivalence over every possible
+    Unicode string is not claimed. The generator was subsequently
+    hardened (DECISION_LOG.md OE-ADR-033): fail-closed on the installed
+    tokenizers version and on the supplied tokenizer.json's
+    SHA-256/declared contract, no hard-coded machine-specific path, a
+    read-only --check mode, and the complete provenance hash record.
+    Encode (token-ID production), BPE
+    merge execution, byte-to-Unicode mapping, decode, streaming, and
+    frozen-engine integration are NOT implemented. Phase 5B is NOT
+    complete, accepted as a finished implementation, or frozen. The
+    llama.cpp secondary-oracle comparison remains an outstanding
+    validation dependency required before Phase 5B can be considered
+    complete or frozen. Phase 5C remains deferred and
+    unauthorized.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source
@@ -159,6 +439,13 @@ decisions:
       LayerIntervention architectural correction (ablation = execution intervention on
       immutable shared weights, not N-times weight cloning) and the true-streaming
       oversized-model proof (Llama-3.1-8B, 3.17GB peak VRAM).
+  - id: OE-ADR-020
+    state: scope_accepted_implemented_pending_freeze_review
+    summary: >-
+      Phase 2 is formally frozen at b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7
+      under orcengine-phase2-freeze. Reconcile the old roadmap by defining Phase 3
+      as a no-cache, one-layer-at-a-time real-GGUF working-set reference; defer
+      tokenizer, KV cache, optimization, quantization, CUDA, and generic planning.
 
 phases:
   - id: D0
@@ -170,32 +457,265 @@ phases:
     state: complete
     implementation: test_and_research_only
     completed_date: "2026-08-15"
+    hardened_date: "2026-08-16"
     completion_note: >-
       All 14 PHASE_0_ACCEPTANCE.yaml checks pass; OE-ADR-016 product-value
       thesis accepted by maintainer. See PHASE_0_ACCEPTANCE.yaml phase_result
       and DECISION_LOG.md for full evidence trail.
   - id: 1
     name: tiny_synthetic_float32_cpu_transformer
-    state: not_started
+    state: accepted_frozen
+    implementation: cpp20_cmake_reference_core
+    completed_date: "2026-08-15"
+    completion_note: >-
+      Tools/OrcEnginePhase1/ (branch feat/orcengine-phase1, worktree
+      F:/Ai/OrchestratorIDE-phase1). Zero external dependencies. Reuses Phase 0
+      Fixture C dimensions. All operators implemented; differential harness
+      (tests/test_gates.cpp) passes every intermediate tap, final logits, and
+      greedy argmax against Python-oracle-exported tied and untied fixtures at
+      float32 machine-epsilon divergence (~1e-7 vs 1e-3 threshold). Harness
+      verified to catch injected faults, not just pass trivially. Freeze audit
+      (same day) added: true autoregressive 8-step greedy decode matching an
+      independently-computed Python trace token-for-token; a deliberate F32-
+      vs-F64 accumulation A/B (F32 selected as default, F64 kept only as a
+      comparison build -- F64 is marginally more precise but not materially
+      necessary); confirmation that activation values were already a distinct
+      type from ResidentView (naming/doc gap closed, not a real bug); and
+      three bit-exact metamorphic tests. The 2026-08-16 hardening pass replaced
+      the original resident-vector-only claim with a real in-memory F32Raw
+      BackingExtent materialization path covering every weight, retained the tied
+      alias-vs-physically-separate-duplicate proof, added exact 72-expectation
+      completeness and malformed-model regression gates, and registered all six
+      F32/F64 executables plus one regression suite (7 CTest cases). This state was
+      accepted and frozen before Phase 2 began. See PHASE1_IMPLEMENTATION.md.
   - id: 2
-    name: strict_gguf_reader_and_inspector
-    state: not_started
+    name: strict_gguf_ingestion_and_real_f32_reference
+    state: complete_frozen
+    implementation: cpp20_strict_gguf_v3_dense_llama_reference
+    completed_date: "2026-08-16"
+    freeze_commit: b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7
+    freeze_tag: orcengine-phase2-freeze
+    review_verdict: accept_for_phase_2_freeze
+    completion_note: >-
+      Real Q4 mixed-encoding GGUF indexed and cross-checked exactly against gguf-py;
+      real converted F32 SmolLM2-135M mapped 273/273 tensors and executed through the
+      frozen Phase-1 core for four greedy steps with exact tokens and tolerance-clean
+      taps/logits. F32 and F16-to-F32 materialization only. See
+      PHASE2_GGUF_IMPLEMENTATION.md.
   - id: 3
-    name: real_model_float32_cpu_inference
-    state: not_started
+    name: real_model_streaming_working_set_reference
+    state: complete_frozen
+    implementation: cpp20_one_layer_at_a_time_no_cache_reference
+    specification: PHASE3_WORKING_SET_SPEC.md
+    implementation_report: PHASE3_WORKING_SET_IMPLEMENTATION.md
+    freeze_hardening_report: PHASE3_FREEZE_HARDENING.md
+    mission: determine_minimum_practical_real_gguf_backed_resident_working_set
+    first_strategy: one_layer_at_a_time_no_cache
+    completed_date: "2026-08-16"
+    completion_note: >-
+      ACCEPT FOR PHASE-3 FREEZE. Immutable pushed annotated tag
+      orcengine-phase3-freeze peels to 98dbcf1f370a93574da32dc02ebdcfeff8a60b3d.
+      Both real explicit and tied SmolLM2-135M artifacts execute layer-at-a-time
+      from Phase-2 BackingExtent reads with bit-identical taps/logits/tokens
+      against full materialization, plus a controlled residency-budget proof
+      and a format-neutral (non-GGUF) ModelSource/TensorMaterializer seam. See
+      PHASE3_FREEZE_HARDENING.md for the full re-attack and validation matrix.
   - id: 4
-    name: cpu_usability_baseline
-    state: not_started
+    name: bookend_row_region_virtualization
+    state: accepted_frozen
+    implementation: cpp20_logical_row_region_materialization
+    specification: PHASE3_WORKING_SET_SPEC.md
+    implementation_report: PHASE4_BOOKEND_VIRTUALIZATION.md
+    freeze_review_decision: OE-ADR-022
+    freeze_hygiene_closure: OE-ADR-023
+    formal_freeze_decision: OE-ADR-024
+    completed_date: "2026-08-18"
+    freeze_tag: orcengine-phase4-freeze
+    freeze_commit: 944f07b86428ec53d46ca19dc66c3d0d5b1e207d
+    mission: determine_whether_retained_embedding_output_bookends_can_be_row_virtualized
+    note: >-
+      Originally planned as "practical CPU inference semantics and usability
+      baseline" (tokenizer, KV cache, BLAS -- see PHASE3_WORKING_SET_SPEC.md
+      section 15). Retargeted after Phase-3 freeze measurement showed retained
+      embedding/output bookends were ~88-94% of the remaining weight-residency
+      peak (240,655,104 explicit / 127,408,896 tied bytes, largest layer only
+      14,160,384 bytes). See OE-ADR-021 for the full evidence-driven roadmap-
+      correction record. The originally planned scope (tokenizer, KV cache,
+      BLAS) is not abandoned, only deferred behind this measurement-driven
+      detour. Independent freeze review (2026-08-18, OE-ADR-022) verdict is
+      ACCEPT WITH FIXES: code, correctness, format-neutrality, F16 support,
+      tied semantics, and observer behavior were all independently reproduced
+      and hold; one real documentation overclaim was found (the headline
+      14,162,688-byte peak is conditional on output_chunk_rows <= 6,146 for
+      this model, not an unconditional property) and corrected in place.
+      Freeze-hygiene closure (same day, OE-ADR-023) then resolved three
+      residual items: the 12/12-vs-13/13 test-count question was root-caused
+      to a CMake option difference (both prior reports correct, no defect,
+      verified by building both configurations plus a combined 21/21); a
+      recurring hardcoded HF-source-path assumption was fixed narrowly and
+      proven working from an external worktree with no directory junction;
+      and a test-coverage gap (throwing row-region observer never actually
+      reached row-region-specific code) was closed with a new focused test,
+      exposing no engine defect. ASan was independently rebuilt and re-run
+      against post-closure code. FORMALLY FROZEN 2026-08-18 (OE-ADR-024):
+      immutable annotated tag orcengine-phase4-freeze pushed to origin,
+      peels exactly to 944f07b86428ec53d46ca19dc66c3d0d5b1e207d, verified
+      both locally and on the remote. Branch pushed, not merged to master.
   - id: 5
+    name: practical_cpu_inference_semantics
+    state: in_progress
+    decision: OE-ADR-024
+    phase5a_status:
+      lifecycle_summary: >-
+        composition_with_phase4_implemented_and_verified_equivalent_independent_review_completed_maintainer_approved_and_formally_frozen_2026_08_20
+      worktree: "F:\\Ai\\OrchestratorIDE-phase5a-kv-cache"
+      branch: feat/orcengine-phase5a-kv-cache
+      head: 0a80477d
+      synthetic_fixture_c_gate: complete_passing
+      real_model_validation: complete_passing
+      real_model_pinned: HuggingFaceTB/SmolLM2-135M
+      four_way_differential_status: passing
+      four_way_differential_note: >-
+        OrcEngine full-prefix vs OrcEngine cached vs HF/PyTorch full-prefix vs
+        HF/PyTorch native cached (independently constructed); all agree on
+        [1,5,28,284,260,198]; cpp_full_vs_hf_full max_abs=0.00104618 matches
+        historical Phase 2/3/4 evidence (0.00104618073) almost exactly.
+      real_fault_attack_status: passing_11_of_11
+      real_fault_attack_note: >-
+        Real 9Q/3KV GQA corruption, RoPE position deltas (-1/+1/reset-to-0),
+        exact 8192-token capacity boundary, cross-context isolation.
+        See tests/test_real_cache_attacks.cpp.
+      transactional_failure_status: passing_6_of_6
+      transactional_failure_note: >-
+        Poisoned-in-place on mid-step NaN fault, current_length() confirmed
+        unchanged, retry at same position overwrites poison and reproduces
+        baseline bit-exactly. See tests/test_transactional_semantics.cpp.
+      kv_bytes_per_token: 46080
+      kv_bytes_per_token_derivation: n_layers(30) * n_kv_heads(3) * head_dim(64) * 2 * sizeof(float)
+      kv_reserved_bytes_eager: 377487360
+      kv_reserved_bytes_note: >-
+        Empirically confirmed via a measured ~377.5 MiB process working-set
+        jump at ContiguousAttentionKVStore construction, matching the derived
+        value almost exactly, not just established by code inspection.
+      phase4_composition_status: implemented_and_verified_equivalent
+      phase4_composition_note: >-
+        OE-ADR-027 (2026-08-18): VirtualizedCachedModel (Reference Path C)
+        implemented using Phase 3/4's own public ModelSource/
+        TensorMaterializer/TensorRowRegionMaterializer/ResidencyLedger
+        contracts (no frozen file modified). Proven bit-identical to the
+        fully-resident reference (Path B, retained as a semantic oracle
+        per OE-ADR-026) on synthetic Fixture C (9/9 steps) and the real
+        SmolLM2-135M model (4/4 steps), and bit-identical to frozen
+        Phase-4's own virtualized full-prefix (Path A) on the real model
+        too. peak_resident_weight_bytes measured at 14,162,688 bytes,
+        matching Phase 4's documented frozen peak exactly -- not merely
+        close to it. peak_active_layers==1 confirmed at every step, and
+        the underlying ResidencyLedger::enter_layer guard directly proven
+        to reject a second concurrently-resident layer (non-vacuity
+        attack), not just assumed correct.
+      real_kv_numeric_cross_check: passing_5_of_5
+      real_kv_numeric_cross_check_note: >-
+        HF DynamicCache (independently constructed) vs Reference Path C
+        cache dumps at layer 0/15/29, multiple KV heads, prompt + incremental
+        positions; max_abs 1e-7 to 2.4e-5, well inside 1e-3 tolerance.
+      backing_io_finding: >-
+        MEASURED (not assumed): transformer-layer weight backing bytes read
+        are effectively IDENTICAL between frozen Phase-4 full-prefix and
+        Reference Path C cached decode over the same run -- caching reduces
+        attention computation but does NOT reduce weight-reread-per-token
+        under the current virtualized architecture. Embedding backing bytes
+        ARE measurably reduced by caching (5 vs 14 row materializations on
+        the same 4-step real run).
+      composed_kv_weight_crossover_tokens: 308
+      composed_kv_weight_crossover_note: >-
+        ceil(14162688 / 46080), from Reference Path C's own measured peak,
+        not a hypothetical -- numerically coincides with OE-ADR-025's
+        earlier hypothetical estimate because composition succeeded in
+        matching Phase 4's actual residency architecture.
+      validation_matrix_composed_pre_closure: debug_18_18_release_18_18_strict_18_18_zero_warnings_asan_18_18_zero_findings
+      validation_matrix_composed_post_closure: debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_exit_8_timeout_plus_8_of_8_confirmed_by_direct_invocation_exit_0_elapsed_1387_to_5232s_zero_asan_diagnostics_ctest_exit_code_correctly_nonzero_not_reported_as_green_see_OE_ADR_028_for_per_test_table_reconfirmed_against_c89e7801
+      freeze_closure_pass: >-
+        2026-08-18, OE-ADR-028: independent review (grok-review skill, full +
+        adversary) of candidate 7c046121 returned ACCEPT WITH FIXES, 11
+        findings (P5A-RVW-001..011). All CRITICAL (002 cache position/commit
+        safety, 004 5-way gate under-enforcement, 006 real Path C absent from
+        CTest) and MAJOR (001 ambiguous ADR wording, 003 fail-closed parity,
+        005 KV oracle completeness, 011 one-sided materialization assertion)
+        findings closed with new/hardened tests and re-run evidence; MINOR
+        007 (tied real-model coverage) and 009 (reverse B/C independence)
+        closed with new tests; MINOR 008 (stale docs) closed via superseded
+        annotations; MINOR 010 (materialization-failure residency assertion)
+        resolved by manual trace, no leak found. Validation matrix grew from
+        18 to 30 registered tests (added test_cache_position_safety,
+        test_real_composed_evidence x2 explicit/tied,
+        real_5way_composed_differential as an actual CTest). See
+        DECISION_LOG.md OE-ADR-028 and PHASE5A_KV_CACHE_SPEC.md's
+        "Freeze-closure pass results" section for full per-finding evidence.
+      active_gate_status: accepted_and_formally_frozen_by_maintainer_2026_08_20_see_OE_ADR_029
+      proposed_verdict: ACCEPTED_AND_FROZEN_BY_MAINTAINER_2026_08_20_no_longer_a_proposal
+      independent_review: full_plus_adversary_review_completed_against_af2dc59b_1_blocker_and_3_fix_before_freeze_findings_resolved_2_optional_deferred_focused_diff_review_clean_see_DECISION_LOG_OE_ADR_028
+      freeze_tag: orcengine-phase5a-freeze
+      branch_push: not_done
+    note: >-
+      Renumbered/assigned 2026-08-18 (OE-ADR-024) -- the phase number
+      OE-ADR-021 deferred pending Phase-4 independent review. Umbrella over
+      three separately-gated sub-phases per the explicit instruction not to
+      bundle differently-risked items into one phase: 5A (KV-cached
+      incremental decode reference, IMPLEMENTED on
+      feat/orcengine-phase5a-kv-cache -- prefill + 8-step synthetic Fixture-C
+      differential is bit-exact at every step (max_abs_diff=0.000000) against
+      an independently-computed Python trace, cache content independently
+      verified (not just logits), all 6 required fault-injection cases
+      (wrong position, stale reuse, swapped K/V, corrupted shared GQA head,
+      mask-boundary consistency, cache non-leakage) and 2 failure-semantics
+      cases pass, Debug/Release/strict/ASan all clean. 2026-08-18 real-model
+      composition-audit pass (VERIFIED, runtime-observed): 4-way differential
+      against real pinned SmolLM2-135M (OrcEngine full/cached vs HF/PyTorch
+      full/native-cached) all agree on [1,5,28,284,260,198], matching
+      historical Phase 2/3/4 tolerance evidence; real 9Q/3KV GQA, real RoPE
+      position, real 8192-token capacity boundary, and cross-context
+      isolation fault attacks all pass (11/11); transactional failure
+      semantics (poisoned-in-place, protected by current_length()
+      accounting boundary, safe to retry) proven (6/6); KV bytes/token
+      (46,080) independently derived and empirically confirmed via a
+      measured ~377.5 MiB process working-set jump at cache allocation;
+      full Debug/Release/strict/ASan matrix 13/13 clean. REJECTED-SUPERSEDED
+      finding: Phase 5A does NOT compose with Phase 3/4's streaming/
+      row-region virtualization (requires a fully-resident Model, bypasses
+      ModelSource/TensorRowRegionMaterializer/layer lifecycle entirely) --
+      correctness is proven, bounded-residency composition is not. Per
+      OE-ADR-026 (2026-08-18): Phase 5A will NOT freeze as a correctness-only
+      fully-resident implementation. The fully-resident cached path is
+      RETAINED (not deleted) as a semantic oracle; a virtualized-cached
+      target implementation composing persistent KV state with Phase-4's
+      transient per-layer weight materialization is now the active
+      completion gate, per PHASE5A_KV_CACHE_SPEC.md's "Active Phase-5A
+      completion gate after real-model audit" section. No
+      orcengine-phase5a-freeze tag exists, branch unpushed. See
+      DECISION_LOG.md OE-ADR-025/OE-ADR-026 and phase5a_status above for
+      current, queryable state. 5B
+      (tokenizer/text-token boundary, not yet specified), 5C (bounded
+      activation workspace + prompt/decode benchmarking, not yet specified).
+      Old "Phase 5 -- Initial quantization" heading (last touched 2026-07-31,
+      predates Phase 3/4 and OE-ADR-021) renumbered to Phase 6 -- no
+      technical dependency requires quantization to follow this phase, only
+      a risk-reduction ordering choice; see OE-ADR-024 for the full
+      chronology reconstruction and renumbering table.
+  - id: 6
     name: initial_quantization
     state: not_started
-  - id: 6A
+    note: >-
+      Renumbered from "Phase 5" (2026-08-18, OE-ADR-024) after Phase 5 was
+      assigned to practical CPU inference semantics. Content unchanged
+      (Q8_0 reference dequantization, then direct Q8, then Q4_0).
+  - id: 7A
     name: resident_cuda_correctness_baseline
     state: not_started
     note: >-
-      Formerly "Phase 6"; renumbered 6A because oversized-model evidence (see below)
+      Formerly "Phase 6", then "Phase 6A"; renumbered 7A 2026-08-18 (OE-ADR-024)
+      after Phase 5's insertion. Originally renumbered 6A because oversized-model evidence (see below)
       showed full-residency CUDA cannot be the only supported CUDA execution mode.
-  - id: 6B
+  - id: 7B
     name: execution_planner_explicit_residency_model
     state: not_started
     note: >-
@@ -204,7 +724,7 @@ phases:
       ARCHITECTURE.md) and an ExecutionPlanner boundary distinct from TheOrc's own
       OrcScheduler, BEFORE paged/streamed CUDA is attempted -- so 6C doesn't retrofit
       residency semantics onto types that assumed permanent residency.
-  - id: 6C
+  - id: 7C
     name: paged_streamed_cuda_proof
     state: not_started
     note: >-
@@ -212,14 +732,14 @@ phases:
       Python (oracle/gguf_streaming_loader.py: Meta-Llama-3.1-8B ran at 3.17GB peak VRAM
       by never materializing the whole model) in the actual C++/CUDA engine, not just
       the Python research harness.
-  - id: 6D
+  - id: 7D
     name: compressed_transport_and_advanced_paging_research
     state: not_started
     note: >-
       Explicitly experimental/research per the steering doc -- separate source/transport/
       resident/compute precision, tensor/tile-level paging, ablation-informed
       quantization bit allocation. Allowed to fail; not a Phase 1 blocker.
-  - id: 7
+  - id: 8
     name: stable_native_api_and_managed_wrapper
     state: not_started
     note: >-
@@ -227,10 +747,10 @@ phases:
       paged/nonresident execution has exercised the model/context/storage contracts, or
       the ABI bakes in a full-residency worldview the project's own evidence has already
       disproven. See OE-ADR-019 and Infinite_Model_Runtime_Claude_Handoff.md section 21.
-  - id: 8
+  - id: 9
     name: experimental_theorc_backend
     state: not_started
-  - id: 9
+  - id: 10
     name: agent_native_experiments
     state: not_started
 
@@ -314,20 +834,25 @@ document_inventory:
   roadmap: ENGINEERING_ROADMAP.md
   decision_log: DECISION_LOG.md
   open_questions: OPEN_QUESTIONS.md
+  phase2_freeze_report: PHASE2_FREEZE_HARDENING.md
+  phase3_specification: PHASE3_WORKING_SET_SPEC.md
+  phase3_implementation_report: PHASE3_WORKING_SET_IMPLEMENTATION.md
+  phase4_implementation_report: PHASE4_BOOKEND_VIRTUALIZATION.md
 
 next_action:
-  state: phase_1_not_started
+  state: phase_4_independent_freeze_review
   summary: >-
-    Phase 0 is complete (2026-08-15) -- all 14 acceptance checks pass, product-value
-    thesis accepted. Phase 1 (tiny synthetic float32 CPU transformer, C++20, per
-    ENGINEERING_ROADMAP.md) is the next unblocked phase and has NOT started: zero
-    C++ engine code exists anywhere in this repository. Phase 1's own definition of
-    done (every operator against hand-calculated/differential cases, layer taps
-    within tolerance, cache/non-cache agreement, leak/sanitizer clean, one deliberate
-    transpose breaks the comparison) applies -- do not improvise past it.
+    Adversarially review feat/orcengine-phase4-bookend-virtualization and
+    PHASE4_BOOKEND_VIRTUALIZATION.md. Do not freeze Phase 4 or start the next
+    phase until that review accepts the code and evidence. Quantized kernels,
+    CUDA, paging, tokenizer work, KV cache, cache/prefetch, and product
+    integration remain deferred.
   phase2_prep_started: true
   phase2_prep_note: Tools/OrcEnginePhase0/phase2_prep/ -- malformed-GGUF conformance corpus (test/fixture work only, no parser)
   phase3_prep_started: true
-  phase3_prep_note: Tools/OrcEnginePhase0/phase3_prep/ -- tokenizer golden-fixture corpus (test/fixture work only)
+  phase3_prep_note: >-
+    Tools/OrcEnginePhase0/phase3_prep/ contains tokenizer golden fixtures from
+    the older roadmap. They are preserved but are no longer part of proposed
+    Phase 3; tokenizer work moves to Phase 4 if the new roadmap is accepted.
   phase4_prep_started: true
   phase4_prep_note: Tools/OrcEnginePhase0/phase4_prep/ -- benchmark record schema (test/spec work only)
