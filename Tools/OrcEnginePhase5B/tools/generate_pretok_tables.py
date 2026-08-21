@@ -150,6 +150,8 @@ RAW_PROMPT_MANIFEST = SCRIPT_DIR / "../../OrcEnginePhase0/artifacts/raw_prompt_i
 OUT_TABLES_HPP = SCRIPT_DIR / "../include/orcengine/pretok_tables.hpp"
 OUT_FIXTURES_HPP = SCRIPT_DIR / "../tests/pretok_oracle_fixtures.hpp"
 OUT_INVALID_HPP = SCRIPT_DIR / "../tests/pretok_invalid_utf8.hpp"
+OUT_BYTE_ALPHABET_HPP = SCRIPT_DIR / "../tests/byte_alphabet_oracle.hpp"
+OUT_ENCODE_HPP = SCRIPT_DIR / "../tests/encode_oracle_fixtures.hpp"
 
 SEED = 20260820  # fixed for reproducibility; see report for corpus size
 
@@ -477,6 +479,210 @@ INVALID_UTF8_CASES = {
 
 
 # ---------------------------------------------------------------------------
+# Stage 2B: GPT-2 byte-to-Unicode alphabet oracle fixture.
+#
+# The mapping is the well-known closed-form GPT-2 byte_encoder: bytes in
+# [33,126] union [161,172] union [174,255] map to themselves; the remaining
+# 68 "unprintable" byte values map to 256+n in ascending byte-value order.
+# This is reconstructed here independently and then cross-checked against
+# the live oracle's tokenizers.pre_tokenizers.ByteLevel.alphabet() (exact
+# 256-member SET equality) and, for every byte value reachable through
+# valid UTF-8 (ASCII 0x00-0x7F directly; 0x80-0xBF as continuation bytes;
+# 0xC2-0xF4 as multi-byte lead bytes), a DIRECT per-byte mapped-character
+# check against ByteLevel.pre_tokenize_str() -- not merely the alphabet
+# set. See docs/OrcEngine/DECISION_LOG.md OE-ADR-034 for the full
+# methodology and result counts.
+# ---------------------------------------------------------------------------
+
+def build_byte_to_unicode():
+    bs = list(range(ord("!"), ord("~") + 1)) + list(range(0xA1, 0xAD)) + list(range(0xAE, 0x100))
+    cs = bs[:]
+    n = 0
+    for b in range(256):
+        if b not in bs:
+            bs.append(b)
+            cs.append(256 + n)
+            n += 1
+    return dict(zip(bs, cs))
+
+
+def verify_byte_to_unicode(b2u):
+    """Returns (ok: bool, details: list[str]) -- see module docstring above
+    this function's caller for the exact methodology."""
+    details = []
+    alphabet_set = set(ByteLevel.alphabet())
+    our_set = set(chr(v) for v in b2u.values())
+    if alphabet_set != our_set:
+        details.append(f"alphabet SET mismatch: missing={alphabet_set - our_set} extra={our_set - alphabet_set}")
+
+    def solo_mapped(s):
+        return "".join(p for p, _ in bl.pre_tokenize_str(s))
+
+    # ASCII 0x00-0x7F: single-byte UTF-8, direct.
+    for b in range(0, 128):
+        mapped = solo_mapped(chr(b))
+        expected = chr(b2u[b])
+        if mapped != expected:
+            details.append(f"ASCII byte 0x{b:02X}: got={mapped!r} expected={expected!r}")
+
+    # Continuation bytes 0x80-0xBF: as the 2nd byte of U+0080..U+00BF (lead=0xC2).
+    for k in range(0x80, 0xC0):
+        mapped = solo_mapped(chr(k))
+        expected = chr(b2u[0xC2]) + chr(b2u[k])
+        if mapped != expected:
+            details.append(f"continuation byte 0x{k:02X}: got={mapped!r} expected={expected!r}")
+
+    # 2-byte lead bytes 0xC2-0xDF.
+    for lead in range(0xC2, 0xE0):
+        cp = (lead - 0xC0) << 6
+        mapped = solo_mapped(chr(cp))
+        expected = chr(b2u[lead]) + chr(b2u[0x80])
+        if mapped != expected:
+            details.append(f"2-byte lead 0x{lead:02X}: got={mapped!r} expected={expected!r}")
+
+    # 3-byte lead bytes 0xE0-0xEF (skip the surrogate-range construction for 0xED).
+    for lead in range(0xE0, 0xF0):
+        top4 = lead & 0x0F
+        mid6 = 0x20
+        cp = (top4 << 12) | (mid6 << 6)
+        if 0xD800 <= cp <= 0xDFFF:
+            mid6 = 0x00
+            cp = (top4 << 12) | (mid6 << 6)
+            if 0xD800 <= cp <= 0xDFFF:
+                continue
+        mapped = solo_mapped(chr(cp))
+        expected = chr(b2u[lead]) + chr(b2u[0x80 | mid6]) + chr(b2u[0x80])
+        if mapped != expected:
+            details.append(f"3-byte lead 0x{lead:02X}: got={mapped!r} expected={expected!r}")
+
+    # 4-byte lead bytes 0xF0-0xF4.
+    for lead in range(0xF0, 0xF5):
+        top3 = lead & 0x07
+        cp = (top3 << 18) | (0x10 << 12)
+        if not (0x10000 <= cp <= 0x10FFFF):
+            continue
+        mapped = solo_mapped(chr(cp))
+        expected = chr(b2u[lead]) + chr(b2u[0x90]) + chr(b2u[0x80]) + chr(b2u[0x80])
+        if mapped != expected:
+            details.append(f"4-byte lead 0x{lead:02X}: got={mapped!r} expected={expected!r}")
+
+    return (len(details) == 0), details
+
+
+# ---------------------------------------------------------------------------
+# Stage 2B: encode() oracle fixtures. The 17 CONTROL strings are hardcoded
+# HERE ONLY (as independent oracle-side test input) -- production C++ code
+# must derive its own CONTROL string/ID table from validated TokenizerProfile
+# metadata (tokens()/token_types()), never from a copy of this list.
+# ---------------------------------------------------------------------------
+
+CONTROL_STRINGS = [
+    "<|endoftext|>", "<|im_start|>", "<|im_end|>", "<repo_name>", "<reponame>",
+    "<file_sep>", "<filename>", "<gh_stars>", "<issue_start>", "<issue_comment>",
+    "<issue_closed>", "<jupyter_start>", "<jupyter_text>", "<jupyter_code>",
+    "<jupyter_output>", "<jupyter_script>", "<empty_output>",
+]
+
+
+def build_encode_corpus(tok):
+    """Mode A = oracle encode_special_tokens=True (literal text; the pinned
+    Phase 5B default). Mode B = oracle encode_special_tokens=False (the
+    oracle's OWN default; recognizes CONTROL strings). Verified empirically
+    against the live oracle before being encoded into this generator -- see
+    DECISION_LOG.md OE-ADR-034."""
+    corpus = []
+
+    def add(id_, text, mode):
+        tok.encode_special_tokens = (mode == "A")
+        ids = tok.encode(text).ids
+        # Determinism: re-encode and require identical ids.
+        tok.encode_special_tokens = (mode == "A")
+        ids2 = tok.encode(text).ids
+        assert ids == ids2, f"non-deterministic encode for {id_}/{mode}"
+        corpus.append({"id": id_, "mode": mode, "text": text, "ids": ids})
+
+    ascii_and_unicode_cases = [
+        ("empty", ""),
+        ("ascii_words", "Hello, world! This is a test: 123."),
+        ("ascii_punct_only", "!@#$%^&*()_+-=[]{}|;':\",./<>?"),
+        ("contractions", "don't isn't I've I'll I'm I'd we're can't"),
+        ("leading_ws", "   leading spaces"),
+        ("trailing_ws", "trailing spaces   "),
+        ("repeated_ws", "a    b     c"),
+        ("tabs", "a\tb\tc"),
+        ("lf", "line one\nline two"),
+        ("crlf", "line one\r\nline two"),
+        ("digit_long_run", "The year 20231231 was long: 999999999999"),
+        ("arabic_indic_digits", "١٢٣"),
+        ("fullwidth_digits", "１２３"),
+        ("non_ascii_latin", "café résumé naïve Zürich"),
+        ("non_ascii_cjk", "你好世界 こんにちは 한국어"),
+        ("emoji", "Hello \U0001F600 World \U0001F601\U0001F602"),
+        ("combining_marks", "é à ñ"),
+        ("embedded_nul", "before\x00after"),
+        ("special_token_lookalike", "text with <|endoftext|> inside and <|im_start|> too"),
+    ]
+    for id_, text in ascii_and_unicode_cases:
+        add(id_, text, "A")
+
+    # golden + raw-prompt fixtures, Mode A (both are ordinary user text by
+    # construction; none is expected to contain an intentional literal
+    # control-token spelling meant to be recognized).
+    gf = json.loads(GOLDEN_FIXTURES.read_text(encoding="utf-8"))
+    for f in gf["fixtures"]:
+        raw_repr = f.get("raw_text_repr") or f.get("original_text_repr")
+        if raw_repr is None:
+            continue
+        raw_text = ast.literal_eval(raw_repr)
+        add("golden__" + f["fixture_id"], raw_text, "A")
+
+    rp = json.loads(RAW_PROMPT_MANIFEST.read_text(encoding="utf-8"))
+    for r in rp["records"]:
+        add("rawprompt__" + r["fixture_id"], r["raw_text"], "A")
+
+    # Mode A: every CONTROL string alone must NOT collapse to its single ID.
+    for s in CONTROL_STRINGS:
+        add("modeA_control__" + s, s, "A")
+
+    # Mode B: every CONTROL string alone recognized to its exact ID.
+    for s in CONTROL_STRINGS:
+        add("modeB_control__" + s, s, "B")
+
+    # Mode B: adjacent CONTROL x CONTROL (all 17x17 pairs -- exhaustive,
+    # cheap, and the strongest possible precedence/overlap proof given none
+    # of the 17 strings is a literal prefix of another).
+    for a in CONTROL_STRINGS:
+        for b in CONTROL_STRINGS:
+            add(f"modeB_adjacent__{a}__{b}", a + b, "B")
+
+    # Mode B: partial spellings and case-changed lookalikes remain ordinary text.
+    for s in ["<|endoftext", "endoftext|>", "<|end", "<|im_star", "im_start|>",
+              "<|ENDOFTEXT|>", "<|EndOfText|>", "<REPO_NAME>", "<Repo_Name>"]:
+        add("modeB_nonmatch__" + s, s, "B")
+
+    # Mode B: mixed ordinary/control/ordinary, preserving exact order.
+    add("modeB_mixed_1", "abc <file_sep> def <gh_stars> ghi", "B")
+    add("modeB_mixed_2", "before <|endoftext|> after", "B")
+
+    # BPE-adversarial cases (see DECISION_LOG.md OE-ADR-034 for why each
+    # distinguishes correct ranked behavior from a plausible wrong one).
+    bpe_cases = [
+        ("bpe_no_merge_pretoken", "!"),
+        ("bpe_one_merge", "in"),
+        ("bpe_multi_sequential_merge", "unbelievably"),
+        ("bpe_repeated_adjacent_pair", "aaa"),
+        ("bpe_repeated_adjacent_pair_long", "aaaaaaaaaa"),
+        ("bpe_multi_simultaneous_pairs", "abcabc"),
+        ("bpe_competing_ranks", "wonderful transformation"),
+        ("bpe_long_bounded", "The quick brown fox jumps over the lazy dog. " * 4),
+    ]
+    for id_, text in bpe_cases:
+        add(id_, text, "A")
+
+    return corpus
+
+
+# ---------------------------------------------------------------------------
 # C++ header emission
 # ---------------------------------------------------------------------------
 
@@ -641,6 +847,99 @@ def emit_invalid_header(cases):
     return "\n".join(I)
 
 
+def emit_byte_alphabet_header(b2u):
+    B = []
+    B.append("// Copyright (C) 2025-present hardcoreerik / TheOrc contributors")
+    B.append("// SPDX-License-Identifier: AGPL-3.0-or-later")
+    B.append("//")
+    B.append("// GENERATED FILE -- do not hand-edit. Produced by")
+    B.append("// Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py.")
+    B.append("//")
+    B.append("// The 256-entry GPT-2 byte-to-Unicode-codepoint mapping, cross-checked")
+    B.append("// against the live tokenizers==0.22.2 oracle (ByteLevel.alphabet() set")
+    B.append("// equality plus a direct per-byte mapped-character check for every byte")
+    B.append("// value reachable through valid UTF-8). See DECISION_LOG.md OE-ADR-034.")
+    B.append("#pragma once")
+    B.append("")
+    B.append("#include <cstddef>")
+    B.append("#include <cstdint>")
+    B.append("")
+    B.append("namespace orcengine::pretok_fixtures {")
+    B.append("")
+    B.append("inline constexpr std::uint32_t kOracleByteToCodepoint[256] = {")
+    for i in range(0, 256, 16):
+        row = ", ".join(f"0x{b2u[b]:X}" for b in range(i, i + 16))
+        B.append(f"    {row},")
+    B.append("};")
+    B.append("")
+    B.append("}  // namespace orcengine::pretok_fixtures")
+    B.append("")
+    return "\n".join(B)
+
+
+def emit_encode_header(encode_fixtures):
+    E = []
+    E.append("// Copyright (C) 2025-present hardcoreerik / TheOrc contributors")
+    E.append("// SPDX-License-Identifier: AGPL-3.0-or-later")
+    E.append("//")
+    E.append("// GENERATED FILE -- do not hand-edit. Produced by")
+    E.append("// Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py.")
+    E.append("//")
+    E.append("// Stage 2B encode() oracle fixtures: exact token-ID sequences from the")
+    E.append("// real tokenizers==0.22.2 Tokenizer.encode(), loaded from the pinned")
+    E.append("// smollm2-135m/tokenizer.json (sha256- and contract-verified by the")
+    E.append("// generator before use -- see docs/OrcEngine/DECISION_LOG.md OE-ADR-034")
+    E.append("// for the full hash record). mode 'A' = oracle encode_special_tokens=True")
+    E.append("// (native LiteralText); mode 'B' = oracle encode_special_tokens=False,")
+    E.append("// the oracle's OWN default (native RecognizeControlTokens). Every entry")
+    E.append("// was computed twice and asserted identical before being written here.")
+    E.append(f"//   corpus size           : {len(encode_fixtures)}")
+    E.append("#pragma once")
+    E.append("")
+    E.append("#include <cstddef>")
+    E.append("#include <cstdint>")
+    E.append("#include <string_view>")
+    E.append("")
+    E.append("namespace orcengine::pretok_fixtures {")
+    E.append("")
+    E.append("struct EncodeFixture {")
+    E.append("    const char* id;")
+    E.append("    char mode;  // 'A' = LiteralText, 'B' = RecognizeControlTokens")
+    E.append("    std::string_view utf8;")
+    E.append("    const std::int64_t* ids;")
+    E.append("    std::size_t id_count;")
+    E.append("};")
+    E.append("")
+
+    id_arrays = []
+    entries = []
+    for i, e in enumerate(encode_fixtures):
+        arr_name = f"kIds_{i}"
+        ids = e["ids"]
+        if ids:
+            arr = f"inline constexpr std::int64_t {arr_name}[] = {{" + ", ".join(str(x) for x in ids) + "};"
+        else:
+            arr = f"inline constexpr std::int64_t* {arr_name} = nullptr;"
+        id_arrays.append(arr)
+        utf8 = e["text"].encode("utf-8")
+        lit = cpp_bytes_literal(utf8) if utf8 else '""'
+        safe_id = e["id"].replace("\\", "\\\\").replace('"', '\\"')
+        entries.append(
+            f'    {{"{safe_id}", \'{e["mode"]}\', std::string_view({lit}, {len(utf8)}), {arr_name}, {len(ids)}}},'
+        )
+
+    E.extend(id_arrays)
+    E.append("")
+    E.append("inline constexpr EncodeFixture kEncodeFixtures[] = {")
+    E.extend(entries)
+    E.append("};")
+    E.append(f"inline constexpr std::size_t kEncodeFixtureCount = {len(encode_fixtures)};")
+    E.append("")
+    E.append("}  // namespace orcengine::pretok_fixtures")
+    E.append("")
+    return "\n".join(E)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -693,14 +992,30 @@ def main():
     fixtures = build_corpus(tok)
     print(f"[{time.time()-t0:.2f}s] oracle fixture corpus: {len(fixtures)} entries")
 
+    b2u = build_byte_to_unicode()
+    byte_ok, byte_details = verify_byte_to_unicode(b2u)
+    print(f"[{time.time()-t0:.2f}s] byte-to-unicode verification: {'OK' if byte_ok else 'FAILED'}")
+    for d in byte_details:
+        print(f"    MISMATCH {d}")
+    if not byte_ok:
+        print("ABORTING: byte-to-unicode mismatches, not writing or checking headers.")
+        sys.exit(1)
+
+    encode_fixtures = build_encode_corpus(tok)
+    print(f"[{time.time()-t0:.2f}s] encode oracle fixture corpus: {len(encode_fixtures)} entries")
+
     tables_text = emit_tables_header(ranges, s_ranges, python_version, unicodedata.unidata_version)
     fixtures_text = emit_fixtures_header(fixtures)
     invalid_text = emit_invalid_header(INVALID_UTF8_CASES)
+    byte_alphabet_text = emit_byte_alphabet_header(b2u)
+    encode_text = emit_encode_header(encode_fixtures)
 
     outputs = [
         (OUT_TABLES_HPP, tables_text, "tables"),
         (OUT_FIXTURES_HPP, fixtures_text, "fixtures"),
         (OUT_INVALID_HPP, invalid_text, "invalid"),
+        (OUT_BYTE_ALPHABET_HPP, byte_alphabet_text, "byte_alphabet"),
+        (OUT_ENCODE_HPP, encode_text, "encode"),
     ]
 
     for path, text, name in outputs:
@@ -713,16 +1028,16 @@ def main():
             if not resolved.is_file():
                 drift.append((name, resolved, "MISSING"))
                 continue
-            existing = resolved.read_text(encoding="utf-8")
-            if existing != text:
+            existing_bytes = resolved.read_bytes()
+            if existing_bytes != text.encode("utf-8"):
                 drift.append((name, resolved, "DIFFERS"))
         if drift:
             print("CHECK FAILED -- generated content differs from committed files:")
             for name, resolved, reason in drift:
                 print(f"    {name} ({resolved}): {reason}")
             sys.exit(1)
-        print(f"CHECK PASSED -- all 3 generated headers match the committed files byte-for-byte "
-              f"(in {time.time()-t0:.2f}s). No file was written.")
+        print(f"CHECK PASSED -- all {len(outputs)} generated headers match the committed files "
+              f"byte-for-byte (in {time.time()-t0:.2f}s). No file was written.")
         return
 
     for path, text, _name in outputs:

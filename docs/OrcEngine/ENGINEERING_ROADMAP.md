@@ -200,7 +200,7 @@ are not implemented; Phase 5B is not complete or frozen. Phase 5C
 remains deferred until Phase 5B closes, per the dependency ordering
 below.
 
-### Phase 5B — Tokenizer / text-token boundary (implementation in progress: Stage 1 + Stage 2A complete, encode/decode not started)
+### Phase 5B — Tokenizer / text-token boundary (implementation in progress: Stage 1 + Stage 2A + Stage 2B complete, decode not started)
 
 Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,
 BOS/EOS, byte/Unicode/whitespace handling, special-token policy,
@@ -240,8 +240,20 @@ subsequently hardened (`DECISION_LOG.md` OE-ADR-033): fail-closed on
 the installed `tokenizers` version and the supplied `tokenizer.json`'s
 SHA-256/declared contract, no hard-coded machine-specific path, a
 read-only `--check` mode, and the complete provenance hash record.
-Token-ID production (BPE merge execution, byte-to-Unicode mapping),
-decoding, and frozen-engine integration remain unimplemented. See
+**Stage 2B (native byte mapping, BPE, and text-to-token-ID encoding)
+implemented the same day** (`DECISION_LOG.md` OE-ADR-034): extends
+`TokenizerProfile` with `encode(std::string_view, SpecialTokenMode)`;
+`SpecialTokenMode::LiteralText` (default) treats all input as ordinary
+text, `SpecialTokenMode::RecognizeControlTokens` (explicit opt-in)
+recognizes exact CONTROL substrings derived from validated metadata.
+The GPT-2 byte alphabet and the oracle's counterintuitive
+`encode_special_tokens` polarity were established empirically, not
+assumed. `test_encode` matches a 386-entry oracle fixture corpus
+(including exhaustive 17×17 CONTROL-adjacency coverage) plus a
+256-entry byte-alphabet cross-check: 1,182/1,182 checks, 0 failures,
+across Debug/Release/strict/ASan. Matches the pinned oracle across that
+corpus and the described cases; exhaustive equivalence is not claimed.
+Decoding and frozen-engine integration remain unimplemented. See
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) for full
 status. The llama.cpp secondary-oracle comparison remains an
 outstanding validation dependency, required

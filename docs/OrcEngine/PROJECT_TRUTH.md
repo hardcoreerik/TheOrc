@@ -536,16 +536,32 @@ Unicode string is not claimed. The generator was subsequently hardened
 (`DECISION_LOG.md` OE-ADR-033): fail-closed on the installed
 `tokenizers` version and the supplied `tokenizer.json`'s SHA-256/
 declared contract, no hard-coded machine-specific path, a read-only
-`--check` mode, and the complete provenance hash record.
-Token-ID production (BPE merge execution, byte-to-Unicode mapping),
-decoding, and frozen-engine integration are NOT implemented -- Phase 5B
+`--check` mode, and the complete provenance hash record. Same day,
+Stage 2B (`DECISION_LOG.md` OE-ADR-034) implemented native byte
+mapping, ranked BPE merge execution, and text-to-token-ID encoding,
+extending `TokenizerProfile` with `encode(std::string_view,
+SpecialTokenMode)`. `SpecialTokenMode::LiteralText` (default) treats
+all input as ordinary text; `SpecialTokenMode::RecognizeControlTokens`
+(explicit opt-in) recognizes exact CONTROL substrings derived from
+validated metadata, never a hard-coded list. The GPT-2 byte alphabet
+and the oracle's counterintuitive `encode_special_tokens` polarity
+(=False, its own default, RECOGNIZES control strings; =True treats
+them as ordinary text) were both established empirically before being
+relied on. `test_encode` matches a 386-entry oracle fixture corpus
+(including exhaustive 17x17 CONTROL-adjacency coverage) plus a
+256-entry byte-alphabet cross-check: 1,182/1,182 checks, 0 failures,
+across Debug/Release/strict/ASan. Matches the pinned oracle across that
+corpus and the described cases; exhaustive equivalence is not claimed.
+Decoding, streaming decode, model execution, chat templates, and
+frozen-engine integration are NOT implemented -- Phase 5B
 is not complete, accepted as a finished implementation, or frozen. The
 llama.cpp secondary-oracle comparison remains an outstanding validation
 dependency, required before Phase 5B can be considered complete or
 frozen. Full detail in `DECISION_LOG.md`
-OE-ADR-029/OE-ADR-030/OE-ADR-031/OE-ADR-032, `PHASE5A_KV_CACHE_SPEC.md`'s
-current status sections, and `PHASE5B_TOKENIZER_SPEC.md` (status:
-implementation in progress, Stage 1 + Stage 2A complete).
+OE-ADR-029/OE-ADR-030/OE-ADR-031/OE-ADR-032/OE-ADR-033/OE-ADR-034,
+`PHASE5A_KV_CACHE_SPEC.md`'s current status sections, and
+`PHASE5B_TOKENIZER_SPEC.md` (status: implementation in progress,
+Stage 1 + Stage 2A + Stage 2B complete).
 
 ## Current blockers
 
@@ -565,12 +581,14 @@ classification question: `smollm2-135m-tied.gguf` is a frozen legacy
 fixture, not a tokenizer-bearing artifact, and its rejection is a
 required, passing test outcome). Same day, Stage 2A (exact native
 pretokenization, `DECISION_LOG.md` OE-ADR-032) was implemented and
-oracle-validated -- token-ID production (BPE merge execution,
-byte-to-Unicode mapping), decoding, and frozen-engine integration
-remain unimplemented. The llama.cpp secondary-oracle comparison remains
+oracle-validated. Also same day, Stage 2B (native byte mapping, BPE,
+and text-to-token-ID encoding, `DECISION_LOG.md` OE-ADR-034) was
+implemented and oracle-validated -- decoding, streaming decode, model
+execution, chat templates, and frozen-engine integration remain
+unimplemented. The llama.cpp secondary-oracle comparison remains
 the sole outstanding validation dependency before Phase 5B can be
 considered complete or frozen. See `DECISION_LOG.md` OE-ADR-022 through
-OE-ADR-033 for the full record.
+OE-ADR-034 for the full record.
 
 ## How to update this document
 

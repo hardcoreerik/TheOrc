@@ -1,6 +1,6 @@
 # Phase 5B: Tokenizer / Text-Token Boundary Reference
 
-Status: **IMPLEMENTATION IN PROGRESS — STAGE 1 (METADATA CONSTRUCTION) COMPLETE, STAGE 2A (PRETOKENIZATION) COMPLETE, NOT COMPLETE OR FROZEN**
+Status: **IMPLEMENTATION IN PROGRESS — STAGE 1 (METADATA CONSTRUCTION) COMPLETE, STAGE 2A (PRETOKENIZATION) COMPLETE, STAGE 2B (BYTE MAPPING/BPE/ENCODING) COMPLETE, DECODE NOT IMPLEMENTED, NOT COMPLETE OR FROZEN**
 
 Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 `F:\Ai\OrchestratorIDE-phase5b-tokenizer`, forked from `orcengine-phase5a-freeze`.
@@ -96,8 +96,29 @@ generator was subsequently hardened (`DECISION_LOG.md` OE-ADR-033):
 fail-closed on the installed `tokenizers` version and on the supplied
 `tokenizer.json`'s SHA-256/declared contract, no hard-coded
 machine-specific path, a read-only `--check` mode, and the complete
-provenance hash record. Encoding (token-ID production), BPE merge execution, byte-to-Unicode
-mapping, decoding, streaming, and frozen-engine integration remain
+provenance hash record.
+
+**Stage 2B implemented: 2026-08-20, same day (`DECISION_LOG.md`
+OE-ADR-034).** Native byte mapping, ranked BPE merge execution, and
+text-to-token-ID encoding, extending the existing `TokenizerProfile`
+with `encode(std::string_view, SpecialTokenMode mode =
+SpecialTokenMode::LiteralText)`. `SpecialTokenMode::LiteralText`
+(default, per OE-ADR-030) treats all input — including literal
+CONTROL-token spellings — as ordinary text; `SpecialTokenMode::
+RecognizeControlTokens` (explicit opt-in) recognizes exact CONTROL
+substrings, derived from validated `TokenizerProfile` metadata, never a
+hard-coded list. The GPT-2 byte-to-Unicode alphabet and the
+`encode_special_tokens` polarity were both established empirically
+against the live oracle before being relied on — see OE-ADR-034 for the
+counterintuitive-polarity finding. `test_encode` compares native
+`encode()` against a 386-entry oracle fixture corpus (including
+exhaustive 17×17 CONTROL-adjacency coverage) plus a 256-entry
+byte-alphabet cross-check plus invalid-UTF-8/structural checks:
+1,182/1,182 checks pass, 0 failures, across Debug, Release, strict, and
+ASan. Matches the pinned oracle across that corpus and the described
+cases; exhaustive equivalence over every possible input or BPE merge
+interaction is not claimed. Decoding, streaming decode, model
+execution, chat templates, and frozen-engine integration remain
 unimplemented.
 
 ## 1. Authority and baseline
@@ -708,8 +729,13 @@ item below as later stages deliver them:
   `Tools/OrcEnginePhase5B/src/pretokenize.cpp` reproduces the pinned
   `Digits->ByteLevel` sequence exactly, oracle-validated (see status
   paragraph above and `DECISION_LOG.md` OE-ADR-032); produces byte-range
-  boundaries only. BPE merge execution, byte-to-Unicode mapping, and
-  token-ID production remain unimplemented.
+  boundaries only.
+- Native byte mapping, BPE merge execution, and text-to-token-ID
+  encoding (Section 5's text-boundary responsibility, second half) —
+  **Stage 2B delivered 2026-08-20**:
+  `TokenizerProfile::encode()` (see status paragraph above and
+  `DECISION_LOG.md` OE-ADR-034), oracle-validated via `test_encode`
+  (1,182/1,182 checks). Decoding remains unimplemented.
 
 No empty source directories, placeholder files, interfaces, or
 scaffolding were pre-created by the specification-drafting pass, and
@@ -741,11 +767,16 @@ contracts pass. **Updated again 2026-08-20 (Stage 2A, `DECISION_LOG.md`
 OE-ADR-032):** native pretokenization (`pretokenize.cpp`) is implemented
 and oracle-validated (`test_pretokenize`, 209/209 checks, 0 failures,
 across Debug/Release/strict/ASan) -- see the Stage 2A status paragraph
-above for exact counts. Stage 1+2A together still construct/validate
-tables and determine pretoken boundaries only -- text encoding (token-ID
-production), BPE merge execution, byte-to-Unicode mapping, decoding,
-streaming, and frozen-engine integration are separate, not-yet-
-authorized stages. Section 14's acceptance criteria remain unsatisfied.
+above for exact counts. **Updated again 2026-08-20 (Stage 2B,
+`DECISION_LOG.md` OE-ADR-034):** native encoding (`TokenizerProfile::
+encode()`) is implemented and oracle-validated (`test_encode`,
+1,182/1,182 checks, 0 failures, across Debug/Release/strict/ASan) -- see
+the Stage 2B status paragraph above for exact counts. Stage 1+2A+2B
+together construct/validate tables, determine pretoken boundaries, and
+produce exact token IDs for both accepted special-token policies --
+decoding, streaming decode, model execution, chat templates, and
+frozen-engine integration are separate, not-yet-authorized stages.
+Section 14's acceptance criteria remain unsatisfied.
 Phase 5B is not complete, accepted as a finished implementation, or
 frozen. The llama.cpp secondary-oracle comparison remains outstanding.
 Phase 5C remains deferred, prohibited until Phase 5B is separately

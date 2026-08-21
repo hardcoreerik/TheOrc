@@ -115,11 +115,12 @@ status:
   # outstanding validation dependency, required before Phase 5B can be
   # considered complete or frozen, not before implementation may begin.
   # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
-  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_closure_corrected_and_green_lane_classified_2026_08_20_stage2a_exact_native_pretokenization_complete_and_oracle_validated_2026_08_20_encode_bpe_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
+  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_stage2a_pretokenization_complete_stage2b_byte_mapping_bpe_and_encoding_complete_2026_08_20_oracle_validated_decode_streaming_decode_frozen_engine_integration_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
   phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
   phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
   phase5b_tied_artifact_classification_decision: DECISION_LOG.md OE-ADR-031
   phase5b_stage2a_pretokenization_decision: DECISION_LOG.md OE-ADR-032
+  phase5b_stage2b_encoding_decision: DECISION_LOG.md OE-ADR-034
   phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
@@ -331,8 +332,26 @@ status:
     tokenizers version and on the supplied tokenizer.json's
     SHA-256/declared contract, no hard-coded machine-specific path, a
     read-only --check mode, and the complete provenance hash record.
-    Encode (token-ID production), BPE
-    merge execution, byte-to-Unicode mapping, decode, streaming, and
+    Same day, Stage 2B (DECISION_LOG.md OE-ADR-034) implemented native
+    byte mapping, ranked BPE merge execution, and text-to-token-ID
+    encoding by extending TokenizerProfile with encode(std::string_view,
+    SpecialTokenMode mode = SpecialTokenMode::LiteralText).
+    SpecialTokenMode::LiteralText (default) treats all input as ordinary
+    text; SpecialTokenMode::RecognizeControlTokens (explicit opt-in)
+    recognizes exact CONTROL substrings derived from validated
+    TokenizerProfile metadata, never a hard-coded list. The GPT-2
+    byte-to-Unicode alphabet and the oracle's counterintuitive
+    encode_special_tokens polarity (=False, its own default, is what
+    RECOGNIZES control strings; =True treats them as ordinary text) were
+    both established empirically before being relied on. test_encode
+    compares native encode() against a 386-entry oracle fixture corpus
+    (including exhaustive 17x17 CONTROL-adjacency coverage) plus a
+    256-entry byte-alphabet cross-check plus invalid-UTF-8/structural
+    checks: 1,182/1,182 checks pass, 0 failures, across
+    Debug/Release/strict/ASan. Matches the pinned oracle across that
+    corpus and the described cases; exhaustive equivalence over every
+    possible input or BPE merge interaction is not claimed. Decode,
+    streaming decode, model execution, chat templates, and
     frozen-engine integration are NOT implemented. Phase 5B is NOT
     complete, accepted as a finished implementation, or frozen. The
     llama.cpp secondary-oracle comparison remains an outstanding

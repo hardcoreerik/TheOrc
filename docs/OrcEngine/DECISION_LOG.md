@@ -1850,3 +1850,156 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   streaming, frozen-engine integration, Phase 5C. No frozen Phase 1-5A
   source file was modified. Nothing was pushed, tagged, merged,
   rebased, or amended.
+
+## OE-ADR-034 — Phase 5B Stage 2B: native byte mapping, BPE, and text-to-token-ID encoding implemented and oracle-validated
+
+- **Date:** 2026-08-20, America/Los_Angeles.
+- **Decision:** authorizes and records Stage 2B -- the native encoding
+  half of Phase 5B: GPT-2 byte-to-Unicode mapping, ranked BPE merge
+  execution, and the two accepted special-token policies, extending the
+  existing concrete `TokenizerProfile` (`Tools/OrcEnginePhase5B/src/
+  tokenizer.cpp` / `include/orcengine/tokenizer.hpp`) with an
+  `encode(std::string_view, SpecialTokenMode)` method rather than adding a
+  second tokenizer object, interface, factory, or configuration framework.
+  Decode, streaming decode, model execution, chat templates, and Phase 5C
+  remain unimplemented and unauthorized.
+- **Public API:**
+  ```cpp
+  enum class SpecialTokenMode { LiteralText, RecognizeControlTokens };
+  class EncodingError : public std::runtime_error { ... };
+  std::vector<int64_t> TokenizerProfile::encode(
+      std::string_view utf8_text,
+      SpecialTokenMode mode = SpecialTokenMode::LiteralText) const;
+  ```
+  Deliberately does not mirror Hugging Face's `encode_special_tokens`
+  name or its polarity.
+- **`encode_special_tokens` polarity, established empirically (not
+  assumed) against the live oracle:** `encode_special_tokens=False` --
+  the oracle's OWN default -- is what RECOGNIZES literal CONTROL-token
+  spellings (e.g. `"<|endoftext|>"` alone encodes to `[0]`);
+  `encode_special_tokens=True` is what treats them as ordinary text
+  (BPE'd through the normal path). This is the exact reverse of the
+  intuitive reading of the property name -- confirmed by direct A/B
+  oracle calls before being relied on. Native mapping: `SpecialTokenMode
+  ::LiteralText` (default, per OE-ADR-030) = oracle `encode_special_
+  tokens=True`; `SpecialTokenMode::RecognizeControlTokens` (explicit
+  opt-in) = oracle `encode_special_tokens=False`.
+- **CONTROL-token precedence, established before implementing, not
+  guessed:** none of the 17 CONTROL strings is a literal prefix of any
+  other (checked exhaustively, 17×16 ordered pairs, zero matches).
+  Confirmed via the live oracle across: each of the 17 alone; all 17×17
+  adjacent CONTROL×CONTROL concatenations (all recognized independently,
+  no cross-boundary interference); partial spellings (e.g.
+  `"<|endoftext"`, missing the closing `|>`) and case-changed lookalikes
+  (e.g. `"<|ENDOFTEXT|>"`) -- both remain ordinary text, never
+  recognized. Because no two strings share a prefix relationship, at
+  most one CONTROL string can ever match at a given scan position --
+  there is no real precedence ambiguity to resolve, and the native
+  implementation scans the validated CONTROL prefix of `tokens_` (IDs
+  `[0, control_count_)`, derived from `token_types_`, never a
+  hard-coded 17-entry list) in fixed ID order specifically so no part of
+  the decision ever depends on `unordered_map` iteration order.
+- **Byte-to-Unicode mapping:** the closed-form GPT-2 byte_encoder
+  (bytes `[0x21,0x7E]∪[0xA1,0xAC]∪[0xAE,0xFF]` map to themselves; the
+  remaining 68 bytes map to `0x100+n` in ascending byte-value order),
+  reconstructed independently and cross-checked against the live oracle
+  two ways: (1) exact 256-member SET equality against `tokenizers.pre_
+  tokenizers.ByteLevel.alphabet()`; (2) a DIRECT per-byte mapped-
+  character check via `ByteLevel.pre_tokenize_str()` for every byte
+  value reachable through valid UTF-8 -- all 128 ASCII bytes directly,
+  all 64 continuation bytes (0x80-0xBF), all 30 two-byte lead bytes
+  (0xC2-0xDF), all 16 three-byte lead bytes (0xE0-0xEF), and all 5
+  four-byte lead bytes (0xF0-0xF4). Zero mismatches. The production
+  table is a `constexpr` array in `tokenizer.cpp`; the compiled-in test
+  proof (`test_encode`) reconstructs the same closed-form table
+  independently (not by including tokenizer.cpp's copy) and cross-checks
+  it against the oracle-generated `kOracleByteToCodepoint` table.
+- **BPE tie-break and merge-application behavior, established before
+  implementing:** merge ranks are unique integer indices into the
+  48,900-entry ordered merge table (Stage 1 already validated no
+  duplicate merge entries), so there is never an actual rank TIE to
+  break -- only which of the (few) pairs currently adjacent in the
+  symbol list has the best available rank, a plain deterministic
+  minimum, never decided by hash-map iteration order. The winning pair
+  is applied by merging every non-overlapping occurrence left-to-right
+  in one pass (the classic/reference GPT-2 BPE algorithm, matching
+  OpenAI's own `encode.py` and confirmed structurally identical in
+  effect regardless of "merge all occurrences" vs "merge one, then
+  re-scan" framing) -- repeated until no adjacent pair has any rank.
+  Every final symbol is resolved against the vocabulary; an
+  unresolvable symbol throws `EncodingError` (no unknown-token ID, no
+  byte fallback, ID 0 is never substituted for a genuine failure).
+- **Derived immutable tables**, built exactly once in
+  `from_gguf_metadata()`, never rebuilt per `encode()` call:
+  vocabulary-string -> ID (`vocab_index_`), merge-pair -> rank
+  (`merge_rank_`, keyed by an unambiguous `left + '\x01' + right` join),
+  and a `control_count_` size marking the validated CONTROL prefix of
+  `tokens_`. No 49,000-entry map is built or walked per call.
+- **Proof before promotion:** the existing provenance-hardened generator
+  (`Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py`) was
+  extended, not replaced, with `build_byte_to_unicode()`/`verify_byte_
+  to_unicode()` and `build_encode_corpus()`, producing two new committed
+  headers (`tests/byte_alphabet_oracle.hpp`,
+  `tests/encode_oracle_fixtures.hpp`) alongside the three from Stage 2A.
+  The generator's fail-closed provenance guarantees (required
+  `--tokenizer-json`, verified `tokenizers==0.22.2`, tokenizer.json
+  SHA-256 + declared-contract check, script-relative paths, read-only
+  `--check`, fail-before-write) apply unchanged to the new outputs. The
+  `--check` mode's "3 generated headers" message was also corrected to
+  reflect the now-5-output count (a cosmetic drift, not a comparison-
+  logic bug -- the comparison loop already iterated the full list).
+  386 encode fixtures were generated (19 hand-authored ASCII/Unicode
+  cases; golden + raw-prompt fixtures in Mode A; all 17 CONTROL strings
+  alone in both modes; all 17×17 adjacent CONTROL×CONTROL pairs in Mode
+  B; 9 partial-spelling/case-lookalike non-match cases; 2 mixed-context
+  cases; 8 BPE-adversarial cases). `test_encode` compares the native
+  `encode()` against every entry, plus the 256-entry byte-alphabet
+  cross-check, plus the existing 8 invalid-UTF-8 cases (both modes) and
+  structural checks (empty input, embedded NUL, default-argument
+  equivalence): **1,182/1,182 checks pass, 0 failures**, across Debug,
+  Release, strict (`/W4 /WX /permissive- /EHsc`, zero warnings), and
+  ASan (`/fsanitize=address /EHsc`, zero AddressSanitizer diagnostics).
+- **Scope of this proof, stated precisely:** matches the pinned oracle
+  across the 386-entry encode corpus (including exhaustive 17×17
+  CONTROL-adjacency coverage), the 256-entry byte-alphabet cross-check,
+  and the described BPE-adversarial cases; exhaustive equivalence over
+  every possible input string or every possible BPE merge interaction is
+  not claimed.
+- **Provenance (complete hash record):**
+  - Python version: `3.14.3`; Unicode database version: `16.0.0`;
+    verified `tokenizers` package version: `0.22.2`
+  - `tokenizer.json` SHA-256 (unchanged from OE-ADR-032/033):
+    `9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c`
+  - Generator SHA-256:
+    `02133fb927be38b357d40247994d0bbbd5337d24ba9bb14e44abc8ada0313dc8`
+  - `include/orcengine/pretok_tables.hpp` SHA-256 (unchanged from
+    OE-ADR-033): `027e2398103d4fddecbc07d479d5535a37d2d54810608761284a6764ab8c4c66`
+  - `tests/pretok_oracle_fixtures.hpp` SHA-256 (unchanged):
+    `48e780040a34bf6294b30bb89716dfbb6fe0aea86aca19051bb3178d0512c074`
+  - `tests/pretok_invalid_utf8.hpp` SHA-256 (unchanged):
+    `944aa3c82f6e3dc617e54f8db072a4602683e3c5d3330e2ff213e04ce50d4fc3`
+  - `tests/byte_alphabet_oracle.hpp` SHA-256:
+    `f2df5705964195c955b43112c7905505a9371a1ae33f87b9cef58c1608e130f9`
+  - `tests/encode_oracle_fixtures.hpp` SHA-256:
+    `167e282f318ad26bbe7c3cc75f7cb5fce4d3da2bf4739033adfe52c2e82e65f3`
+  - As before, these header hashes are of the exact bytes the generator
+    writes (LF line endings); re-run `--check` to confirm equivalence
+    rather than comparing hashes literally across a differently-
+    normalized checkout.
+- **Optional review cleanup (also in this pass):** the generator's
+  `--check` mode previously used `read_text()` to compare committed
+  headers, which normalizes CRLF/LF and was therefore not a genuinely
+  byte-for-byte comparison despite the wording claiming it was. Fixed to
+  compare `read_bytes()` against `text.encode("utf-8")` directly.
+  Verified the existing LF-generated Stage 2A headers still pass under
+  the corrected comparison.
+- **Stage 1 and Stage 2A unaffected:** `tokenizer_metadata`,
+  `tokenizer_metadata_real_explicit`,
+  `tokenizer_metadata_legacy_tied_rejection`, and `pretokenize` all
+  remain green, unmodified in behavior, in every lane -- Stage 2A's
+  source files were not touched by this pass.
+- **Explicitly not authorized by this entry:** decoding, streaming
+  decode, model execution, chat templates, frozen-engine integration,
+  Phase 5C. The llama.cpp secondary-oracle comparison remains
+  independently outstanding. No frozen Phase 1-5A source file was
+  modified. Nothing was pushed, tagged, merged, rebased, or amended.

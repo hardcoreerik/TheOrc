@@ -80,3 +80,24 @@ target_compile_options(test_pretokenize PRIVATE
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
 )
 add_test(NAME pretokenize COMMAND test_pretokenize)
+
+# Stage 2B: native byte mapping, BPE, and text-to-token-ID encoding.
+# Requires a real TokenizerProfile (there is no synthetic-metadata path for
+# encode -- Stage 1's synthetic fixture's vocabulary is deliberately not
+# BPE-consistent with a byte alphabet, only with the merge-result rule it
+# was built to test), so this test is registered only when
+# ORCENGINE_REAL_F32_GGUF is configured, reusing the same cache variable
+# Stage 1's explicit positive suite already uses.
+if(ORCENGINE_REAL_F32_GGUF)
+    message(STATUS "Phase 5B Stage 2B encode test: REGISTERED")
+    add_executable(test_encode tests/test_encode.cpp)
+    target_link_libraries(test_encode PRIVATE orcengine_phase5b)
+    target_include_directories(test_encode PRIVATE tests)
+    target_compile_options(test_encode PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    add_test(NAME encode COMMAND test_encode "${ORCENGINE_REAL_F32_GGUF}")
+else()
+    message(STATUS "Phase 5B Stage 2B encode test: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
+endif()
