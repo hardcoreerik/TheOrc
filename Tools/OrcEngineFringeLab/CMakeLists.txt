@@ -56,3 +56,33 @@ if(ORCENGINE_REAL_F32_GGUF)
 else()
     message(STATUS "Fringe Lab FL-07 real GGUF: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
 endif()
+
+# FL-07B -- Multi-Step Sticky-Layer Planning (research(fringelab) commit 1:
+# charter + minimal planner/residency implementation + synthetic tests).
+# sticky_layer_plan.cpp has NO model/materializer dependency (pure planning
+# logic over LayerCostInfo descriptors) -- kept as its own tiny library so
+# the planner unit tests never need a real or synthetic model source.
+add_library(fringelab_sticky_layer_plan src/sticky_layer_plan.cpp)
+target_include_directories(fringelab_sticky_layer_plan PUBLIC include)
+target_compile_options(fringelab_sticky_layer_plan PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+
+add_library(fringelab_sticky_layer_model src/sticky_layer_model.cpp)
+target_include_directories(fringelab_sticky_layer_model PUBLIC include)
+target_link_libraries(fringelab_sticky_layer_model PUBLIC orcengine_phase1 orcengine_phase3
+    fringelab_sticky_layer_plan)
+target_compile_options(fringelab_sticky_layer_model PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+
+add_executable(test_fl07b_sticky_layer tests/test_fl07b_sticky_layer.cpp)
+target_link_libraries(test_fl07b_sticky_layer PRIVATE fringelab_sticky_layer_model fringelab_sticky_layer_plan)
+target_compile_options(test_fl07b_sticky_layer PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+add_test(NAME fringelab_fl07b_sticky_layer COMMAND test_fl07b_sticky_layer
+         "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
