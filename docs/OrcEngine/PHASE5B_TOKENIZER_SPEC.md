@@ -118,7 +118,10 @@ table against the oracle-generated one (not a direct comparison
 against `tokenizer.cpp`'s own private production table, which uses the
 identical closed-form construction but is not itself invoked by the
 test) plus invalid-UTF-8/structural checks:
-1,182/1,182 checks pass, 0 failures, across Debug, Release, strict, and
+1,198/1,198 checks pass, 0 failures (1,182/1,182 at initial Stage 2B
+delivery, `DECISION_LOG.md` OE-ADR-034; +16 from the Stage 2B
+reconciliation pass's tightened invalid-UTF-8 exception-type assertions,
+OE-ADR-035), across Debug, Release, strict, and
 ASan. Matches the pinned oracle across that corpus and the described
 cases; exhaustive equivalence over every possible input or BPE merge
 interaction is not claimed. Decoding, streaming decode, model
@@ -725,7 +728,7 @@ item below as later stages deliver them:
   suite (`--expect-missing-tokenizer <path>`, against
   `smollm2-135m-tied.gguf`, per `DECISION_LOG.md` OE-ADR-031). **The
   golden-fixture/adversarial *encode* comparisons this bullet describes
-  were delivered as Stage 2B** (`test_encode`, 1,182 checks against a
+  were delivered as Stage 2B** (`test_encode`, 1,198 checks against a
   386-entry oracle fixture corpus); *decode* comparisons remain
   unimplemented, since decoding does not exist yet.
 - Reused golden fixtures (Section 9) — not recreated; exercised by both
@@ -752,7 +755,8 @@ item below as later stages deliver them:
   **Stage 2B delivered 2026-08-20**:
   `TokenizerProfile::encode()` (see status paragraph above and
   `DECISION_LOG.md` OE-ADR-034), oracle-validated via `test_encode`
-  (1,182/1,182 checks). Decoding remains unimplemented.
+  (1,198/1,198 checks after the OE-ADR-035 reconciliation pass; 1,182/1,182
+  at initial delivery). Decoding remains unimplemented.
 
 No empty source directories, placeholder files, interfaces, or
 scaffolding were pre-created by the specification-drafting pass, and
@@ -787,8 +791,15 @@ across Debug/Release/strict/ASan) -- see the Stage 2A status paragraph
 above for exact counts. **Updated again 2026-08-20 (Stage 2B,
 `DECISION_LOG.md` OE-ADR-034):** native encoding (`TokenizerProfile::
 encode()`) is implemented and oracle-validated (`test_encode`,
-1,182/1,182 checks, 0 failures, across Debug/Release/strict/ASan) -- see
-the Stage 2B status paragraph above for exact counts. Stage 1+2A+2B
+1,182/1,182 checks, 0 failures, across Debug/Release/strict/ASan) at
+initial delivery. **Updated again 2026-08-20 (Stage 2B reconciliation,
+`DECISION_LOG.md` OE-ADR-035):** two previously-documented-but-
+unenforced invariants (merge-rank key collision safety, CONTROL-token
+prefix precedence) became explicit fail-closed rejections, and
+`test_encode`'s invalid-UTF-8 checks were tightened to require exactly
+`PretokenizeError` -- current count: `test_encode` 1,198/1,198 checks, 0
+failures, across Debug/Release/strict/ASan; `test_tokenizer_metadata`
+synthetic suite 142/142 checks (43 adversarial cases). Stage 1+2A+2B
 together construct/validate tables, determine pretoken boundaries, and
 produce exact token IDs for both accepted special-token policies --
 decoding, streaming decode, model execution, chat templates, and

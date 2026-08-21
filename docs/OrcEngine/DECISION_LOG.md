@@ -2018,11 +2018,27 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   `from_gguf_metadata()`. `from_gguf_metadata()` now explicitly rejects
   any `tokenizer.ggml.tokens` entry containing byte 0x01 with
   `TokenizerMetadataError`, at the same point duplicate/empty tokens are
-  already rejected. A new `test_tokenizer_metadata` adversarial case
-  ("vocabulary token contains reserved separator byte 0x01") injects a
-  0x01 byte into an ordinary synthetic base token; it is written to fail
-  against the pre-fix code (which had no such check and would have
-  constructed successfully) and pass against the corrected code.
+  already rejected. **[Corrected in a same-day follow-up reconciliation
+  pass, per a further Codex finding]:** the adversarial case
+  ("vocabulary token contains reserved separator byte 0x01") originally
+  mutated `tokenizer.ggml.tokens[100]`, an ordinary synthetic BASE token
+  that IS referenced by the synthetic merge table
+  (`build_synthetic_vocab()`'s BPE graph) -- against the pre-fix code,
+  that mutation would have been rejected by the pre-existing merge-
+  result-resolution check (unrelated to this reconciliation) before ever
+  reaching a hypothetical 0x01 check, so the case did NOT actually
+  demonstrate the pre-fix/post-fix contrast the original text claimed.
+  The case now mutates `tokenizer.ggml.tokens[16]` ("`<ctrl16>`", the
+  last of the 17 CONTROL entries) instead: CONTROL strings are never
+  referenced by `tokenizer.ggml.merges` (merges only ever reference
+  base/merged-result tokens), so no merge-validation path can reject
+  this mutation; the replacement string remains unique and shares no
+  prefix relationship with any other CONTROL entry, so neither the
+  duplicate-token check nor the CONTROL-prefix check (Finding 2, below)
+  can reject it either. The 0x01 check is now the ONLY rejection path
+  this mutation can trigger, genuinely isolating it: it fails against
+  the pre-fix code (which would have constructed successfully) and
+  passes against the corrected code.
 - **Finding 2 (CONTROL-token prefix assumption) -- resolved by explicit
   fail-closed rejection over exactly the 17 validated entries, no
   generic added-token framework:** `RecognizeControlTokens`'s fixed-ID-
@@ -2107,6 +2123,60 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   generator's `--check` mode passes against the pinned tokenizer.json,
   confirming the one comment-only header change (`pretok_tables.hpp`,
   reflecting the 5-header count) is the only generated-content drift.
+- **Evidence-accounting follow-up, same day (further Codex findings on
+  this entry):** three corrections to this entry's own evidence, not to
+  production tokenizer behavior:
+  1. **Test isolation for Finding 1 was itself flawed** and has been
+     corrected in place above -- the original adversarial case mutated
+     `tokenizer.ggml.tokens[100]`, a synthetic base token referenced by
+     the synthetic merge graph, so the pre-existing merge-result-
+     resolution check (not the new 0x01 check) would have rejected it
+     against the pre-fix code too, meaning the case did not actually
+     demonstrate the claimed pre-fix/post-fix contrast. It now mutates
+     `tokenizer.ggml.tokens[16]` (`<ctrl16>`, a CONTROL token, never
+     referenced by merges), genuinely isolating the 0x01 check as the
+     sole possible rejection path. `test_tokenizer_metadata`'s synthetic
+     suite remains 142/142 checks, 43 adversarial cases -- the fix
+     changed which token is mutated, not the check count.
+  2. **The encode check count was wrong in this entry as first
+     written.** Direct execution of `test_encode` (Debug,
+     `smollm2-135m.gguf`) gives **PASS_LINES=1198, FAIL_LINES=0, exit
+     0** -- not 1,182 as the "Finding 3" paragraph above stated. The
+     arithmetic: 8 invalid-UTF-8 cases × 2 `SpecialTokenMode` values =
+     16 logical cases; each gained one additional assertion (exact
+     exception TYPE, not just "threw") when Finding 3 was implemented,
+     for a net +16 over `DECISION_LOG.md` OE-ADR-034's original
+     1,182/1,182 (which remains correct and unchanged as the historical
+     result for commit `15302fd2`, before Finding 3's assertions
+     existed). All "current truth" documents (`PHASE5B_TOKENIZER_SPEC.md`,
+     `CURRENT_STATE.yaml`, `PROJECT_TRUTH.md`, `ENGINEERING_ROADMAP.md`)
+     have been corrected to state 1,198/1,198 for the post-reconciliation
+     state, each now also citing the 1,182/1,182 initial-delivery figure
+     for context rather than silently replacing it.
+  3. **Complete generated-file provenance, computed only after the
+     generator's own text and all generated headers were in their final
+     state** (the emitted `pretok_tables.hpp` provenance comment was
+     updated to cite this entry, OE-ADR-035, as the current
+     reconciliation record, then the headers were regenerated once):
+     - Generator (`generate_pretok_tables.py`) SHA-256:
+       `180dc04ba3c4f20ad2dfe34af50c14abf248e9c2e36fe3b587677a59cbf253a8`
+     - `include/orcengine/pretok_tables.hpp` SHA-256:
+       `745ff69aec850328b770dcc42638c19e6f0d274a775790544d85f1da28150424`
+       -- **comment/provenance-only drift** from OE-ADR-034's recorded
+       value; no `CodepointRange` table data changed.
+     - `tests/pretok_oracle_fixtures.hpp` SHA-256 (**unchanged** from
+       OE-ADR-034): `48e780040a34bf6294b30bb89716dfbb6fe0aea86aca19051bb3178d0512c074`
+     - `tests/pretok_invalid_utf8.hpp` SHA-256 (**unchanged**):
+       `944aa3c82f6e3dc617e54f8db072a4602683e3c5d3330e2ff213e04ce50d4fc3`
+     - `tests/byte_alphabet_oracle.hpp` SHA-256 (**unchanged**):
+       `f2df5705964195c955b43112c7905505a9371a1ae33f87b9cef58c1608e130f9`
+     - `tests/encode_oracle_fixtures.hpp` SHA-256 (**unchanged**):
+       `167e282f318ad26bbe7c3cc75f7cb5fce4d3da2bf4739033adfe52c2e82e65f3`
+     - As with every prior hash record in this log, these are of the
+       exact bytes the generator writes (LF line endings); re-run
+       `--check` to confirm equivalence rather than comparing hashes
+       literally across a differently-normalized checkout. No file's
+       own hash is embedded within itself.
 - **Explicitly not authorized by this entry:** decoding, streaming
   decode, engine integration, Phase 5C, chat templates, performance
   work. No frozen Phase 1-5A file was modified. Nothing was pushed,

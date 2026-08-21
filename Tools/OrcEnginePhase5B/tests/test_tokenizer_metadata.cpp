@@ -425,19 +425,38 @@ void run_adversarial_checks(const GgufArtifact& valid) {
     expect_rejects(valid, "empty tokenizer.ggml.pre string", EF::FromTokenizerProfile, "tokenizer.ggml.pre",
         [](GgufArtifact& a) { a.metadata["tokenizer.ggml.pre"] = string_value(""); });
 
-    // Stage 2B reconciliation (Codex finding 1): merge_rank_'s internal key
-    // join (left + '\x01' + right) is only collision-free if no vocabulary
-    // token can ever contain a raw 0x01 byte. Before this check existed,
-    // nothing in from_gguf_metadata enforced that -- a GGUF could carry a
-    // token with an embedded 0x01 and still construct successfully. This
-    // case must FAIL against that old (missing-check) behavior and PASS
-    // once the trust-boundary rejection exists. Index 100 is an ordinary
-    // base token untouched by any other invariant in this fixture, so this
-    // exercises the check in isolation, not tangled with merge validation.
+    // Stage 2B reconciliation (Codex finding 1, corrected in the follow-up
+    // reconciliation pass): merge_rank_'s internal key join
+    // (left + '\x01' + right) is only collision-free if no vocabulary token
+    // can ever contain a raw 0x01 byte. Before this check existed, nothing
+    // in from_gguf_metadata enforced that. This case must FAIL against that
+    // old (missing-check) behavior and PASS once the trust-boundary
+    // rejection exists -- which requires the mutated token to be
+    // UNREFERENCED by anything else from_gguf_metadata validates, so the
+    // 0x01 check is the ONLY thing that can reject it.
+    //
+    // Index 100 (an ordinary base token, part of the synthetic BPE merge
+    // graph build_synthetic_vocab() constructs) does NOT satisfy that: it is
+    // both a merge LEFT/RIGHT component and very likely a merge RESULT
+    // (base[i]+base[j]) for some other pair. Mutating it would make one or
+    // more tokenizer.ggml.merges entries fail to resolve against the
+    // vocabulary -- against the OLD (pre-fix) code, merge-result validation
+    // (an earlier, pre-existing check, unrelated to this reconciliation)
+    // would reject the artifact first, so the test would NOT demonstrate
+    // what it claims: that the old code accepted the artifact and only the
+    // NEW 0x01 check newly rejects it.
+    //
+    // CONTROL token 16 ("<ctrl16>", the last of the 17 CONTROL entries) is
+    // never a merge component (merges only ever reference base/merged-result
+    // tokens, never CONTROL strings), is not BOS/EOS (both pinned to ID 0,
+    // unaffected), and its replacement below is chosen to remain unique and
+    // to share no prefix relationship with any of the other 16 CONTROL
+    // strings -- so no unrelated invariant in from_gguf_metadata can reject
+    // it, isolating the 0x01 check as the sole possible rejection reason.
     expect_rejects(valid, "vocabulary token contains reserved separator byte 0x01", EF::FromTokenizerProfile, "0x01",
         [](GgufArtifact& a) {
             auto& elems = std::get<std::vector<GgufValue>>(a.metadata["tokenizer.ggml.tokens"].data);
-            elems[100] = string_value(std::string("bad") + '\x01' + "token");
+            elems[16] = string_value(std::string("<bad") + '\x01' + "ctrl>");
         });
 
     // Stage 2B reconciliation (Codex finding 2): RecognizeControlTokens'

@@ -551,9 +551,12 @@ relied on. `test_encode` matches a 386-entry oracle fixture corpus
 (including exhaustive 17x17 CONTROL-adjacency coverage) plus a
 256-entry check comparing an independently reconstructed reference
 byte-to-codepoint table against the oracle-generated one (not a direct
-comparison against the production table): 1,182/1,182 checks, 0 failures,
-across Debug/Release/strict/ASan. Matches the pinned oracle across that
-corpus and the described cases; exhaustive equivalence is not claimed.
+comparison against the production table): 1,198/1,198 checks, 0 failures
+(1,182/1,182 at initial delivery, `DECISION_LOG.md` OE-ADR-034; +16 from
+the OE-ADR-035 reconciliation pass's tightened invalid-UTF-8
+exception-type assertions), across Debug/Release/strict/ASan. Matches
+the pinned oracle across that corpus and the described cases; exhaustive
+equivalence is not claimed.
 Decoding, streaming decode, model execution, chat templates, and
 frozen-engine integration are NOT implemented -- Phase 5B
 is not complete, accepted as a finished implementation, or frozen. The
