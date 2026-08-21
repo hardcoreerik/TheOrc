@@ -115,10 +115,11 @@ status:
   # outstanding validation dependency, required before Phase 5B can be
   # considered complete or frozen, not before implementation may begin.
   # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
-  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_closure_corrected_and_green_lane_classified_2026_08_20_tied_gguf_classified_as_frozen_non_tokenizer_bearing_fixture_per_oe_adr_031_encode_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
+  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_closure_corrected_and_green_lane_classified_2026_08_20_stage2a_exact_native_pretokenization_complete_and_oracle_validated_2026_08_20_encode_bpe_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
   phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
   phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
   phase5b_tied_artifact_classification_decision: DECISION_LOG.md OE-ADR-031
+  phase5b_stage2a_pretokenization_decision: DECISION_LOG.md OE-ADR-032
   phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
@@ -305,9 +306,28 @@ status:
     the synthetic suite (136/136 checks), the canonical explicit
     real-artifact positive suite, and the legacy tied-artifact
     expected-rejection suite. No registered Phase 5B test intentionally
-    fails. Encode, decode, pretokenization, BPE merge execution,
-    streaming, and frozen-engine integration are NOT implemented --
-    Stage 1 constructs and validates tables only. Phase 5B is NOT
+    fails. Stage 1 constructs and validates tables only. Same day,
+    Stage 2A (DECISION_LOG.md OE-ADR-032) implemented exact native
+    pretokenization (Tools/OrcEnginePhase5B/src/pretokenize.cpp),
+    reproducing the pinned Digits(individual_digits=true)->
+    ByteLevel(add_prefix_space=false, trim_offsets=true, use_regex=true)
+    sequence and producing pretoken byte-range boundaries only (no
+    byte-to-Unicode mapping, no BPE, no token IDs). Classification
+    tables (\p{L}/\p{N}/\s) were generated from Python's unicodedata and
+    then validated against the live tokenizers==0.22.2 oracle: 2,831
+    range-boundary probes plus a 4,974-codepoint seeded random sample
+    found 0 mismatches after correcting one discovered gap (Python
+    str.isspace() incorrectly includes U+001C-U+001F, which the oracle
+    does not treat as whitespace); a further 565-probe check confirmed
+    the Digits stage's isolation predicate is identical to the \p{N}
+    table. test_pretokenize compares the scanner byte-for-byte against a
+    63-entry oracle-derived fixture corpus plus 8 invalid-UTF-8
+    rejection cases: 209/209 checks pass, 0 failures, across
+    Debug/Release/strict/ASan. This is boundary-agreement on that
+    corpus and the described sampling, not exhaustive equivalence over
+    all possible Unicode strings. Encode (token-ID production), BPE
+    merge execution, byte-to-Unicode mapping, decode, streaming, and
+    frozen-engine integration are NOT implemented. Phase 5B is NOT
     complete, accepted as a finished implementation, or frozen. The
     llama.cpp secondary-oracle comparison remains an outstanding
     validation dependency required before Phase 5B can be considered

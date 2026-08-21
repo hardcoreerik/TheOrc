@@ -1,6 +1,6 @@
 # Phase 5B: Tokenizer / Text-Token Boundary Reference
 
-Status: **IMPLEMENTATION IN PROGRESS — STAGE 1 (METADATA CONSTRUCTION) COMPLETE, NOT COMPLETE OR FROZEN**
+Status: **IMPLEMENTATION IN PROGRESS — STAGE 1 (METADATA CONSTRUCTION) COMPLETE, STAGE 2A (PRETOKENIZATION) COMPLETE, NOT COMPLETE OR FROZEN**
 
 Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 `F:\Ai\OrchestratorIDE-phase5b-tokenizer`, forked from `orcengine-phase5a-freeze`.
@@ -67,6 +67,33 @@ discovery that the tied fixture lacks tokenizer metadata is preserved
 in `tokenizer.cpp`'s merge-result comment, in the rejection test's own
 comments, and in `DECISION_LOG.md` OE-ADR-031 — it is not hidden by
 this reclassification.
+
+**Stage 2A implemented: 2026-08-20, same day (`DECISION_LOG.md`
+OE-ADR-032).** Exact native reproduction of the pinned tokenizer's
+`Digits(individual_digits=true) -> ByteLevel(add_prefix_space=false,
+trim_offsets=true, use_regex=true)` pretokenization sequence
+(`Tools/OrcEnginePhase5B/src/pretokenize.cpp`), producing pretoken BYTE
+RANGE boundaries only — no byte-to-Unicode alphabet remapping, no BPE
+merge execution, no token-ID production, no decoding. Classification
+tables (`\p{L}`, `\p{N}`, `\s`) were generated from Python's
+`unicodedata` and then validated against the live `tokenizers==0.22.2`
+oracle rather than assumed correct — 2,831 range-boundary probes plus a
+4,974-codepoint seeded random sample found 0 mismatches after
+correcting one discovered gap (Python's `str.isspace()` incorrectly
+includes U+001C–U+001F, which the oracle does not treat as
+whitespace); a separate 565-probe check confirmed the `Digits` stage's
+isolation predicate is identical to the `\p{N}` table. Full
+methodology in `Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py`
+and `DECISION_LOG.md` OE-ADR-032. The native scanner (`test_pretokenize`)
+was checked byte-for-byte against a 63-entry oracle-derived fixture
+corpus (golden fixtures, raw-prompt-identity fixtures, and hand-authored
+boundary/transition cases) plus 8 invalid-UTF-8 rejection cases: 209/209
+checks pass, 0 failures, across Debug, Release, strict, and ASan. This
+is boundary-agreement on that corpus and the described sampling, not a
+claim of exhaustive equivalence over all possible Unicode strings.
+Encoding (token-ID production), BPE merge execution, byte-to-Unicode
+mapping, decoding, streaming, and frozen-engine integration remain
+unimplemented.
 
 ## 1. Authority and baseline
 
@@ -671,6 +698,13 @@ item below as later stages deliver them:
 - One frozen-engine integration test (Section 11) — not implemented;
   requires encode/decode to exist first
 - Documentation evidence — this section and Section 17
+- Native pretokenization (Section 5's text-boundary responsibility, first
+  half) — **Stage 2A delivered 2026-08-20**:
+  `Tools/OrcEnginePhase5B/src/pretokenize.cpp` reproduces the pinned
+  `Digits->ByteLevel` sequence exactly, oracle-validated (see status
+  paragraph above and `DECISION_LOG.md` OE-ADR-032); produces byte-range
+  boundaries only. BPE merge execution, byte-to-Unicode mapping, and
+  token-ID production remain unimplemented.
 
 No empty source directories, placeholder files, interfaces, or
 scaffolding were pre-created by the specification-drafting pass, and
@@ -698,13 +732,19 @@ expected-rejection suite (against `smollm2-135m-tied.gguf`, whose
 missing `tokenizer.ggml.*` metadata is the required, passing outcome
 per OE-ADR-031, not a failure). No registered Phase 5B test
 intentionally fails. Stage 1 is closed only now that all three
-contracts pass. Stage 1 constructs and validates tables only -- text
-encoding, BPE merge execution, pretokenization, decoding, streaming,
-and frozen-engine integration are separate, not-yet-authorized stages.
-Section 14's acceptance criteria remain unsatisfied. Phase 5B is not
-complete, accepted as a finished implementation, or frozen. The
-llama.cpp secondary-oracle comparison remains outstanding. Phase 5C
-remains deferred, prohibited until Phase 5B is separately accepted (as
+contracts pass. **Updated again 2026-08-20 (Stage 2A, `DECISION_LOG.md`
+OE-ADR-032):** native pretokenization (`pretokenize.cpp`) is implemented
+and oracle-validated (`test_pretokenize`, 209/209 checks, 0 failures,
+across Debug/Release/strict/ASan) -- see the Stage 2A status paragraph
+above for exact counts. Stage 1+2A together still construct/validate
+tables and determine pretoken boundaries only -- text encoding (token-ID
+production), BPE merge execution, byte-to-Unicode mapping, decoding,
+streaming, and frozen-engine integration are separate, not-yet-
+authorized stages. Section 14's acceptance criteria remain unsatisfied.
+Phase 5B is not complete, accepted as a finished implementation, or
+frozen. The llama.cpp secondary-oracle comparison remains outstanding.
+Phase 5C remains deferred, prohibited until Phase 5B is separately
+accepted (as
 an implementation, not just this specification) and frozen.
 
 ## 18. Decision register

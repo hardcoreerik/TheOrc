@@ -1675,3 +1675,86 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   integration); Phase 5C; modifying or regenerating either real GGUF
   artifact; modifying any frozen Phase 1-5A source file; pushing,
   tagging, merging, rebasing, or amending any commit.
+
+## OE-ADR-032 — Phase 5B Stage 2A: exact native pretokenization implemented and oracle-validated
+
+- **Date:** 2026-08-20, America/Los_Angeles.
+- **Decision:** authorizes and records Stage 2A -- native reproduction of
+  the pinned SmolLM2 tokenizer's exact `Digits(individual_digits=true) ->
+  ByteLevel(add_prefix_space=false, trim_offsets=true, use_regex=true)`
+  pretokenization sequence -- as implemented in
+  `Tools/OrcEnginePhase5B/src/pretokenize.cpp` /
+  `include/orcengine/pretokenize.hpp`. This stage produces pretoken BYTE
+  RANGE boundaries only. It does **not** implement byte-to-Unicode
+  alphabet remapping, BPE merge execution, token-ID production, decoding,
+  streaming, or frozen-engine integration -- all of those remain
+  separate, unauthorized future stages.
+- **Approved approach:** a compact, generated, immutable Unicode
+  codepoint-range table (`include/orcengine/pretok_tables.hpp`), subject
+  to empirical oracle proof, per the maintainer's prior authorization. No
+  new runtime dependency (no ICU, PCRE2, Oniguruma, Boost.Regex,
+  utf8proc) was added -- classification is a compact binary-search table
+  lookup written directly against C++ standard facilities.
+- **Exact classification predicates established and validated against the
+  live `tokenizers==0.22.2` oracle** (methodology and full narrative in
+  `Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py`'s module
+  docstring; not repeated in full here):
+  - `\p{L}` = Unicode General Category ∈ {Lu, Ll, Lt, Lm, Lo} (677 ranges).
+  - `\p{N}` = Unicode General Category ∈ {Nd, Nl, No} (144 ranges) --
+    confirmed to be the SAME set used by the `Digits` pretokenizer's
+    `individual_digits=true` isolation predicate (an earlier in-session
+    reading error had concluded Digits was ASCII-digit-only; a
+    systematic re-check across all 71 Nd and 84 Nl/No Unicode script
+    ranges disproved that and confirmed the sets are identical -- the
+    only real difference is that Digits performs per-codepoint isolation
+    ahead of ByteLevel, so ByteLevel's own grouping quantifier never
+    observes more than one N-class codepoint at a time in practice).
+  - `\s` = the fixed, version-stable Unicode `White_Space=Y` property (25
+    codepoints/ranges) -- **not** Python's `str.isspace()`, which was
+    found to incorrectly include U+001C-U+001F (a CPython-specific
+    historical carve-out for the "information separator" controls) that
+    this oracle's regex engine does not follow. This discrepancy was
+    caught by direct oracle probing before being written into the
+    production table, not assumed away.
+  - Every one of the 677 L-range and 144 N-range boundaries (both
+    neighbors of every boundary) and both neighbors of every one of the
+    10 fixed S-ranges was checked against the live oracle: 2,831 boundary
+    probes, 0 mismatches. A further seeded (seed=20260820) random sample
+    of 4,974 codepoints found 0 additional mismatches. The Digits-stage
+    predicate was separately boundary-validated against the shared N
+    table (565 probes, 0 mismatches).
+  - Digits-stage segment boundaries were confirmed to be a hard stop for
+    ByteLevel's scan (neither the optional-space prefix nor the
+    `\s+(?!\S)` lookahead crosses a segment edge) via direct oracle
+    probes (e.g. `"a 5b"` does not attach the space to the following
+    digit).
+- **Proof before promotion:** a 63-entry oracle-derived fixture corpus
+  (golden fixtures, raw-prompt-identity fixtures, and a hand-authored
+  boundary/transition corpus covering ASCII, contractions, digit runs of
+  several scripts, CJK, emoji, combining marks, embedded NUL,
+  special-token lookalikes, and category-transition pairs) was computed
+  from the real `tokenizers==0.22.2` pretokenizer and compiled into
+  `tests/pretok_oracle_fixtures.hpp`. `test_pretokenize` compares the
+  native scanner's output against every entry byte-for-byte: 209/209
+  checks pass (63 fixtures × exact span-count + exact-boundary checks,
+  plus determinism re-invocation, plus 8 invalid-UTF-8 rejection cases,
+  plus structural checks), across Debug, Release, strict
+  (`/W4 /WX /permissive- /EHsc`, zero warnings), and ASan
+  (`/fsanitize=address /EHsc`, zero AddressSanitizer runtime
+  diagnostics), with 0 failures in every lane.
+- **Scope of this proof, stated precisely (not overstated):** this
+  validates boundary-agreement on the specific 63-entry corpus plus the
+  described boundary/random Unicode-classification sampling. It is not a
+  claim of exhaustive equivalence over all possible Unicode strings --
+  the sampling methodology and its size are recorded above precisely so
+  that claim is never implied.
+- **Stage 1 unaffected:** `tokenizer_metadata`,
+  `tokenizer_metadata_real_explicit`, and
+  `tokenizer_metadata_legacy_tied_rejection` all remain green, unchanged,
+  in every lane -- no Stage 1 source file was modified.
+- **Explicitly not authorized by this entry:** BPE merge execution, the
+  final public encode operation producing token IDs, decoding, streaming
+  decode, frozen-engine integration, Phase 5C. The llama.cpp
+  secondary-oracle comparison remains independently outstanding. No
+  frozen Phase 1-5A source file was modified. Nothing was pushed, tagged,
+  merged, rebased, or amended.

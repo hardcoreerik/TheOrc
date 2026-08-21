@@ -200,7 +200,7 @@ are not implemented; Phase 5B is not complete or frozen. Phase 5C
 remains deferred until Phase 5B closes, per the dependency ordering
 below.
 
-### Phase 5B — Tokenizer / text-token boundary (implementation in progress: Stage 1 complete, encode/decode not started)
+### Phase 5B — Tokenizer / text-token boundary (implementation in progress: Stage 1 + Stage 2A complete, encode/decode not started)
 
 Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,
 BOS/EOS, byte/Unicode/whitespace handling, special-token policy,
@@ -223,8 +223,19 @@ rejection is a required, passing test outcome, not a gap. Three
 independent test contracts (synthetic, explicit real-artifact positive,
 legacy tied-artifact expected-rejection) are all clean across
 Debug/Release/strict/ASan — no registered Phase 5B test intentionally
-fails. Encoding, decoding, and frozen-engine integration remain
-unimplemented. See
+fails. **Stage 2A (exact native pretokenization) implemented the same
+day** (`DECISION_LOG.md` OE-ADR-032): `pretokenize.cpp` reproduces the
+pinned `Digits->ByteLevel` sequence exactly, producing byte-range
+pretoken boundaries only. Its Unicode classification tables were
+generated from Python's `unicodedata` and then validated against the
+live `tokenizers==0.22.2` oracle (2,831 boundary probes + 4,974 random
+codepoints, 0 mismatches after correcting a discovered gap in a naive
+`str.isspace()` candidate). `test_pretokenize` matches a 63-entry
+oracle-derived fixture corpus plus 8 invalid-UTF-8 cases byte-for-byte:
+209/209 checks, 0 failures, across Debug/Release/strict/ASan — boundary
+agreement on that corpus and sampling, not exhaustive equivalence.
+Token-ID production (BPE merge execution, byte-to-Unicode mapping),
+decoding, and frozen-engine integration remain unimplemented. See
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) for full
 status. The llama.cpp secondary-oracle comparison remains an
 outstanding validation dependency, required

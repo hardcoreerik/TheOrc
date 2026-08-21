@@ -20,6 +20,7 @@ add_subdirectory(../OrcEnginePhase2 phase2)
 
 add_library(orcengine_phase5b
     src/tokenizer.cpp
+    src/pretokenize.cpp
 )
 target_include_directories(orcengine_phase5b PUBLIC include)
 target_link_libraries(orcengine_phase5b PUBLIC orcengine_phase2)
@@ -63,3 +64,19 @@ else()
     message(STATUS "Phase 5B Stage 1 legacy tied-artifact rejection test: SKIPPED -- "
                     "ORCENGINE_REAL_TIED_F32_GGUF not configured")
 endif()
+
+# Stage 2A: exact native pretokenization (Digits->ByteLevel boundary proof
+# against the tokenizers==0.22.2 oracle). Separate test executable from
+# test_tokenizer_metadata -- pretokenization is a distinct concern from
+# metadata construction/validation, and mixing the two contracts into one
+# executable would make both harder to reason about. No real-GGUF cache
+# variable needed: the oracle fixtures are pre-computed, committed data
+# (tests/pretok_oracle_fixtures.hpp), not a live artifact load.
+add_executable(test_pretokenize tests/test_pretokenize.cpp)
+target_link_libraries(test_pretokenize PRIVATE orcengine_phase5b)
+target_include_directories(test_pretokenize PRIVATE tests)
+target_compile_options(test_pretokenize PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+add_test(NAME pretokenize COMMAND test_pretokenize)

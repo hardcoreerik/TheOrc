@@ -519,16 +519,27 @@ rejection is a required, passing test outcome, not a gap. Three
 independent test contracts (synthetic, explicit real-artifact positive,
 legacy tied-artifact expected-rejection) are all clean across
 Debug/Release/strict/ASan (synthetic 136/136; the other two contracts
-pass in full) -- no registered Phase 5B test intentionally fails.
-Encoding, decoding, and frozen-engine integration are NOT implemented
--- Phase 5B is not complete, accepted as a finished implementation, or
-frozen. The llama.cpp secondary-oracle comparison remains an
-outstanding validation dependency, required before Phase 5B can be
-considered complete or frozen. Full detail in `DECISION_LOG.md`
-OE-ADR-029/OE-ADR-030/OE-ADR-031, `PHASE5A_KV_CACHE_SPEC.md`'s current
-status sections, and `PHASE5B_TOKENIZER_SPEC.md` (status:
-implementation in progress, Stage 1 complete, closure-corrected, and
-classified).
+pass in full) -- no registered Phase 5B test intentionally fails. The
+same day, Stage 2A (`DECISION_LOG.md` OE-ADR-032) implemented exact
+native pretokenization (`pretokenize.cpp`), reproducing the pinned
+`Digits->ByteLevel` sequence and producing byte-range pretoken
+boundaries only. Its `\p{L}`/`\p{N}`/`\s` classification tables were
+generated from Python's `unicodedata` and validated against the live
+`tokenizers==0.22.2` oracle (2,831 boundary probes + 4,974 random
+codepoints, 0 mismatches after correcting a discovered `str.isspace()`
+gap). `test_pretokenize` matches a 63-entry oracle-derived fixture
+corpus plus 8 invalid-UTF-8 cases byte-for-byte: 209/209 checks, 0
+failures, across Debug/Release/strict/ASan -- this is boundary
+agreement on that corpus and sampling, not exhaustive equivalence.
+Token-ID production (BPE merge execution, byte-to-Unicode mapping),
+decoding, and frozen-engine integration are NOT implemented -- Phase 5B
+is not complete, accepted as a finished implementation, or frozen. The
+llama.cpp secondary-oracle comparison remains an outstanding validation
+dependency, required before Phase 5B can be considered complete or
+frozen. Full detail in `DECISION_LOG.md`
+OE-ADR-029/OE-ADR-030/OE-ADR-031/OE-ADR-032, `PHASE5A_KV_CACHE_SPEC.md`'s
+current status sections, and `PHASE5B_TOKENIZER_SPEC.md` (status:
+implementation in progress, Stage 1 + Stage 2A complete).
 
 ## Current blockers
 
@@ -546,12 +557,14 @@ closure-corrected, and green-lane classified the same day
 (`DECISION_LOG.md` OE-ADR-031 resolved the tied-GGUF artifact-
 classification question: `smollm2-135m-tied.gguf` is a frozen legacy
 fixture, not a tokenizer-bearing artifact, and its rejection is a
-required, passing test outcome) -- encoding, decoding, and
-frozen-engine integration remain unimplemented. The llama.cpp
-secondary-oracle comparison remains the sole outstanding validation
-dependency before Phase 5B can be considered complete or
-frozen. See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-031 for the
-full record.
+required, passing test outcome). Same day, Stage 2A (exact native
+pretokenization, `DECISION_LOG.md` OE-ADR-032) was implemented and
+oracle-validated -- token-ID production (BPE merge execution,
+byte-to-Unicode mapping), decoding, and frozen-engine integration
+remain unimplemented. The llama.cpp secondary-oracle comparison remains
+the sole outstanding validation dependency before Phase 5B can be
+considered complete or frozen. See `DECISION_LOG.md` OE-ADR-022 through
+OE-ADR-032 for the full record.
 
 ## How to update this document
 
