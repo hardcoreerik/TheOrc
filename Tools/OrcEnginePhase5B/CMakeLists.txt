@@ -36,19 +36,30 @@ target_compile_options(test_tokenizer_metadata PRIVATE
 )
 add_test(NAME tokenizer_metadata COMMAND test_tokenizer_metadata)
 
-# Real-artifact test (Correction 1, closure pass): reuses the SAME
-# ORCENGINE_REAL_F32_GGUF / ORCENGINE_REAL_TIED_F32_GGUF cache variables
-# Phase 2's own CMakeLists.txt already declares (visible here because
-# add_subdirectory(phase2) above has already run) -- matching the existing
-# OrcEngine convention of reusing one variable name across phases rather
-# than inventing Phase-5B-specific names or baking in machine-specific
-# absolute paths. Registered ONLY when BOTH are configured, since the
-# explicit/tied identity comparison requires both real artifacts.
-if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_TIED_F32_GGUF)
-    message(STATUS "Phase 5B Stage 1 real-artifact test: REGISTERED")
-    add_test(NAME tokenizer_metadata_real
-        COMMAND test_tokenizer_metadata "${ORCENGINE_REAL_F32_GGUF}" "${ORCENGINE_REAL_TIED_F32_GGUF}")
+# Real-artifact tests (OE-ADR-031, green-lane closure pass): two
+# INDEPENDENT contracts, each reusing the SAME ORCENGINE_REAL_F32_GGUF /
+# ORCENGINE_REAL_TIED_F32_GGUF cache variables Phase 2's own CMakeLists.txt
+# already declares (visible here because add_subdirectory(phase2) above has
+# already run) -- matching the existing OrcEngine convention of reusing one
+# variable name across phases rather than inventing Phase-5B-specific names
+# or baking in machine-specific absolute paths. Neither test requires the
+# OTHER variable to be configured: the explicit positive suite and the
+# legacy tied rejection suite are unrelated contracts (per OE-ADR-031,
+# explicit/tied identity is no longer a Phase 5B requirement).
+if(ORCENGINE_REAL_F32_GGUF)
+    message(STATUS "Phase 5B Stage 1 explicit real-artifact test: REGISTERED")
+    add_test(NAME tokenizer_metadata_real_explicit
+        COMMAND test_tokenizer_metadata --real-explicit "${ORCENGINE_REAL_F32_GGUF}")
 else()
-    message(STATUS "Phase 5B Stage 1 real-artifact test: SKIPPED -- "
-                    "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_TIED_F32_GGUF not configured")
+    message(STATUS "Phase 5B Stage 1 explicit real-artifact test: SKIPPED -- "
+                    "ORCENGINE_REAL_F32_GGUF not configured")
+endif()
+
+if(ORCENGINE_REAL_TIED_F32_GGUF)
+    message(STATUS "Phase 5B Stage 1 legacy tied-artifact rejection test: REGISTERED")
+    add_test(NAME tokenizer_metadata_legacy_tied_rejection
+        COMMAND test_tokenizer_metadata --expect-missing-tokenizer "${ORCENGINE_REAL_TIED_F32_GGUF}")
+else()
+    message(STATUS "Phase 5B Stage 1 legacy tied-artifact rejection test: SKIPPED -- "
+                    "ORCENGINE_REAL_TIED_F32_GGUF not configured")
 endif()

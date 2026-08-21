@@ -177,10 +177,14 @@ TokenizerProfile TokenizerProfile::from_gguf_metadata(const GgufArtifact& artifa
         }
         // The merged RESULT (concatenation, no separator) must also exist in the
         // vocabulary and resolve unambiguously to a token ID. Confirmed empirically
-        // against both real pinned GGUF artifacts (explicit and tied) before adding
-        // this check: all 48,900 real merges satisfy left+right -- exists in vocab
-        // with zero exceptions, so this is enforced as a hard invariant, not a
-        // best-effort heuristic.
+        // against the canonical tokenizer-bearing explicit GGUF (smollm2-135m.gguf)
+        // before adding this check: all 48,900 of its real merges satisfy
+        // left+right -- exists in vocab with zero exceptions, so this is enforced
+        // as a hard invariant, not a best-effort heuristic. The legacy tied
+        // artifact (smollm2-135m-tied.gguf) carries no tokenizer.ggml.merges or
+        // any other tokenizer.ggml.* metadata at all (see OE-ADR-031) and was not
+        // and could not be part of this confirmation -- it is tested separately
+        // for fail-closed rejection, not for merge-result resolution.
         const std::string merged = left + right;
         const auto merged_it = vocab_set.find(merged);
         if (merged_it == vocab_set.end()) {

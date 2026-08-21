@@ -1,14 +1,20 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Phase 5B Stage 1 tests: constructs a synthetic GgufArtifact directly in
-// memory (GgufArtifact::metadata is public, GgufValue is a plain
-// aggregate) for the exhaustive adversarial suite, and -- when given real
-// GGUF paths on argv -- loads the actual pinned SmolLM2-135M artifacts
-// through the real, committed load_tokenizer_profile() path. Zero
-// arguments: synthetic-only, no large artifacts required. Two arguments
-// (explicit path, tied path): synthetic PLUS real-artifact validation and
-// an explicit/tied identity comparison.
+// Phase 5B Stage 1 tests: three independently satisfiable contracts, each
+// returning exit 0 only when every check that contract owns passes.
+//
+//   (no arguments)                        synthetic metadata suite
+//   --real-explicit <path>                explicit real-artifact positive suite
+//   --expect-missing-tokenizer <path>     legacy tied-artifact rejection suite
+//
+// Per OE-ADR-031: smollm2-135m.gguf is the canonical, tokenizer-bearing
+// Phase 5B artifact. smollm2-135m-tied.gguf is a frozen legacy tensor/
+// output-head-equivalence fixture with no tokenizer.ggml.* metadata --
+// it is REQUIRED to fail closed, not required to load. The two real-
+// artifact contracts are therefore separate programs-in-one, each
+// independently registered, neither depending on the other's artifact
+// variable being configured.
 //
 // The synthetic "valid" fixture is a genuinely BPE-consistent two-tier
 // vocabulary (base tokens + their pairwise concatenations as merge
@@ -16,8 +22,11 @@
 // 48,900 merges' concatenated result actually exists in its own
 // 49,152-entry vocabulary, exactly satisfying the same merge-result rule
 // enforced against the real tokenizer (confirmed by direct inspection of
-// both real pinned GGUFs before this rule was added to production code:
-// 48,900/48,900 real merges resolve, zero exceptions).
+// the canonical explicit GGUF before this rule was added to production
+// code: 48,900/48,900 real merges resolve, zero exceptions; the legacy
+// tied artifact carries no tokenizer/merge metadata at all and is not
+// part of that confirmation -- see tokenizer.cpp for the corrected
+// wording).
 #include <chrono>
 #include <cstdio>
 #include <optional>
@@ -417,28 +426,12 @@ void run_adversarial_checks(const GgufArtifact& valid) {
         [](GgufArtifact& a) { a.metadata["tokenizer.ggml.pre"] = string_value(""); });
 }
 
-// Correction 1: exercises the real, committed load_tokenizer_profile(path)
-// entry point against the actual pinned artifacts -- not just synthetic,
-// in-memory metadata. Uses index_gguf()+from_gguf_metadata() directly
-// (rather than the load_tokenizer_profile() convenience wrapper) ONLY to
-// surface GgufArtifact::telemetry's EXISTING parse-timing field for the
-// report below; no new measurement infrastructure is added.
-//
-// REAL FINDING, not a Phase 5B defect: smollm2-135m-tied.gguf has ZERO
-// tokenizer.ggml.* metadata keys (confirmed via direct inspection: 15
-// architecture-only metadata fields, vs. the explicit artifact's 24 --
-// the difference is exactly the 9 tokenizer.ggml.* keys). This is a
-// property of that existing, committed artifact (most likely: it was
-// converted for Phase 2/3/4's tensor/weight-equivalence testing, which
-// never needed tokenizer metadata, so it was never embedded). Per this
-// closure pass's own instruction not to weaken checks, invent a
-// transformation, or modify/regenerate the artifacts: the correct
-// behavior is exactly what happens below -- load_tokenizer_profile
-// rejects it with a clear GgufError, that rejection is caught and
-// reported as an honest, named finding (not a crash, not a silent
-// skip, not a fabricated pass), and the identical-tables comparison is
-// SKIPPED with a stated reason rather than attempted against a
-// nonexistent tied profile.
+// Shared by the explicit-positive contract: exercises the real, committed
+// load_tokenizer_profile(path) entry point (via its two constituent calls,
+// index_gguf()+from_gguf_metadata()) against a real pinned artifact. Used
+// ONLY against the canonical explicit artifact -- the legacy tied artifact
+// has its own, separate rejection contract below and never flows through
+// this success-shaped helper.
 std::optional<TokenizerProfile> load_and_check(const std::string& path, const char* label) {
     const auto t0 = std::chrono::steady_clock::now();
     GgufArtifact artifact;
@@ -491,53 +484,111 @@ std::optional<TokenizerProfile> load_and_check(const std::string& path, const ch
     return profile_or_none;
 }
 
-void run_real_artifact_checks(const std::string& explicit_path, const std::string& tied_path) {
-    std::printf("\n=== Real pinned GGUF artifacts ===\n");
+// Contract B: explicit real-artifact positive suite. Requires index_gguf
+// success, load_tokenizer_profile success (via both the convenience
+// wrapper and the two-call path), and every pinned invariant (vocab/merge/
+// token-type/CONTROL/BOS/EOS/add-token counts and positions). Because
+// from_gguf_metadata() itself enforces the merge-result-concatenation
+// invariant during construction, a successful load already proves all
+// 48,900 merge results resolved -- there is no separate resolution pass
+// to run afterward.
+int run_real_explicit_positive(const std::string& path) {
+    std::printf("=== Phase 5B Stage 1: explicit real-artifact positive contract ===\n");
 
-    // load_tokenizer_profile(path) itself (the committed public convenience
-    // API) is also exercised directly, once, against the explicit artifact
-    // (known-good), to prove the actual shipped entry point works
-    // end-to-end, not just its two constituent calls.
-    {
-        TokenizerProfile via_convenience = load_tokenizer_profile(explicit_path);
-        check(via_convenience.vocab_size() == kVocabSize,
-              "explicit: load_tokenizer_profile(path) convenience wrapper succeeds and matches vocab_size");
+    TokenizerProfile via_convenience = load_tokenizer_profile(path);
+    check(via_convenience.vocab_size() == kVocabSize,
+          "explicit: load_tokenizer_profile(path) convenience wrapper succeeds and matches vocab_size");
+
+    std::optional<TokenizerProfile> profile = load_and_check(path, "explicit");
+    check(profile.has_value() && profile->merges().size() == kMergeCount,
+          "explicit: all 48,900 merge results resolved (proven by successful construction)");
+
+    std::printf("\n=== Summary ===\n");
+    if (g_failures == 0) { std::printf("ALL CHECKS PASSED\n"); return 0; }
+    std::printf("%d FAILURES\n", g_failures);
+    return 1;
+}
+
+// Contract C: legacy tied-artifact expected-rejection suite. Per
+// OE-ADR-031, smollm2-135m-tied.gguf is a frozen tensor/output-head-
+// equivalence fixture with no tokenizer.ggml.* metadata -- it is REQUIRED
+// to fail closed, and this contract's exit code is 0 ONLY when that exact
+// rejection occurs: index_gguf must still succeed (the artifact itself is
+// readable GGUF), TokenizerProfile construction must throw exactly
+// GgufError (not TokenizerMetadataError, not any other type, and not
+// silently succeed), and the diagnostic must name the specific missing
+// key. This is deliberately NOT CTest WILL_FAIL -- WILL_FAIL would treat
+// ANY nonzero exit (a crash, an unrelated exception, a wrong-type
+// rejection) as a false pass. Every failure mode below is checked and
+// reported explicitly instead.
+int run_legacy_tied_rejection(const std::string& path) {
+    std::printf("=== Phase 5B Stage 1: legacy tied-artifact expected-rejection contract ===\n");
+
+    GgufArtifact artifact;
+    try {
+        artifact = index_gguf(path);
+    } catch (const std::exception& ex) {
+        check(false, std::string("tied: index_gguf(path) succeeds -- FAILED: ") + ex.what());
+        std::printf("\n=== Summary ===\n%d FAILURES\n", g_failures);
+        return 1;
     }
+    check(true, "tied: index_gguf(path) succeeds");
 
-    std::optional<TokenizerProfile> explicit_profile = load_and_check(explicit_path, "explicit");
-    std::optional<TokenizerProfile> tied_profile = load_and_check(tied_path, "tied");
-
-    std::printf("\n=== Explicit vs. tied identity comparison ===\n");
-    if (explicit_profile.has_value() && tied_profile.has_value()) {
-        check(explicit_profile->tokens() == tied_profile->tokens(), "explicit/tied: identical tokens()");
-        check(explicit_profile->merges() == tied_profile->merges(), "explicit/tied: identical merges()");
-        check(explicit_profile->token_types() == tied_profile->token_types(), "explicit/tied: identical token_types()");
-        check(explicit_profile->bos_token_id() == tied_profile->bos_token_id(), "explicit/tied: identical bos_token_id");
-        check(explicit_profile->eos_token_id() == tied_profile->eos_token_id(), "explicit/tied: identical eos_token_id");
-        check(explicit_profile->add_bos_token() == tied_profile->add_bos_token(), "explicit/tied: identical add_bos_token");
-        check(explicit_profile->add_eos_token() == tied_profile->add_eos_token(), "explicit/tied: identical add_eos_token");
-    } else {
-        check(false, "explicit/tied: identity comparison SKIPPED -- tied artifact did not produce a "
-                     "TokenizerProfile (see 'tied: load_tokenizer_profile(path) succeeds' above for why); "
-                     "reported as a failed requirement, not silently omitted");
+    bool unexpectedly_loaded = false;
+    bool threw = false;
+    bool right_type = false;
+    std::string what_message;
+    try {
+        TokenizerProfile profile = TokenizerProfile::from_gguf_metadata(artifact);
+        (void)profile;
+        unexpectedly_loaded = true;
+    } catch (const GgufError& ex) {
+        threw = true;
+        right_type = true;
+        what_message = ex.what();
+    } catch (const std::exception& ex) {
+        threw = true;
+        right_type = false;  // wrong type -- e.g. TokenizerMetadataError or anything else
+        what_message = ex.what();
     }
+    check(!unexpectedly_loaded, "tied: tokenizer profile construction rejects (did not unexpectedly load)");
+    check(threw, "tied: rejection throws an exception");
+    check(right_type, "tied: rejection type is exactly GgufError");
+    const bool has_fragment = threw && what_message.find("tokenizer.ggml.model") != std::string::npos;
+    check(has_fragment, "tied: diagnostic identifies missing tokenizer.ggml.model");
+
+    std::printf("\n=== Summary ===\n");
+    if (g_failures == 0) { std::printf("ALL CHECKS PASSED (expected rejection confirmed)\n"); return 0; }
+    std::printf("%d FAILURES\n", g_failures);
+    return 1;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
-        const GgufArtifact valid = build_valid_artifact();
+        const std::string mode = argc >= 2 ? argv[1] : "";
 
+        if (mode == "--real-explicit") {
+            if (argc < 3) {
+                std::fprintf(stderr, "--real-explicit requires a GGUF path\n");
+                return 2;
+            }
+            return run_real_explicit_positive(argv[2]);
+        }
+        if (mode == "--expect-missing-tokenizer") {
+            if (argc < 3) {
+                std::fprintf(stderr, "--expect-missing-tokenizer requires a GGUF path\n");
+                return 2;
+            }
+            return run_legacy_tied_rejection(argv[2]);
+        }
+
+        // Default (no arguments): synthetic metadata suite. No large
+        // artifacts required.
+        const GgufArtifact valid = build_valid_artifact();
         run_positive_and_structural_checks(valid);
         run_adversarial_checks(valid);
-
-        if (argc >= 3) {
-            run_real_artifact_checks(argv[1], argv[2]);
-        } else {
-            std::printf("\n(real-artifact tests skipped: no GGUF paths provided on argv -- "
-                        "synthetic-only run, no large artifacts required)\n");
-        }
 
         std::printf("\n=== Summary ===\n");
         if (g_failures == 0) { std::printf("ALL CHECKS PASSED\n"); return 0; }

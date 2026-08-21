@@ -115,9 +115,10 @@ status:
   # outstanding validation dependency, required before Phase 5B can be
   # considered complete or frozen, not before implementation may begin.
   # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
-  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_and_closure_corrected_2026_08_20_encode_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding_tied_gguf_lacks_tokenizer_metadata_new_finding
+  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_closure_corrected_and_green_lane_classified_2026_08_20_tied_gguf_classified_as_frozen_non_tokenizer_bearing_fixture_per_oe_adr_031_encode_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
   phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
   phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
+  phase5b_tied_artifact_classification_decision: DECISION_LOG.md OE-ADR-031
   phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
@@ -286,22 +287,31 @@ status:
     corrected the same day: real pinned GGUF artifacts now exercised
     (not synthetic-only), merge-result concatenation validated,
     adversarial tests verify exception type and diagnostic content, and
-    two tautological runtime checks removed. Targeted-validated across
-    Debug/Release/strict/ASan: synthetic metadata clean in all four
-    lanes (136/136 checks); real-artifact runs 147/149 -- the 2
-    failures are an honestly-reported, real finding, not a Phase 5B
-    defect: smollm2-135m-tied.gguf has zero tokenizer.ggml.* metadata
-    keys, so it correctly fails to construct a TokenizerProfile, and
-    the explicit-vs-tied identity comparison is reported as a failed
-    requirement rather than fabricated as a pass. The explicit artifact
-    fully validates. Encode, decode, pretokenization, BPE merge
-    execution, streaming, and frozen-engine integration are NOT
-    implemented -- Stage 1 constructs and validates tables only. Phase
-    5B is NOT complete, accepted as a finished implementation, or
-    frozen. The llama.cpp secondary-oracle comparison and the tied-GGUF
-    metadata gap both remain outstanding validation dependencies
-    required before Phase 5B can be considered complete or frozen.
-    Phase 5C remains deferred and
+    two tautological runtime checks removed. The closure-correction pass
+    surfaced that smollm2-135m-tied.gguf has zero tokenizer.ggml.*
+    metadata keys, leaving an open artifact-classification question. On
+    the same day the maintainer resolved it (DECISION_LOG.md OE-ADR-031):
+    smollm2-135m.gguf is the canonical, positive, tokenizer-bearing Phase
+    5B artifact; smollm2-135m-tied.gguf is a frozen legacy tensor/
+    output-head-equivalence fixture, not a positive tokenizer-bearing
+    artifact, and its missing metadata is now a REQUIRED fail-closed
+    rejection case, not a temporary gap. Explicit-vs-tied tokenizer-table
+    equality -- never part of the specification accepted at commit
+    83083145 -- was removed as a requirement. test_tokenizer_metadata now
+    exposes three independent contracts, each registered and run
+    separately (tokenizer_metadata, tokenizer_metadata_real_explicit,
+    tokenizer_metadata_legacy_tied_rejection). Targeted-validated across
+    Debug/Release/strict/ASan: all three contracts pass in every lane --
+    the synthetic suite (136/136 checks), the canonical explicit
+    real-artifact positive suite, and the legacy tied-artifact
+    expected-rejection suite. No registered Phase 5B test intentionally
+    fails. Encode, decode, pretokenization, BPE merge execution,
+    streaming, and frozen-engine integration are NOT implemented --
+    Stage 1 constructs and validates tables only. Phase 5B is NOT
+    complete, accepted as a finished implementation, or frozen. The
+    llama.cpp secondary-oracle comparison remains an outstanding
+    validation dependency required before Phase 5B can be considered
+    complete or frozen. Phase 5C remains deferred and
     unauthorized.
 
 truth_labels:

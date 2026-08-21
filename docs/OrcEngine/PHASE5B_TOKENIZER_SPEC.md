@@ -39,18 +39,34 @@ two tautological `check(true, ...)` runtime passes removed. **Real
 finding, not a Phase 5B defect:** `smollm2-135m-tied.gguf` has zero
 `tokenizer.ggml.*` metadata keys (15 architecture-only fields vs. the
 explicit artifact's 24) — `load_tokenizer_profile` correctly rejects
-it with `GgufError`, and the explicit-vs-tied identity comparison this
-document originally required is reported as an honest, understood
-failure, not fabricated as a pass. This is a property of the existing,
-committed tied artifact, not something this pass may fix (modifying or
-regenerating that artifact is out of scope here) — it is a new,
-explicit blocker for the "explicit and tied produce identical tables"
-requirement, separate from the llama.cpp secondary-oracle gap, pending
-a maintainer decision on how to proceed (e.g. reconverting the tied
-artifact with tokenizer metadata in a later pass). The explicit
-artifact fully validates. Honest executable check count as of this
-pass: 136 (synthetic-only invocation) / 149 (with both real GGUF
-paths, of which 2 are the tied-artifact finding above).
+it with `GgufError`. The explicit artifact fully validates.
+
+**Green-lane classification pass: 2026-08-20, same day (`DECISION_LOG.md`
+OE-ADR-031).** The maintainer resolved the artifact-classification
+question the closure-correction pass surfaced: `smollm2-135m.gguf` is
+the canonical, positive, tokenizer-bearing Phase 5B artifact;
+`smollm2-135m-tied.gguf` is a frozen legacy tensor/output-head-
+equivalence fixture, not a positive tokenizer-bearing artifact, and its
+missing metadata is a **required fail-closed rejection**, not a
+temporary gap. Explicit-vs-tied tokenizer-table equality — introduced
+by the closure-correction prompt, never part of the specification
+accepted at commit `83083145` — is removed as a requirement. The three
+real-artifact contracts are now independent and each returns exit 0
+only when its own checks pass:
+
+- `tokenizer_metadata` (synthetic suite): 136/136 checks pass.
+- `tokenizer_metadata_real_explicit` (canonical positive suite against
+  `smollm2-135m.gguf`): all checks pass.
+- `tokenizer_metadata_legacy_tied_rejection` (expected-rejection suite
+  against `smollm2-135m-tied.gguf`): all checks pass — the tied
+  artifact's `GgufError` naming the missing `tokenizer.ggml.model` key
+  is the required, passing outcome, not a failure.
+
+No registered Phase 5B test intentionally fails. The historical
+discovery that the tied fixture lacks tokenizer metadata is preserved
+in `tokenizer.cpp`'s merge-result comment, in the rejection test's own
+comments, and in `DECISION_LOG.md` OE-ADR-031 — it is not hidden by
+this reclassification.
 
 ## 1. Authority and baseline
 
@@ -637,16 +653,21 @@ item below as later stages deliver them:
 - One focused test executable, or the smallest existing test target
   that fits, for the golden-fixture and adversarial comparisons —
   **Stage 1 delivered a metadata-construction test executable**
-  (`test_tokenizer_metadata`, 136 checks synthetic-only / 149 with both
-  real GGUF paths); the golden-fixture/adversarial *encode/decode*
-  comparisons this bullet also describes remain unimplemented, since
-  encoding/decoding do not exist yet.
+  (`test_tokenizer_metadata`) exposing three independent contracts: the
+  synthetic suite (136 checks, no arguments), the canonical explicit
+  real-artifact positive suite (`--real-explicit <path>`, against
+  `smollm2-135m.gguf`), and the legacy tied-artifact expected-rejection
+  suite (`--expect-missing-tokenizer <path>`, against
+  `smollm2-135m-tied.gguf`, per `DECISION_LOG.md` OE-ADR-031); the
+  golden-fixture/adversarial *encode/decode* comparisons this bullet
+  also describes remain unimplemented, since encoding/decoding do not
+  exist yet.
 - Reused golden fixtures (Section 9) — not recreated; not yet exercised
   (no encode/decode to run them against)
 - Targeted malformed-metadata tests (Section 8, 10) — **Stage 1
   delivered these** (41 adversarial cases × 3 checks each -- throws,
-  correct exception type, diagnostic fragment -- in
-  `test_tokenizer_metadata`)
+  correct exception type, diagnostic fragment -- in the synthetic suite
+  of `test_tokenizer_metadata`)
 - One frozen-engine integration test (Section 11) — not implemented;
   requires encode/decode to exist first
 - Documentation evidence — this section and Section 17
@@ -666,19 +687,25 @@ a draft. This is still not authorization for implementation to be
 considered complete or frozen — Section 14's acceptance criteria,
 including the outstanding llama.cpp secondary-oracle comparison, remain
 unsatisfied until implementation exists and is validated against them.
-**Updated again 2026-08-20:** Stage 1 (native GGUF tokenizer-metadata
-construction and fail-closed validation, `Tools/OrcEnginePhase5B/`) has
-been implemented and targeted-validated (Debug/Release/strict/ASan;
-synthetic metadata clean in all four lanes, 136/136; real-artifact runs
-147/149, with the 2 failures being the honestly-reported tied-GGUF
-metadata gap described above, not a Phase 5B code defect). Stage 1
-constructs and validates tables only -- text encoding, BPE merge
-execution, pretokenization, decoding, streaming, and frozen-engine
-integration are separate, not-yet-authorized stages. Section 14's
-acceptance criteria remain unsatisfied. Phase 5B is not complete,
-accepted as a finished implementation, or frozen. Phase 5C remains
-prohibited until Phase 5B is separately accepted (as an implementation,
-not just this specification) and frozen.
+**Updated again 2026-08-20 (green-lane closure, `DECISION_LOG.md`
+OE-ADR-031):** Stage 1 (native GGUF tokenizer-metadata construction and
+fail-closed validation, `Tools/OrcEnginePhase5B/`) has been implemented
+and targeted-validated across Debug, Release, strict, and ASan. All
+three registered test contracts are clean in every lane: the synthetic
+suite (136/136), the canonical explicit real-artifact positive suite
+(against `smollm2-135m.gguf`), and the legacy tied-artifact
+expected-rejection suite (against `smollm2-135m-tied.gguf`, whose
+missing `tokenizer.ggml.*` metadata is the required, passing outcome
+per OE-ADR-031, not a failure). No registered Phase 5B test
+intentionally fails. Stage 1 is closed only now that all three
+contracts pass. Stage 1 constructs and validates tables only -- text
+encoding, BPE merge execution, pretokenization, decoding, streaming,
+and frozen-engine integration are separate, not-yet-authorized stages.
+Section 14's acceptance criteria remain unsatisfied. Phase 5B is not
+complete, accepted as a finished implementation, or frozen. The
+llama.cpp secondary-oracle comparison remains outstanding. Phase 5C
+remains deferred, prohibited until Phase 5B is separately accepted (as
+an implementation, not just this specification) and frozen.
 
 ## 18. Decision register
 

@@ -213,17 +213,21 @@ independently re-proven path into the C++ engine itself, which currently
 takes only explicit token IDs. **Specification accepted for
 implementation 2026-08-20** (maintainer approved all seven previously-
 unresolved policy decisions; `DECISION_LOG.md` OE-ADR-030); **Stage 1
-implemented and closure-corrected the same day**:
-`Tools/OrcEnginePhase5B/` constructs and validates the pinned tokenizer
-profile from GGUF metadata against both synthetic and real artifacts,
-Debug/Release/strict/ASan (synthetic 136/136 clean in all four lanes;
-real-artifact runs 147/149 -- the 2 failures are a real, honestly-
-reported finding: `smollm2-135m-tied.gguf` has no tokenizer metadata at
-all, not a Phase 5B defect). Encoding, decoding, and frozen-engine
-integration remain unimplemented. See
+implemented, closure-corrected, and green-lane classified the same
+day** (`DECISION_LOG.md` OE-ADR-031): `Tools/OrcEnginePhase5B/`
+constructs and validates the pinned tokenizer profile from GGUF
+metadata. `smollm2-135m.gguf` is the canonical, tokenizer-bearing Phase
+5B artifact; `smollm2-135m-tied.gguf` is a frozen legacy tensor/
+output-head-equivalence fixture with no tokenizer metadata, and its
+rejection is a required, passing test outcome, not a gap. Three
+independent test contracts (synthetic, explicit real-artifact positive,
+legacy tied-artifact expected-rejection) are all clean across
+Debug/Release/strict/ASan — no registered Phase 5B test intentionally
+fails. Encoding, decoding, and frozen-engine integration remain
+unimplemented. See
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) for full
-status. The llama.cpp secondary-oracle comparison and the tied-GGUF
-metadata gap both remain outstanding validation dependencies, required
+status. The llama.cpp secondary-oracle comparison remains an
+outstanding validation dependency, required
 before Phase 5B can be
 considered
 complete or frozen, not before implementation may begin.
