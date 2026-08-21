@@ -1,6 +1,6 @@
 # Phase 5B: Tokenizer / Text-Token Boundary Reference
 
-Status: **SPECIFICATION ACCEPTED FOR IMPLEMENTATION — IMPLEMENTATION NOT STARTED**
+Status: **IMPLEMENTATION IN PROGRESS — STAGE 1 (METADATA CONSTRUCTION) COMPLETE, NOT COMPLETE OR FROZEN**
 
 Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 `F:\Ai\OrchestratorIDE-phase5b-tokenizer`, forked from `orcengine-phase5a-freeze`.
@@ -11,13 +11,24 @@ Corrected: 2026-08-20, same day, following a focused review pass
 **Accepted: 2026-08-20, same day.** The maintainer explicitly approved
 all seven Section 19 policy recommendations as binding Phase 5B
 implementation requirements (see the "Maintainer-approved" markers in
-Sections 18-19 and `DECISION_LOG.md`'s new ADR). This is a
+Sections 18-19 and `DECISION_LOG.md` OE-ADR-030). This was a
 specification-acceptance decision, not an implementation-completion or
-freeze decision — Phase 5B implementation has not started. Acceptance
-does not waive the required llama.cpp secondary-oracle comparison
-(Section 9's availability note) — that remains an outstanding
-validation dependency before Phase 5B can be considered complete or
-frozen.
+freeze decision.
+
+**Stage 1 implemented: 2026-08-20, same day.** Native GGUF tokenizer-
+metadata construction and fail-closed validation
+(`Tools/OrcEnginePhase5B/`) — the pinned compatibility tuple (Section
+3/8) is validated and an immutable `TokenizerProfile` is constructed
+from already-parsed GGUF metadata, reusing the frozen Phase 2 GGUF
+reader's public API without modifying it. **Text encoding, BPE merge
+execution, pretokenization, token decoding, streaming UTF-8
+accumulation, and frozen-engine integration are NOT implemented** —
+Stage 1 constructs and validates tables only; it does not tokenize
+anything. Phase 5B is **not** complete, accepted as a finished
+implementation, or frozen. Acceptance does not waive the required
+llama.cpp secondary-oracle comparison (Section 9's availability
+note) — that remains an outstanding validation dependency before Phase
+5B can be considered complete or frozen.
 
 ## 1. Authority and baseline
 
@@ -594,18 +605,31 @@ implementation must prove:
 ## 16. Deliverables
 
 Future implementation deliverables, defined narrowly but **not
-created by this pass**:
+created by the specification-drafting/acceptance passes this section
+was originally written during**:
 
-- One concrete native tokenizer component
+- One concrete native tokenizer component — **Stage 1 delivered
+  2026-08-20**: `Tools/OrcEnginePhase5B/` constructs and validates the
+  immutable tokenizer table from GGUF metadata (`TokenizerProfile`).
+  Encoding/decoding are separate, not-yet-authorized stages.
 - One focused test executable, or the smallest existing test target
-  that fits, for the golden-fixture and adversarial comparisons
-- Reused golden fixtures (Section 9) — not recreated
-- Targeted malformed-metadata tests (Section 8, 10)
-- One frozen-engine integration test (Section 11)
-- Documentation evidence
+  that fits, for the golden-fixture and adversarial comparisons —
+  **Stage 1 delivered a metadata-construction test executable**
+  (`test_tokenizer_metadata`, 53 checks); the golden-fixture/adversarial
+  *encode/decode* comparisons this bullet also describes remain
+  unimplemented, since encoding/decoding do not exist yet.
+- Reused golden fixtures (Section 9) — not recreated; not yet exercised
+  (no encode/decode to run them against)
+- Targeted malformed-metadata tests (Section 8, 10) — **Stage 1
+  delivered these** (38 adversarial cases in `test_tokenizer_metadata`)
+- One frozen-engine integration test (Section 11) — not implemented;
+  requires encode/decode to exist first
+- Documentation evidence — this section and Section 17
 
 No empty source directories, placeholder files, interfaces, or
-scaffolding are pre-created by this specification pass.
+scaffolding were pre-created by the specification-drafting pass, and
+none were introduced by Stage 1 either (Section 4's "concrete, not an
+interface/factory/plugin system" constraint was followed).
 
 ## 17. Stop gate
 
@@ -617,10 +641,16 @@ a draft. This is still not authorization for implementation to be
 considered complete or frozen — Section 14's acceptance criteria,
 including the outstanding llama.cpp secondary-oracle comparison, remain
 unsatisfied until implementation exists and is validated against them.
-No implementation has been created by this or any prior commit against
-this specification. Phase 5C remains prohibited until Phase 5B is
-separately accepted (as an implementation, not just this specification)
-and frozen.
+**Updated again 2026-08-20:** Stage 1 (native GGUF tokenizer-metadata
+construction and fail-closed validation, `Tools/OrcEnginePhase5B/`) has
+been implemented and targeted-validated (Debug/Release/strict/ASan, all
+clean). Stage 1 constructs and validates tables only -- text encoding,
+BPE merge execution, pretokenization, decoding, streaming, and
+frozen-engine integration are separate, not-yet-authorized stages.
+Section 14's acceptance criteria remain unsatisfied. Phase 5B is not
+complete, accepted as a finished implementation, or frozen. Phase 5C
+remains prohibited until Phase 5B is separately accepted (as an
+implementation, not just this specification) and frozen.
 
 ## 18. Decision register
 

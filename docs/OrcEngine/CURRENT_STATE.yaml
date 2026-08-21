@@ -115,9 +115,10 @@ status:
   # outstanding validation dependency, required before Phase 5B can be
   # considered complete or frozen, not before implementation may begin.
   # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
-  phase5b_status: specification_accepted_for_implementation_2026_08_20_implementation_not_started_llama_cpp_secondary_oracle_comparison_outstanding
+  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_2026_08_20_encode_decode_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
   phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
   phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
+  phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
   cuda_backend: not_implemented
@@ -279,11 +280,18 @@ status:
     separate worktree); the maintainer subsequently approved that
     specification for implementation the same day, including all seven
     previously-unresolved policy decisions (see DECISION_LOG.md
-    OE-ADR-030). Phase 5B implementation has NOT started -- specification
-    acceptance is not implementation completion. The llama.cpp
-    secondary-oracle comparison remains an outstanding validation
-    dependency required before Phase 5B can be considered complete or
-    frozen. Phase 5C remains deferred and unauthorized.
+    OE-ADR-030). Phase 5B implementation Stage 1 (native GGUF
+    tokenizer-metadata construction and fail-closed validation,
+    Tools/OrcEnginePhase5B/) was implemented and targeted-validated
+    2026-08-20 (Debug/Release/strict/ASan, all clean, 53 checks
+    including 38 adversarial cases). Encode, decode, pretokenization,
+    BPE merge execution, streaming, and frozen-engine integration are
+    NOT implemented -- Stage 1 constructs and validates tables only.
+    Phase 5B is NOT complete, accepted as a finished implementation, or
+    frozen. The llama.cpp secondary-oracle comparison remains an
+    outstanding validation dependency required before Phase 5B can be
+    considered complete or frozen. Phase 5C remains deferred and
+    unauthorized.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source

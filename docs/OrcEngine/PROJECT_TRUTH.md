@@ -508,14 +508,18 @@ unpushed. Phase 5B specification drafting started 2026-08-20 on
 via a separate worktree, per this document's own requirement); the
 maintainer subsequently approved that specification for implementation
 the same day, including all seven previously-unresolved policy
-decisions (`DECISION_LOG.md` OE-ADR-030). Phase 5B implementation has
-NOT started -- specification acceptance is not implementation
-completion. The llama.cpp secondary-oracle comparison remains an
-outstanding validation dependency, required before Phase 5B can be
-considered complete or frozen. Full detail in `DECISION_LOG.md`
+decisions (`DECISION_LOG.md` OE-ADR-030). Stage 1 (native GGUF
+tokenizer-metadata construction and fail-closed validation,
+`Tools/OrcEnginePhase5B/`) was implemented and targeted-validated the
+same day (Debug/Release/strict/ASan clean). Encoding, decoding, and
+frozen-engine integration are NOT implemented -- Phase 5B is not
+complete, accepted as a finished implementation, or frozen. The
+llama.cpp secondary-oracle comparison remains an outstanding
+validation dependency, required before Phase 5B can be considered
+complete or frozen. Full detail in `DECISION_LOG.md`
 OE-ADR-029/OE-ADR-030, `PHASE5A_KV_CACHE_SPEC.md`'s current status
-sections, and `PHASE5B_TOKENIZER_SPEC.md` (status: specification
-accepted for implementation, implementation not started).
+sections, and `PHASE5B_TOKENIZER_SPEC.md` (status: implementation in
+progress, Stage 1 complete).
 
 ## Current blockers
 
@@ -527,12 +531,13 @@ resolved, and the maintainer has approved the freeze. Gate item 15's
 bounded partial and the optional real-GGUF ledger assertion remain
 recorded, accepted gaps, not blockers. Phase 5B is the next separately
 gated sub-phase; its specification was accepted for implementation
-2026-08-20 (`PHASE5B_TOKENIZER_SPEC.md`; `DECISION_LOG.md` OE-ADR-030),
-but its implementation has not started -- the llama.cpp secondary-
-oracle comparison remains an outstanding validation dependency before
-Phase 5B can be considered complete or frozen, not a blocker to
-beginning implementation. See `DECISION_LOG.md` OE-ADR-022 through
-OE-ADR-030 for the full record.
+2026-08-20 (`PHASE5B_TOKENIZER_SPEC.md`; `DECISION_LOG.md` OE-ADR-030)
+and Stage 1 (metadata construction and validation) was implemented and
+targeted-validated the same day -- encoding, decoding, and
+frozen-engine integration remain unimplemented, and the llama.cpp
+secondary-oracle comparison remains an outstanding validation
+dependency before Phase 5B can be considered complete or frozen. See
+`DECISION_LOG.md` OE-ADR-022 through OE-ADR-030 for the full record.
 
 ## How to update this document
 
