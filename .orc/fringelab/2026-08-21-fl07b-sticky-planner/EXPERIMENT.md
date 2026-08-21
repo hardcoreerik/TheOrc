@@ -1,6 +1,6 @@
 # FL-07B — Multi-Step Sticky-Layer Planning
 
-Status: **IN PROGRESS — Commit 1A of 3 (Commit 1 corrected/hardened per Codex review; Commit 2 not yet started)**
+Status: **IN PROGRESS — Commit 2 of 3 landed (multi-step cached-decode integration); Commit 3 (real-GGUF evidence) not yet started; stopped here for Codex review per the authorizing instruction**
 
 Worktree: `F:\Ai\OrchestratorIDE-fringelab-fl07b`
 Branch: `research/orcengine-fl07b-sticky-planner`
@@ -313,3 +313,187 @@ for later commits, not the answer to FL-07B's actual research questions.
   guarantee from `ModelSource` itself, so a real GGUF-backed `ModelSource`
   (Commit 2/3) would need its own equivalent naming to reuse this exact
   technique -- noted here so Commit 2 does not assume it transfers for free.
+
+## Scope of this commit (Commit 2)
+
+Multi-step cached-decode integration: threads Phase 5A's KV-cache seam
+(`execute_cached_transformer_layer`, called via `forward_cached_step` for
+the reference and directly for the new class) through the sticky/cold
+layer split across an arbitrary number of `step()` calls against one
+persistent `ContiguousAttentionKVStore`. Reuses Phase 5A's public seam
+UNMODIFIED; does not touch any frozen Phase 1-5A file. **Not yet
+included:** real-GGUF evidence, timing measurements, any policy
+conclusion, UI, or production integration (Commit 3).
+
+### Design
+
+`Tools/OrcEngineFringeLab/include/fringelab/sticky_layer_cached_model.hpp` /
+`src/sticky_layer_cached_model.cpp` -- `StickyLayerCachedModel`, structured
+as StickyLayerModel's constructor-time sticky-materialization pattern
+(itself re-validated per Commit 1A's `layer_costs_from_source()` /
+`validate_plan()` discipline before any materialization) plus a `step()` /
+`step_unsafe_explicit_position()` pair mirroring Phase 5A's own
+`VirtualizedCachedModel::step()` contract exactly:
+
+- `step()` REQUIRES `start_position == cache.current_length()`, throwing
+  `KVCacheError` before any mutation if it does not (the same P5A-RVW-002
+  invariant Phase 5A's own safe entry points enforce).
+- Every call: sticky layers run `execute_cached_transformer_layer` directly
+  against their permanently-resident weights (no `enter_layer`/`leave_layer`
+  -- they are never released); each cold layer is materialized fresh via
+  `enter_layer`/`materialize_layer`/`execute_cached_transformer_layer`/
+  `leave_layer`/`released`, identical to `StickyLayerModel::forward()`'s
+  cold-layer path, just invoked once per `step()` call instead of once per
+  object lifetime -- so a cold layer visited across N steps materializes N
+  separate times, never cached between steps.
+- `cache.set_current_length(start_position+new_len)` is called on the
+  success path ONLY, exactly mirroring `forward_cached_step` /
+  `VirtualizedCachedModel::step`'s own commit-on-success-only discipline
+  (P5A-RVW-002/P5A-RVW-003 lineage) -- a failed step leaves the cache's
+  COMMITTED length exactly where it was before the call. This is a logical
+  rollback via the committed-length gate, not a physical zeroing of any
+  bytes an earlier-executing layer of the same failed step may already have
+  written into the cache's K/V storage -- the same distinction
+  `context.hpp`'s own `write_k`/`write_v` documentation draws, and the test
+  evidence below states it exactly this way rather than overclaiming a
+  physical wipe.
+- `fault_before_cold_materialize` / `fault_before_cold_execute` hooks now
+  carry a `step_index` parameter (0-based, advancing only on a successful
+  call) alongside the layer id, so a test can target e.g. "fail only on
+  step 3's cold layer" -- not possible with Commit 1's single-call hooks,
+  which had no notion of "which step".
+
+`Tools/OrcEngineFringeLab/tests/test_fl07b_cached_decode.cpp` -- a shared
+5-step schedule (a 3-token prefill, then four 1-token decode steps) run
+against every tested plan and an independently-constructed Reference Path
+B run (`forward_cached_step` against the plain, fully-resident `Model` --
+Phase 5A code, called but not modified). Token `5` (first used at position
+1) reappears at position 4, and token `1` (first used at position 0)
+reappears at position 6 -- both are NEW absolute positions for an
+already-seen token id, deliberately exercising RoPE-position-dependent
+correctness rather than any (incorrect) token-identity-keyed caching.
+
+The synthetic fixture (`fixtures_phase1/fixture_untied.txt`) has only 2
+transformer layers, which caps the number of DISTINCT sticky sets at four:
+`{}`, `{0}`, `{1}`, `{0,1}`. The plan matrix therefore builds 6 plans
+(FirstK zero/one-sticky, ExplicitSet non-prefix `{1}`, FirstK all-sticky,
+and two `MaterializationCostPerByte` constructions with synthetic benefit
+data -- a tight budget landing on the non-prefix `{1}` and a generous
+budget landing on `{0,1}`) across those 4 sets, rather than 6-7 pairwise
+distinct sets -- stated here plainly as a fixture ceiling, not claimed as
+broader coverage than the 2-layer fixture allows. A 2-layer-only fixture
+also means the fault-injection tests below can only target layer 1 as the
+cold layer (the only cold layer that can ever exist when layer 0 is
+sticky).
+
+Per plan, per step, the test asserts: complete `logits` vector bit-identical
+to the reference; `selected_token` identical; the committed
+`cache.current_length()` correct for that step; and, after the full
+5-step sequence, `caches_physically_identical()` -- every layer, every
+kv_head, every committed position's K and V vectors, plus cache metadata
+(`n_layers`/`n_kv_heads`/`max_positions`/`head_dim`/`current_length`) --
+between that plan's cache and the reference cache. A separate cross-plan
+check confirms two DIFFERENT policies that land on the same final sticky
+set (FirstK all-sticky and CostPerByte generous-budget, both `{0,1}`) agree
+with each other step-by-step, not merely each independently with the
+reference.
+
+### Cumulative materialization/backing-byte evidence
+
+Using the same `TrackingMaterializer` pattern as Commit 1A (keyed on
+`LogicalTensor` name, e.g. `"layer1.ffn_down"`), run across the full
+5-step sequence with layer 0 sticky / layer 1 cold: layer 0's tensor
+materializes exactly ONCE total (construction only, across all 5 steps);
+layer 1's tensor materializes exactly ONCE PER STEP (5 times total, never
+cached between steps). `telemetry().backing_bytes_read` is asserted
+nonzero and reported as descriptive evidence only -- this test does NOT
+draw any conclusion about which residency budget is cheaper in cumulative
+I/O terms (FL-07B's question 2); that comparison requires real-model
+timing/byte data and is explicitly left to Commit 3.
+
+### Fault injection with cache-rollback verification
+
+Two independent mid-sequence fault tests, both asserting the SAME shape of
+evidence: (a) the exception propagates; (b) `cache.current_length()` is
+exactly its PRE-step value immediately after the failure (logical
+rollback); (c) `telemetry().current_layer == -1` and
+`telemetry().current_resident_weight_bytes` returns exactly to the
+bookends+sticky baseline immediately after, not merely inferred from a
+later successful call; (d) a RETRIED call with the same tokens/position
+succeeds and is bit-identical to the reference for that step; (e) every
+subsequent step in the schedule remains bit-identical to the reference;
+(f) the complete physical KV-cache contents match the reference once the
+full sequence finishes despite the mid-sequence fault and retry.
+
+1. **Partial cold-layer materialization failure** (step index 2, the
+   repeated-token-5 decode step): `TrackingMaterializer` targets
+   `"layer1.ffn_down"` (the 8th of 9 tensors), letting the first 7 of that
+   step's cold-layer tensors materialize and be recorded before the fault
+   fires.
+2. **Cold-layer execution failure** (step index 3): `fault_before_cold_execute`
+   fires after the cold layer's weights are fully resident, during the
+   `execute_cached_transformer_layer` call itself.
+
+A separate, non-fault test independently confirms `step()`'s
+position-invariant guard: a position-mismatched call is rejected with
+`KVCacheError` before any mutation, and the cache's committed length is
+unchanged by the rejected call.
+
+### Commit 2 verification
+
+**136/136 checks pass, 0 failures** in `test_fl07b_cached_decode`, across
+all four required lanes. `test_fl07b_sticky_layer` was rebuilt and rerun
+unchanged alongside it to confirm no regression from the CMakeLists.txt
+changes (adding the Phase 5A dependency, the new library/executable
+targets): still **88/88, 0 failures**.
+
+| Lane | Command | cached_decode result | sticky_layer regression check |
+|---|---|---|---|
+| Debug | `cmake --build ... --config Debug --target test_fl07b_cached_decode test_fl07b_sticky_layer` | 136/136, exit 0 | 88/88, exit 0 |
+| Release | `cmake --build ... --config Release --target test_fl07b_cached_decode test_fl07b_sticky_layer` | 136/136, exit 0 | 88/88, exit 0 |
+| Strict | `-DCMAKE_CXX_FLAGS="/permissive- /WX /EHsc"` (base `/W4` already applied per-target; confirmed present in actual `cl.exe` invocations for every new/changed source file) | 136/136, exit 0, zero real compiler warnings | 88/88, exit 0 |
+| ASan | `-DCMAKE_CXX_FLAGS="/fsanitize=address /EHsc"` (confirmed present in actual `cl.exe` invocations, `C4530` absent; `clang_rt.asan_dynamic-x86_64.dll` copied next to the Debug-config executables, which the ASan-instrumented binaries require at load time) | 136/136, exit 0, zero AddressSanitizer diagnostics | 88/88, exit 0 |
+
+CMakeLists.txt change: `add_subdirectory(../OrcEnginePhase3 phase3)` was
+replaced with `add_subdirectory(../OrcEnginePhase5A phase5a)` (Phase 5A
+already pulls in Phase 3, which pulls in Phase 2/1, transitively -- adding
+Phase 3 a second time directly would double-define its targets). Two new
+targets: `fringelab_sticky_layer_cached_model` (library) and
+`test_fl07b_cached_decode` (executable + registered CTest
+`fringelab_fl07b_cached_decode`).
+
+## Disposition (Commit 2)
+
+Question 1 (does correctness hold across a real multi-step cached decode)
+now has affirmative synthetic evidence: every tested plan is bit-identical
+to an independently-constructed fully-resident reference across a 5-step
+prefill+decode sequence including two repeated-token/new-position cases,
+with full physical KV-cache equivalence, not just logits equivalence.
+Question 2 (cumulative I/O divergence across budgets) has only descriptive
+telemetry numbers here (nonzero `backing_bytes_read`), no comparative
+conclusion -- that requires real-model measurement (Commit 3). Questions
+3-4 (explicit planner-selected sets, cost-per-byte policy) have further
+synthetic confirmation extended to the multi-step setting, but the
+real-model comparison Commit 3 is meant to provide is still absent.
+Question 5 (honest tie/null reporting) has not yet been exercised against
+a real model with actual measured costs -- the synthetic `benefit_estimate`
+values in this commit are deliberately fabricated to produce an
+unambiguous non-prefix selection, not derived from any real measurement.
+
+## Limitations (Commit 2)
+
+- Synthetic fixture only, 2 transformer layers -- no real GGUF model
+  exercised; see the plan-matrix limitation above (4 distinct sticky sets,
+  not more) and the single-cold-layer-target limitation on the
+  fault-injection tests.
+- `MaterializationCostPerByte`'s synthetic `benefit_estimate` values in
+  this commit are hand-picked to produce an unambiguous non-prefix
+  selection for test purposes, not derived from any real measurement --
+  `CostSource::Synthetic` throughout.
+- `telemetry().backing_bytes_read` is reported descriptively only; no
+  cumulative-I/O-divergence conclusion across budgets is drawn (Commit 3).
+- No timing data (materialize/execute milliseconds) is collected or
+  compared in this commit.
+- The 5-step schedule is fixed and hand-authored for this commit; it is
+  not a real decode trace and does not exercise `max_positions` boundary
+  behavior, cache eviction, or sequences longer than a handful of steps.

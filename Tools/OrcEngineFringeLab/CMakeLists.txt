@@ -17,7 +17,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
-add_subdirectory(../OrcEnginePhase3 phase3)
+# Pulls in Phase 3 (which pulls in Phase 2, which pulls in Phase 1)
+# transitively -- do NOT also add_subdirectory Phase 3 directly, that would
+# double-define its targets. FL-07B Commit 2 needs Phase 5A's
+# execute_cached_transformer_layer / forward_cached_step seam
+# (orcengine_phase5a), which is why this now adds Phase 5A instead of
+# Phase 3 directly.
+add_subdirectory(../OrcEnginePhase5A phase5a)
 
 if(NOT DEFINED ORCENGINE_REAL_F32_GGUF AND DEFINED ENV{ORCENGINE_REAL_F32_GGUF})
     set(ORCENGINE_REAL_F32_GGUF "$ENV{ORCENGINE_REAL_F32_GGUF}")
@@ -85,4 +91,28 @@ target_compile_options(test_fl07b_sticky_layer PRIVATE
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
 )
 add_test(NAME fringelab_fl07b_sticky_layer COMMAND test_fl07b_sticky_layer
+         "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+
+# FL-07B Commit 2 -- Multi-Step Cached-Decode Integration. Threads
+# Phase 5A's KV-cache seam (execute_cached_transformer_layer /
+# forward_cached_step, orcengine_phase5a) through StickyLayerModel's
+# sticky/cold layer split across multiple step() calls against one
+# persistent ContiguousAttentionKVStore.
+add_library(fringelab_sticky_layer_cached_model src/sticky_layer_cached_model.cpp)
+target_include_directories(fringelab_sticky_layer_cached_model PUBLIC include)
+target_link_libraries(fringelab_sticky_layer_cached_model PUBLIC orcengine_phase1 orcengine_phase3 orcengine_phase5a
+    fringelab_sticky_layer_plan fringelab_sticky_layer_model)
+target_compile_options(fringelab_sticky_layer_cached_model PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+
+add_executable(test_fl07b_cached_decode tests/test_fl07b_cached_decode.cpp)
+target_link_libraries(test_fl07b_cached_decode PRIVATE fringelab_sticky_layer_cached_model
+    fringelab_sticky_layer_model fringelab_sticky_layer_plan orcengine_phase5a)
+target_compile_options(test_fl07b_cached_decode PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+add_test(NAME fringelab_fl07b_cached_decode COMMAND test_fl07b_cached_decode
          "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
