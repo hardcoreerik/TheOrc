@@ -1758,3 +1758,95 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   secondary-oracle comparison remains independently outstanding. No
   frozen Phase 1-5A source file was modified. Nothing was pushed, tagged,
   merged, rebased, or amended.
+
+## OE-ADR-033 — Phase 5B Stage 2A generator hardened: provenance, reproducibility, fail-closed identity
+
+- **Date:** 2026-08-20, America/Los_Angeles.
+- **Decision:** closes a review finding (Codex) against the Stage 2A
+  generator committed under OE-ADR-032: it found no defect in the
+  production C++ scanner, but the generator (1) trusted a hard-coded
+  `tokenizers==0.22.2` version label without checking the actually
+  installed package, (2) referenced a machine-specific absolute path to
+  the pinned `tokenizer.json` and resolved its other paths relative to
+  the caller's working directory rather than its own location, (3) never
+  verified the supplied `tokenizer.json`'s identity or declared
+  pretokenizer contract before trusting it, (4) used `eval()` instead of
+  `ast.literal_eval()` on fixture-file string reprs, and (5) had no
+  read-only mode to prove the committed headers still match what the
+  generator currently produces. This entry records the corrected
+  generator's behavior and the complete provenance/hash record.
+- **Version verification:** the generator now imports `tokenizers`
+  itself and compares `tokenizers.__version__` against the required
+  `"0.22.2"` literal, aborting before any generation or file write if
+  they differ. Verified by deliberately monkeypatching the installed
+  version to `"0.20.0"` and confirming the script aborts (exit 1) before
+  reaching any generation step.
+- **Location independence:** the generator now requires an explicit
+  `--tokenizer-json <path>` argument (no hard-coded machine-specific
+  path remains in source) and resolves every repository-relative input
+  and output path from `Path(__file__).resolve().parent`, not the
+  caller's current working directory. Verified by running `--check` from
+  both the repository root and the generator's own directory and
+  confirming byte-identical results in both.
+- **Fail-closed tokenizer identity and contract verification:** the
+  supplied `tokenizer.json`'s SHA-256 is computed and compared against a
+  pinned expected value (established from the accepted SmolLM2 artifact
+  — see hash record below); the script aborts before any generation if
+  it differs. The file is then parsed and its declared pretokenizer
+  contract is checked explicitly (`normalizer` is `null`;
+  `pre_tokenizer.type == "Sequence"`; stage 0 is
+  `Digits(individual_digits=true)`; stage 1 is
+  `ByteLevel(add_prefix_space=false, trim_offsets=true, use_regex=true)`)
+  -- never inferred from the path or filename alone. Verified by
+  supplying an unrelated committed JSON file (`tokenizer_golden_
+  fixtures.json`) and confirming the script aborts on the SHA-256
+  mismatch before any generation step.
+- **`eval()` replaced with `ast.literal_eval()`** for parsing the golden
+  fixtures' `raw_text_repr`/`original_text_repr` string literals — no
+  functional change (these reprs are always plain Python string
+  literals), strictly a hardening of what the generator will parse.
+- **Read-only `--check` mode added:** regenerates all three outputs
+  fully in memory and compares them byte-for-byte against the committed
+  files, exiting nonzero on any drift and never writing a file in this
+  mode. Confirmed to detect drift correctly (the header comment changes
+  in this same pass were caught before being manually reconciled) and to
+  report a clean pass once the committed headers were regenerated.
+- **Provenance record (complete hash record, kept out of the generated
+  files themselves per the "a file must not carry its own hash" rule):**
+  - Python version: `3.14.3`
+  - Unicode database version (`unicodedata.unidata_version`): `16.0.0`
+  - Verified `tokenizers` package version: `0.22.2`
+  - `tokenizer.json` SHA-256 (pinned smollm2-135m artifact, revision
+    `93efa2f097d58c2a74874c7e644dbc9b0cee75a2`):
+    `9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c`
+  - Generator (`Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py`)
+    SHA-256: `1f4cc6b84a40b8c0a50f58ef1f534150e1309194ec2c662b1662e923d8dcb4a2`
+  - `include/orcengine/pretok_tables.hpp` SHA-256:
+    `027e2398103d4fddecbc07d479d5535a37d2d54810608761284a6764ab8c4c66`
+  - `tests/pretok_oracle_fixtures.hpp` SHA-256:
+    `48e780040a34bf6294b30bb89716dfbb6fe0aea86aca19051bb3178d0512c074`
+  - `tests/pretok_invalid_utf8.hpp` SHA-256:
+    `944aa3c82f6e3dc617e54f8db072a4602683e3c5d3330e2ff213e04ce50d4fc3`
+  - These header hashes are of the exact bytes the generator writes
+    (LF line endings); a working tree with different line-ending
+    normalization will hash differently -- re-run `--check` to confirm
+    equivalence rather than comparing hashes literally across checkouts.
+- **Wording correction:** every place in the Stage 2A evidence record
+  that described the oracle-agreement result now states it as: "Matches
+  the pinned oracle across the 63-entry corpus, all generated category
+  boundaries, and the recorded seeded sample; exhaustive equivalence
+  over every possible Unicode string is not claimed." This replaces
+  wording that could be read as implying broader coverage than was
+  actually tested.
+- **No production scanner change:** `pretokenize.cpp`/`pretokenize.hpp`
+  were not modified by this entry -- Codex's review found no defect
+  there. The two generated headers that changed (`pretok_tables.hpp`,
+  `pretok_oracle_fixtures.hpp`) changed only in comment/provenance text,
+  not in any table range or fixture data value; `test_pretokenize` was
+  re-run in Debug against the regenerated headers and still passes
+  209/209 with 0 failures, confirming no behavioral drift.
+- **Explicitly not authorized by this entry:** Stage 2B (BPE merge
+  execution, byte-to-Unicode mapping, token-ID production), decoding,
+  streaming, frozen-engine integration, Phase 5C. No frozen Phase 1-5A
+  source file was modified. Nothing was pushed, tagged, merged,
+  rebased, or amended.

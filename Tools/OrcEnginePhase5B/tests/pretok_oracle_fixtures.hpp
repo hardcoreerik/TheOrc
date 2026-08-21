@@ -7,7 +7,9 @@
 // Oracle pretokenization boundary fixtures: byte-offset [begin,end) spans
 // computed from tokenizers==0.22.2's real Sequence(Digits(individual_digits
 // =true), ByteLevel(add_prefix_space=false, trim_offsets=true, use_regex=
-// true)) pretokenizer, loaded from the pinned smollm2-135m/tokenizer.json.
+// true)) pretokenizer, loaded from the pinned smollm2-135m/tokenizer.json
+// (sha256- and contract-verified by the generator before use -- see
+// docs/OrcEngine/DECISION_LOG.md OE-ADR-033 for the full hash record).
 // Codepoint offsets from pre_tokenize_str() were converted to UTF-8 byte
 // offsets by summing each preceding codepoint's UTF-8 encoded length
 // (deterministic, no oracle dependency for that conversion). Every entry

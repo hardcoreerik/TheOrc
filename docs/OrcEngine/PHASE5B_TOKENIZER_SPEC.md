@@ -88,10 +88,15 @@ and `DECISION_LOG.md` OE-ADR-032. The native scanner (`test_pretokenize`)
 was checked byte-for-byte against a 63-entry oracle-derived fixture
 corpus (golden fixtures, raw-prompt-identity fixtures, and hand-authored
 boundary/transition cases) plus 8 invalid-UTF-8 rejection cases: 209/209
-checks pass, 0 failures, across Debug, Release, strict, and ASan. This
-is boundary-agreement on that corpus and the described sampling, not a
-claim of exhaustive equivalence over all possible Unicode strings.
-Encoding (token-ID production), BPE merge execution, byte-to-Unicode
+checks pass, 0 failures, across Debug, Release, strict, and ASan.
+Matches the pinned oracle across the 63-entry corpus, all generated
+category boundaries, and the recorded seeded sample; exhaustive
+equivalence over every possible Unicode string is not claimed. The
+generator was subsequently hardened (`DECISION_LOG.md` OE-ADR-033):
+fail-closed on the installed `tokenizers` version and on the supplied
+`tokenizer.json`'s SHA-256/declared contract, no hard-coded
+machine-specific path, a read-only `--check` mode, and the complete
+provenance hash record. Encoding (token-ID production), BPE merge execution, byte-to-Unicode
 mapping, decoding, streaming, and frozen-engine integration remain
 unimplemented.
 

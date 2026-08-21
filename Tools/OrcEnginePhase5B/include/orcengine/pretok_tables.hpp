@@ -7,9 +7,15 @@
 // Provenance (Stage 2A pretokenization tables):
 //   python_version        : 3.14.3
 //   unicodedata_version   : 16.0.0
-//   tokenizers_version    : 0.22.2 (pinned oracle)
+//   tokenizers_version    : 0.22.2 (pinned oracle, verified at
+//                           generation time -- see generate_pretok_tables.py)
 //   tokenizer_source      : smollm2-135m/tokenizer.json, pinned revision
-//                           93efa2f097d58c2a74874c7e644dbc9b0cee75a2
+//                           93efa2f097d58c2a74874c7e644dbc9b0cee75a2, sha256-pinned
+//                           and contract-verified by the generator before use
+//
+// Full hash record (tokenizer.json, generator, and all three generated
+// headers) is recorded in docs/OrcEngine/DECISION_LOG.md OE-ADR-033, not
+// embedded in this file (a file must not carry its own hash).
 //
 // L (\p{L}) / N (\p{N}) candidate ranges: Unicode General Category
 // L*(Lu,Ll,Lt,Lm,Lo) / N*(Nd,Nl,No), computed from the unicodedata version
@@ -18,11 +24,11 @@
 // includes U+001C-U+001F; see this script's module docstring for the full
 // discovery narrative and DECISION_LOG.md OE-ADR-032 for the record.
 //
-// Every L/N range boundary (and both neighbors of every S range) was
-// validated against a live tokenizers==0.22.2 ByteLevel pretokenizer: see
-// this script's validate_boundaries()/validate_random()/
-// validate_digits_stage() for exact counts and the run report this file's
-// companion commit records.
+// Matches the pinned oracle across the 63-entry corpus, all generated
+// category boundaries, and the recorded seeded sample; exhaustive
+// equivalence over every possible Unicode string is not claimed. See this
+// script's validate_boundaries()/validate_random()/validate_digits_stage()
+// for exact counts and DECISION_LOG.md OE-ADR-032/OE-ADR-033 for the record.
 #pragma once
 
 #include <cstddef>

@@ -323,9 +323,15 @@ status:
     table. test_pretokenize compares the scanner byte-for-byte against a
     63-entry oracle-derived fixture corpus plus 8 invalid-UTF-8
     rejection cases: 209/209 checks pass, 0 failures, across
-    Debug/Release/strict/ASan. This is boundary-agreement on that
-    corpus and the described sampling, not exhaustive equivalence over
-    all possible Unicode strings. Encode (token-ID production), BPE
+    Debug/Release/strict/ASan. Matches the pinned oracle across the
+    63-entry corpus, all generated category boundaries, and the
+    recorded seeded sample; exhaustive equivalence over every possible
+    Unicode string is not claimed. The generator was subsequently
+    hardened (DECISION_LOG.md OE-ADR-033): fail-closed on the installed
+    tokenizers version and on the supplied tokenizer.json's
+    SHA-256/declared contract, no hard-coded machine-specific path, a
+    read-only --check mode, and the complete provenance hash record.
+    Encode (token-ID production), BPE
     merge execution, byte-to-Unicode mapping, decode, streaming, and
     frozen-engine integration are NOT implemented. Phase 5B is NOT
     complete, accepted as a finished implementation, or frozen. The

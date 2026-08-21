@@ -7,15 +7,37 @@
 # committed Unicode range tables (include/orcengine/pretok_tables.hpp) and
 # the committed oracle fixture corpus (tests/pretok_oracle_fixtures.hpp,
 # tests/pretok_invalid_utf8.hpp) reproducible and re-derivable, per
-# DECISION_LOG.md OE-ADR-032's provenance requirement. Run it again only if
-# the pinned tokenizer.json or the pinned `tokenizers` package version ever
-# changes -- otherwise the committed headers are the checked-in, validated
-# result and this script does not need to run.
+# DECISION_LOG.md OE-ADR-032/OE-ADR-033's provenance requirement. Run it
+# again only if the pinned tokenizer.json or the pinned `tokenizers`
+# package version ever changes -- otherwise the committed headers are the
+# checked-in, validated result and this script does not need to run.
 #
-# Requires: `tokenizers==0.22.2` (the pinned oracle) installed, and the
-# pinned smollm2-135m/tokenizer.json available locally (not committed to
-# this repo -- it ships with the real GGUF conversion artifacts in the
-# Phase 2 worktree, see TOKENIZER_JSON below).
+# Usage:
+#   python generate_pretok_tables.py --tokenizer-json <path/to/tokenizer.json>
+#   python generate_pretok_tables.py --tokenizer-json <path> --check
+#
+# --check performs a read-only dry run: it regenerates every output in
+# memory and compares it byte-for-byte against the committed files,
+# exiting nonzero (without writing anything) if they differ. This is the
+# mode CI/reviewers should run to confirm the committed headers are still
+# exactly what this script (with this environment) produces. Without
+# --check, the three generated headers are written.
+#
+# Requires: the exact pinned `tokenizers==0.22.2` oracle installed (this
+# script verifies the installed version itself and aborts before doing
+# any work if it differs -- it never trusts a hard-coded version label),
+# and the pinned smollm2-135m/tokenizer.json supplied explicitly via
+# --tokenizer-json (not committed to this repo -- it ships with the real
+# GGUF conversion artifacts in the Phase 2 worktree). The supplied file's
+# SHA-256 is checked against the pinned value below and the script aborts
+# before generating or writing anything if it differs, or if the file's
+# own declared pretokenizer contract doesn't match what Stage 2A assumes.
+#
+# All repository-relative paths (golden fixtures, raw-prompt manifest, and
+# the three generated header destinations) are resolved relative to this
+# script's own location (`Path(__file__).resolve()`), not the caller's
+# current working directory -- running this script from the repository
+# root or from its own directory produces identical results.
 #
 # ---------------------------------------------------------------------------
 # Methodology summary (see docs/OrcEngine/DECISION_LOG.md OE-ADR-032 for the
@@ -25,7 +47,9 @@
 #    tokenizer.json directly: pre_tokenizer = Sequence(
 #      Digits(individual_digits=True),
 #      ByteLevel(add_prefix_space=False, trim_offsets=True, use_regex=True))
-#    normalizer = None.
+#    normalizer = None. This script now PARSES and VERIFIES that exact
+#    contract against the supplied file (see verify_tokenizer_contract())
+#    rather than assuming it from the file's path or name.
 #
 # 2. Determined the ByteLevel regex's Unicode classification empirically
 #    against the LIVE oracle (classify_oracle below), not by assuming any
@@ -71,36 +95,125 @@
 #    table uses the fixed White_Space=Y list, not Python isspace()) before
 #    ranges were ever written to the committed C++ header, so the shipped
 #    table already reflects the corrected, oracle-verified truth.
+#
+# This corpus matches the pinned oracle across the 63-entry fixture
+# corpus, all generated Unicode category boundaries, and the recorded
+# seeded random sample; exhaustive equivalence over every possible
+# Unicode string is not claimed.
 # ---------------------------------------------------------------------------
 
-import sys
-import json
-import time
-import random
+import argparse
+import ast
 import hashlib
+import json
+import random
+import sys
+import time
 import unicodedata
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-from tokenizers import Tokenizer
-from tokenizers.pre_tokenizers import ByteLevel, Digits
+# ---------------------------------------------------------------------------
+# Step 1: verify the installed tokenizers package itself, before importing
+# anything else from it or doing any other work. Never trust a hard-coded
+# version label without checking the actual installed package.
+# ---------------------------------------------------------------------------
+REQUIRED_TOKENIZERS_VERSION = "0.22.2"
+
+import tokenizers as _tokenizers_pkg  # noqa: E402  (must follow the version-check comment)
+
+if _tokenizers_pkg.__version__ != REQUIRED_TOKENIZERS_VERSION:
+    print(
+        f"ABORTING: installed tokenizers=={_tokenizers_pkg.__version__}, "
+        f"required tokenizers=={REQUIRED_TOKENIZERS_VERSION}. Refusing to generate or "
+        f"write anything against an unverified oracle version.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+from tokenizers import Tokenizer  # noqa: E402
+from tokenizers.pre_tokenizers import ByteLevel, Digits  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Paths (adjust TOKENIZER_JSON if re-running from a different worktree
-# layout -- the real GGUF conversion artifacts, including tokenizer.json,
-# live alongside the Phase 2 worktree's own artifacts, not in this repo).
+# Pinned tokenizer.json identity. The SHA-256 below was computed once from
+# the accepted SmolLM2-135M artifact (pinned revision
+# 93efa2f097d58c2a74874c7e644dbc9b0cee75a2) and is checked against every
+# --tokenizer-json argument -- this script never relies on the path or
+# filename alone to decide it is looking at the right file.
 # ---------------------------------------------------------------------------
-TOKENIZER_JSON = "F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m/tokenizer.json"
-GOLDEN_FIXTURES = "../../OrcEnginePhase0/artifacts/tokenizer_golden_fixtures.json"
-RAW_PROMPT_MANIFEST = "../../OrcEnginePhase0/artifacts/raw_prompt_identity_manifest.json"
-OUT_TABLES_HPP = "../include/orcengine/pretok_tables.hpp"
-OUT_FIXTURES_HPP = "../tests/pretok_oracle_fixtures.hpp"
-OUT_INVALID_HPP = "../tests/pretok_invalid_utf8.hpp"
+EXPECTED_TOKENIZER_JSON_SHA256 = "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c"
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+GOLDEN_FIXTURES = SCRIPT_DIR / "../../OrcEnginePhase0/artifacts/tokenizer_golden_fixtures.json"
+RAW_PROMPT_MANIFEST = SCRIPT_DIR / "../../OrcEnginePhase0/artifacts/raw_prompt_identity_manifest.json"
+OUT_TABLES_HPP = SCRIPT_DIR / "../include/orcengine/pretok_tables.hpp"
+OUT_FIXTURES_HPP = SCRIPT_DIR / "../tests/pretok_oracle_fixtures.hpp"
+OUT_INVALID_HPP = SCRIPT_DIR / "../tests/pretok_invalid_utf8.hpp"
 
 SEED = 20260820  # fixed for reproducibility; see report for corpus size
 
 bl = ByteLevel(add_prefix_space=False, trim_offsets=True, use_regex=True)
 digits = Digits(individual_digits=True)
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verify_tokenizer_identity_and_contract(tokenizer_json_path: Path):
+    """Aborts before any generation if the supplied tokenizer.json is not
+    byte-identical to the pinned artifact, or if its declared pretokenizer
+    contract doesn't match what Stage 2A's algorithm assumes. Never relies
+    on the path or filename alone."""
+    if not tokenizer_json_path.is_file():
+        print(f"ABORTING: --tokenizer-json path does not exist: {tokenizer_json_path}", file=sys.stderr)
+        sys.exit(1)
+
+    actual_hash = sha256_file(tokenizer_json_path)
+    if actual_hash != EXPECTED_TOKENIZER_JSON_SHA256:
+        print(
+            f"ABORTING: {tokenizer_json_path} sha256={actual_hash} does not match the "
+            f"pinned smollm2-135m/tokenizer.json sha256={EXPECTED_TOKENIZER_JSON_SHA256}. "
+            f"Refusing to generate or write anything against an unverified tokenizer file.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    with open(tokenizer_json_path, encoding="utf-8") as f:
+        raw = json.load(f)
+
+    def fail(msg):
+        print(f"ABORTING: tokenizer.json contract check failed -- {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    if raw.get("normalizer") is not None:
+        fail(f"normalizer is not null: {raw.get('normalizer')!r}")
+
+    pt = raw.get("pre_tokenizer")
+    if not isinstance(pt, dict) or pt.get("type") != "Sequence":
+        fail(f"pre_tokenizer is not a Sequence: {pt!r}")
+
+    stages = pt.get("pretokenizers")
+    if not isinstance(stages, list) or len(stages) != 2:
+        fail(f"pre_tokenizer.pretokenizers does not have exactly 2 stages: {stages!r}")
+
+    d_stage, bl_stage = stages
+    if d_stage.get("type") != "Digits" or d_stage.get("individual_digits") is not True:
+        fail(f"stage 0 is not Digits(individual_digits=true): {d_stage!r}")
+
+    if (
+        bl_stage.get("type") != "ByteLevel"
+        or bl_stage.get("add_prefix_space") is not False
+        or bl_stage.get("trim_offsets") is not True
+        or bl_stage.get("use_regex") is not True
+    ):
+        fail(
+            "stage 1 is not ByteLevel(add_prefix_space=false, trim_offsets=true, "
+            f"use_regex=true): {bl_stage!r}"
+        )
+
+    return actual_hash
 
 
 def classify_oracle(cp):
@@ -311,33 +424,33 @@ def build_corpus(tok):
     add("punct_letter_boundary", "!!!abcdef")
     add("ws_letter_boundary", "   abc")
     add("letter_ws_boundary", "abc   ")
-    add("arabic_indic_digits", "\u0661\u0662\u0663")
-    add("fullwidth_digits", "\uFF11\uFF12\uFF13")
-    add("superscript_digits", "\u00B2\u00B3")
-    add("roman_numerals", "\u2160\u2161\u2162")
+    add("arabic_indic_digits", "١٢٣")
+    add("fullwidth_digits", "１２３")
+    add("superscript_digits", "²³")
+    add("roman_numerals", "ⅠⅡⅢ")
     add("non_ascii_latin", "café résumé naïve Zürich")
     add("non_ascii_cjk", "你好世界 こんにちは 한국어")
     add("emoji", "Hello \U0001F600 World \U0001F601\U0001F602")
-    add("combining_marks", "e\u0301 a\u0300 n\u0303")
+    add("combining_marks", "é à ñ")
     add("embedded_nul", "before\x00after")
     add("special_token_lookalike", "text with <|endoftext|> inside and <|im_start|> too")
     add("punct_adjacent_unicode", "café!résumé,naïve.")
     add("numeric_isolated_between_letters", "a5b")
-    add("consecutive_numeric_diff_blocks", "5\u0661\uFF11")
-    add("literal_apostrophe_vs_rsquo", "don't don\u2019t")
+    add("consecutive_numeric_diff_blocks", "5١１")
+    add("literal_apostrophe_vs_rsquo", "don't don’t")
     add("uppercase_apostrophe", "DON'T")
     add("multi_merge_bpe_case", "unbelievably wonderful transformation")
     add("repeated_adjacent_pairs", "aaaaaaaaaa bbbbbbbbbb")
 
-    gf = json.load(open(GOLDEN_FIXTURES, encoding="utf-8"))
+    gf = json.loads(GOLDEN_FIXTURES.read_text(encoding="utf-8"))
     for f in gf["fixtures"]:
         raw_repr = f.get("raw_text_repr") or f.get("original_text_repr")
         if raw_repr is None:
             continue
-        raw_text = eval(raw_repr, {"__builtins__": {}})
+        raw_text = ast.literal_eval(raw_repr)
         add("golden__" + f["fixture_id"], raw_text)
 
-    rp = json.load(open(RAW_PROMPT_MANIFEST, encoding="utf-8"))
+    rp = json.loads(RAW_PROMPT_MANIFEST.read_text(encoding="utf-8"))
     for r in rp["records"]:
         add("rawprompt__" + r["fixture_id"], r["raw_text"])
 
@@ -371,7 +484,7 @@ def cpp_bytes_literal(raw: bytes) -> str:
     return '"' + "".join(f"\\x{b:02x}" for b in raw) + '"'
 
 
-def emit_tables_header(ranges, s_ranges):
+def emit_tables_header(ranges, s_ranges, python_version, unicodedata_version):
     L = []
     L.append("// Copyright (C) 2025-present hardcoreerik / TheOrc contributors")
     L.append("// SPDX-License-Identifier: AGPL-3.0-or-later")
@@ -380,11 +493,17 @@ def emit_tables_header(ranges, s_ranges):
     L.append("// Tools/OrcEnginePhase5B/tools/generate_pretok_tables.py.")
     L.append("//")
     L.append("// Provenance (Stage 2A pretokenization tables):")
-    L.append(f"//   python_version        : {sys.version.split()[0]}")
-    L.append(f"//   unicodedata_version   : {unicodedata.unidata_version}")
-    L.append("//   tokenizers_version    : 0.22.2 (pinned oracle)")
+    L.append(f"//   python_version        : {python_version}")
+    L.append(f"//   unicodedata_version   : {unicodedata_version}")
+    L.append(f"//   tokenizers_version    : {REQUIRED_TOKENIZERS_VERSION} (pinned oracle, verified at")
+    L.append("//                           generation time -- see generate_pretok_tables.py)")
     L.append("//   tokenizer_source      : smollm2-135m/tokenizer.json, pinned revision")
-    L.append("//                           93efa2f097d58c2a74874c7e644dbc9b0cee75a2")
+    L.append("//                           93efa2f097d58c2a74874c7e644dbc9b0cee75a2, sha256-pinned")
+    L.append("//                           and contract-verified by the generator before use")
+    L.append("//")
+    L.append("// Full hash record (tokenizer.json, generator, and all three generated")
+    L.append("// headers) is recorded in docs/OrcEngine/DECISION_LOG.md OE-ADR-033, not")
+    L.append("// embedded in this file (a file must not carry its own hash).")
     L.append("//")
     L.append("// L (\\p{L}) / N (\\p{N}) candidate ranges: Unicode General Category")
     L.append("// L*(Lu,Ll,Lt,Lm,Lo) / N*(Nd,Nl,No), computed from the unicodedata version")
@@ -393,11 +512,11 @@ def emit_tables_header(ranges, s_ranges):
     L.append("// includes U+001C-U+001F; see this script's module docstring for the full")
     L.append("// discovery narrative and DECISION_LOG.md OE-ADR-032 for the record.")
     L.append("//")
-    L.append("// Every L/N range boundary (and both neighbors of every S range) was")
-    L.append("// validated against a live tokenizers==0.22.2 ByteLevel pretokenizer: see")
-    L.append("// this script's validate_boundaries()/validate_random()/")
-    L.append("// validate_digits_stage() for exact counts and the run report this file's")
-    L.append("// companion commit records.")
+    L.append("// Matches the pinned oracle across the 63-entry corpus, all generated")
+    L.append("// category boundaries, and the recorded seeded sample; exhaustive")
+    L.append("// equivalence over every possible Unicode string is not claimed. See this")
+    L.append("// script's validate_boundaries()/validate_random()/validate_digits_stage()")
+    L.append("// for exact counts and DECISION_LOG.md OE-ADR-032/OE-ADR-033 for the record.")
     L.append("#pragma once")
     L.append("")
     L.append("#include <cstddef>")
@@ -441,7 +560,9 @@ def emit_fixtures_header(oracle_fixtures):
     F.append("// Oracle pretokenization boundary fixtures: byte-offset [begin,end) spans")
     F.append("// computed from tokenizers==0.22.2's real Sequence(Digits(individual_digits")
     F.append("// =true), ByteLevel(add_prefix_space=false, trim_offsets=true, use_regex=")
-    F.append("// true)) pretokenizer, loaded from the pinned smollm2-135m/tokenizer.json.")
+    F.append("// true)) pretokenizer, loaded from the pinned smollm2-135m/tokenizer.json")
+    F.append("// (sha256- and contract-verified by the generator before use -- see")
+    F.append("// docs/OrcEngine/DECISION_LOG.md OE-ADR-033 for the full hash record).")
     F.append("// Codepoint offsets from pre_tokenize_str() were converted to UTF-8 byte")
     F.append("// offsets by summing each preceding codepoint's UTF-8 encoded length")
     F.append("// (deterministic, no oracle dependency for that conversion). Every entry")
@@ -521,7 +642,30 @@ def emit_invalid_header(cases):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--tokenizer-json",
+        required=True,
+        type=Path,
+        help="Path to the pinned smollm2-135m/tokenizer.json (sha256- and contract-verified before use).",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Read-only: regenerate all output in memory and compare byte-for-byte against the "
+             "committed headers. Exits nonzero on drift. Never writes any file.",
+    )
+    args = parser.parse_args()
+
     t0 = time.time()
+    python_version = sys.version.split()[0]
+    print(f"python_version={python_version} tokenizers_version={_tokenizers_pkg.__version__} "
+          f"unicodedata_version={unicodedata.unidata_version}")
+
+    tokenizer_json_path = args.tokenizer_json.resolve()
+    tokenizer_json_sha256 = verify_tokenizer_identity_and_contract(tokenizer_json_path)
+    print(f"tokenizer.json verified: {tokenizer_json_path} sha256={tokenizer_json_sha256}")
+
     ranges = build_candidate_ranges()
     s_ranges = s_ranges_from_codepoints(S_FIXED)
     print(f"[{time.time()-t0:.2f}s] candidate ranges: L={len(ranges['L'])} N={len(ranges['N'])} S={len(s_ranges)}")
@@ -542,23 +686,47 @@ def main():
         print(f"    MISMATCH U+{cp:04X} expected_N={exp} digits_isolated={obs}")
 
     if bmis or rmis or dmis:
-        print("ABORTING: unresolved mismatches, not writing headers.")
+        print("ABORTING: unresolved mismatches, not writing or checking headers.")
         sys.exit(1)
 
-    tok = Tokenizer.from_file(TOKENIZER_JSON)
+    tok = Tokenizer.from_file(str(tokenizer_json_path))
     fixtures = build_corpus(tok)
     print(f"[{time.time()-t0:.2f}s] oracle fixture corpus: {len(fixtures)} entries")
 
-    tables_text = emit_tables_header(ranges, s_ranges)
+    tables_text = emit_tables_header(ranges, s_ranges, python_version, unicodedata.unidata_version)
     fixtures_text = emit_fixtures_header(fixtures)
     invalid_text = emit_invalid_header(INVALID_UTF8_CASES)
 
-    open(OUT_TABLES_HPP, "w", encoding="utf-8", newline="\n").write(tables_text)
-    open(OUT_FIXTURES_HPP, "w", encoding="utf-8", newline="\n").write(fixtures_text)
-    open(OUT_INVALID_HPP, "w", encoding="utf-8", newline="\n").write(invalid_text)
+    outputs = [
+        (OUT_TABLES_HPP, tables_text, "tables"),
+        (OUT_FIXTURES_HPP, fixtures_text, "fixtures"),
+        (OUT_INVALID_HPP, invalid_text, "invalid"),
+    ]
 
-    for name, text in (("tables", tables_text), ("fixtures", fixtures_text), ("invalid", invalid_text)):
+    for path, text, name in outputs:
         print(f"{name}: {len(text)} bytes, sha256={hashlib.sha256(text.encode()).hexdigest()}")
+
+    if args.check:
+        drift = []
+        for path, text, name in outputs:
+            resolved = path.resolve()
+            if not resolved.is_file():
+                drift.append((name, resolved, "MISSING"))
+                continue
+            existing = resolved.read_text(encoding="utf-8")
+            if existing != text:
+                drift.append((name, resolved, "DIFFERS"))
+        if drift:
+            print("CHECK FAILED -- generated content differs from committed files:")
+            for name, resolved, reason in drift:
+                print(f"    {name} ({resolved}): {reason}")
+            sys.exit(1)
+        print(f"CHECK PASSED -- all 3 generated headers match the committed files byte-for-byte "
+              f"(in {time.time()-t0:.2f}s). No file was written.")
+        return
+
+    for path, text, _name in outputs:
+        path.resolve().write_text(text, encoding="utf-8", newline="\n")
 
     print(f"done in {time.time()-t0:.2f}s")
 

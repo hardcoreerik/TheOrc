@@ -529,8 +529,14 @@ generated from Python's `unicodedata` and validated against the live
 codepoints, 0 mismatches after correcting a discovered `str.isspace()`
 gap). `test_pretokenize` matches a 63-entry oracle-derived fixture
 corpus plus 8 invalid-UTF-8 cases byte-for-byte: 209/209 checks, 0
-failures, across Debug/Release/strict/ASan -- this is boundary
-agreement on that corpus and sampling, not exhaustive equivalence.
+failures, across Debug/Release/strict/ASan. Matches the pinned oracle
+across the 63-entry corpus, all generated category boundaries, and the
+recorded seeded sample; exhaustive equivalence over every possible
+Unicode string is not claimed. The generator was subsequently hardened
+(`DECISION_LOG.md` OE-ADR-033): fail-closed on the installed
+`tokenizers` version and the supplied `tokenizer.json`'s SHA-256/
+declared contract, no hard-coded machine-specific path, a read-only
+`--check` mode, and the complete provenance hash record.
 Token-ID production (BPE merge execution, byte-to-Unicode mapping),
 decoding, and frozen-engine integration are NOT implemented -- Phase 5B
 is not complete, accepted as a finished implementation, or frozen. The
@@ -564,7 +570,7 @@ byte-to-Unicode mapping), decoding, and frozen-engine integration
 remain unimplemented. The llama.cpp secondary-oracle comparison remains
 the sole outstanding validation dependency before Phase 5B can be
 considered complete or frozen. See `DECISION_LOG.md` OE-ADR-022 through
-OE-ADR-032 for the full record.
+OE-ADR-033 for the full record.
 
 ## How to update this document
 

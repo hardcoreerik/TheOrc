@@ -232,8 +232,14 @@ live `tokenizers==0.22.2` oracle (2,831 boundary probes + 4,974 random
 codepoints, 0 mismatches after correcting a discovered gap in a naive
 `str.isspace()` candidate). `test_pretokenize` matches a 63-entry
 oracle-derived fixture corpus plus 8 invalid-UTF-8 cases byte-for-byte:
-209/209 checks, 0 failures, across Debug/Release/strict/ASan — boundary
-agreement on that corpus and sampling, not exhaustive equivalence.
+209/209 checks, 0 failures, across Debug/Release/strict/ASan. Matches
+the pinned oracle across the 63-entry corpus, all generated category
+boundaries, and the recorded seeded sample; exhaustive equivalence
+over every possible Unicode string is not claimed. The generator was
+subsequently hardened (`DECISION_LOG.md` OE-ADR-033): fail-closed on
+the installed `tokenizers` version and the supplied `tokenizer.json`'s
+SHA-256/declared contract, no hard-coded machine-specific path, a
+read-only `--check` mode, and the complete provenance hash record.
 Token-ID production (BPE merge execution, byte-to-Unicode mapping),
 decoding, and frozen-engine integration remain unimplemented. See
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) for full
