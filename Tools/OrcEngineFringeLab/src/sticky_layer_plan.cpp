@@ -3,6 +3,7 @@
 #include "fringelab/sticky_layer_plan.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <set>
 
@@ -29,6 +30,24 @@ const LayerCostInfo& find_layer(const std::vector<LayerCostInfo>& layers, int64_
 }
 
 }  // namespace
+
+void require_contiguous_layer_descriptors(const std::vector<LayerCostInfo>& layers) {
+    std::set<int64_t> seen;
+    for (const LayerCostInfo& l : layers) {
+        if (l.layer_id < 0 || l.layer_id >= static_cast<int64_t>(layers.size())) {
+            throw StickyPlanError("layer descriptor id " + std::to_string(l.layer_id) + " outside [0, " +
+                                  std::to_string(layers.size()) + ") -- descriptors must be exactly one per "
+                                  "contiguous layer id");
+        }
+        if (!seen.insert(l.layer_id).second) {
+            throw StickyPlanError("duplicate layer descriptor for id " + std::to_string(l.layer_id));
+        }
+    }
+    // seen.size() == layers.size() is implied by: no duplicates (checked
+    // above) and every id in-range over a set the same size as layers --
+    // together these force every id in [0, layers.size()) to be present
+    // exactly once (a range of N distinct values in [0,N) with no gaps).
+}
 
 bool StickyLayerPlan::is_sticky(int64_t layer_id) const {
     // sticky_layer_ids_ is sorted ascending by construction -- binary search,
@@ -69,6 +88,7 @@ void validate_plan(const StickyLayerPlan& plan, const std::vector<LayerCostInfo>
 }
 
 StickyLayerPlan plan_first_k(const std::vector<LayerCostInfo>& layers, uint64_t byte_budget) {
+    require_contiguous_layer_descriptors(layers);
     std::vector<int64_t> selected;
     uint64_t total = 0;
     for (const LayerCostInfo& l : layers) {
@@ -87,6 +107,7 @@ StickyLayerPlan plan_first_k(const std::vector<LayerCostInfo>& layers, uint64_t 
 
 StickyLayerPlan plan_explicit_set(const std::vector<LayerCostInfo>& layers, std::vector<int64_t> requested_ids,
                                   uint64_t byte_budget) {
+    require_contiguous_layer_descriptors(layers);
     std::sort(requested_ids.begin(), requested_ids.end());
     uint64_t total = 0;
     for (int64_t id : requested_ids) {
@@ -102,6 +123,7 @@ StickyLayerPlan plan_explicit_set(const std::vector<LayerCostInfo>& layers, std:
 }
 
 StickyLayerPlan plan_cost_per_byte(const std::vector<LayerCostInfo>& layers, uint64_t byte_budget) {
+    require_contiguous_layer_descriptors(layers);
     struct Ranked {
         int64_t layer_id;
         double benefit_per_byte;
@@ -114,11 +136,24 @@ StickyLayerPlan plan_cost_per_byte(const std::vector<LayerCostInfo>& layers, uin
                                   " has no benefit_estimate -- MaterializationCostPerByte requires an explicit "
                                   "cost for every candidate layer and never treats unknown cost as zero");
         }
+        const double benefit = *l.benefit_estimate;
+        if (std::isnan(benefit)) {
+            throw StickyPlanError("layer id " + std::to_string(l.layer_id) + " has a NaN benefit_estimate");
+        }
+        if (std::isinf(benefit)) {
+            throw StickyPlanError("layer id " + std::to_string(l.layer_id) +
+                                  " has an infinite benefit_estimate");
+        }
+        if (benefit < 0.0) {
+            throw StickyPlanError("layer id " + std::to_string(l.layer_id) +
+                                  " has a negative benefit_estimate (" + std::to_string(benefit) +
+                                  ") -- negative benefit is not a supported value for this experiment");
+        }
         if (l.resident_bytes == 0) {
             throw StickyPlanError("layer id " + std::to_string(l.layer_id) +
                                   " has resident_bytes == 0 -- benefit-per-byte is undefined");
         }
-        ranked.push_back({l.layer_id, *l.benefit_estimate / static_cast<double>(l.resident_bytes)});
+        ranked.push_back({l.layer_id, benefit / static_cast<double>(l.resident_bytes)});
     }
 
     // Deterministic ranking: std::stable_sort over an explicit std::vector,

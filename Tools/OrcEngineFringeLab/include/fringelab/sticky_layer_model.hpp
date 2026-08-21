@@ -44,15 +44,31 @@ using ColdLayerFaultInjector = std::function<void(int64_t layer)>;
 // after materialization already succeeded.
 using ColdLayerExecutionFaultInjector = std::function<void(int64_t layer)>;
 
+// Discovers every transformer layer present in `source` and builds one
+// LayerCostInfo per layer from the SOURCE-DECLARED sizes
+// (SourceTensor::resident_bytes, BackingExtent::byte_length()) --
+// benefit_estimate is left std::nullopt (a ModelSource alone carries no
+// cost/benefit opinion; only plan_cost_per_byte needs one, and callers that
+// want that policy must attach their own benefit estimates to the result).
+// Strictly validates the source as it goes: exactly one contiguous layer id
+// per [0, n_layers) (delegates to require_contiguous_layer_descriptors());
+// exactly the 9 required distinct AttentionNorm/AttentionQuery/
+// AttentionKey/AttentionValue/AttentionOutput/FfnNorm/FfnGate/FfnUp/
+// FfnDown roles per layer, no duplicates, none missing, none extra. Throws
+// StickyPlanError on any violation. This is the AUTHORITATIVE descriptor
+// set StickyLayerModel's constructor validates every plan against before
+// materializing anything -- a plan built from stale or incorrect
+// assumptions about layer sizes is rejected here, not silently accepted.
+std::vector<LayerCostInfo> layer_costs_from_source(const orcengine::ModelSource& source);
+
 class StickyLayerModel {
 public:
-    // `plan` must already be validate_plan()-clean against a LayerCostInfo
-    // description of `source`'s layers -- this constructor re-validates
-    // plan.sticky_layer_ids() against source_.config.n_layers itself (using
-    // the actual per-layer resident byte sizes discovered from `source`, not
-    // trusting the plan's own claimed bytes blindly) before materializing
-    // anything, so a plan built against stale layer-size assumptions still
-    // fails closed here rather than silently misbehaving.
+    // Re-derives the ACTUAL layer descriptors from `source` via
+    // layer_costs_from_source() and calls validate_plan(plan, actual) BEFORE
+    // materializing any bookend or sticky-layer tensor -- `plan` is never
+    // trusted blindly. A plan whose claimed byte total, layer set, or
+    // resident-byte assumptions do not match the real source fails closed
+    // here with StickyPlanError, before any materialization side effect.
     StickyLayerModel(orcengine::ModelSource source, orcengine::TensorMaterializer materializer, StickyLayerPlan plan);
 
     orcengine::ForwardResult forward(const std::vector<int64_t>& token_ids);

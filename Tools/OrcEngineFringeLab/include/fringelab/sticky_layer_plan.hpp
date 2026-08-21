@@ -85,9 +85,23 @@ public:
 // [0, layers.size())). Checks: every sticky ID is in range and unique; the
 // claimed planned_resident_bytes() equals the actual sum of the selected
 // layers' resident_bytes (overflow-checked); that sum does not exceed
-// byte_budget(); sticky_layer_ids() is sorted ascending. Throws
-// StickyPlanError on any violation. Does not mutate `plan`.
+// byte_budget() (which governs sticky TRANSFORMER-LAYER bytes only --
+// bookend tensors and the single transient cold layer are accounted for
+// separately by the caller's own residency invariant, not by this budget);
+// sticky_layer_ids() is sorted ascending. Throws StickyPlanError on any
+// violation. Does not mutate `plan`.
 void validate_plan(const StickyLayerPlan& plan, const std::vector<LayerCostInfo>& layers);
+
+// Shared precondition every plan_*() function below requires: `layers` must
+// contain EXACTLY one descriptor per contiguous layer id in
+// [0, layers.size()) -- no gaps, no duplicates, no id outside that range.
+// This is the same "exactly one descriptor per id" contract
+// StickyLayerModel's source-derived validation (sticky_layer_model.hpp)
+// separately enforces when the descriptors come from a real ModelSource;
+// this function is the pure, model-independent half of that same
+// requirement, reused by all three policies instead of being duplicated
+// three times. Throws StickyPlanError on violation.
+void require_contiguous_layer_descriptors(const std::vector<LayerCostInfo>& layers);
 
 // FirstKBaseline: preserves FL-07's original policy exactly -- materialize
 // layers 0, 1, 2, ... in order while the running byte total (checked for
@@ -97,11 +111,15 @@ void validate_plan(const StickyLayerPlan& plan, const std::vector<LayerCostInfo>
 // only when the budget is sufficient for their full sum.
 StickyLayerPlan plan_first_k(const std::vector<LayerCostInfo>& layers, uint64_t byte_budget);
 
-// ExplicitSet: accepts a caller-supplied list of exact layer IDs (order
-// irrelevant, duplicates rejected) and validates it against `byte_budget`
-// via the same checks validate_plan() performs -- this function IS
-// validate_and_build() for this policy: it never silently drops or reorders
-// a requested ID; a request that violates any invariant throws
+// ExplicitSet: accepts a caller-supplied list of exact layer IDs in any
+// order (duplicates rejected) and returns them in the plan's canonical
+// ascending-sorted order (StickyLayerPlan::sticky_layer_ids() is ALWAYS
+// sorted ascending, for every policy -- this is a normalization of
+// representation, not a semantic reordering: the SET of selected layers is
+// exactly the requested set, never a subset, superset, or substitution).
+// Validates the request against `byte_budget` via the same checks
+// validate_plan() performs -- this function IS validate_and_build() for
+// this policy: a request that violates any invariant throws
 // StickyPlanError rather than returning a partial or adjusted plan.
 StickyLayerPlan plan_explicit_set(const std::vector<LayerCostInfo>& layers, std::vector<int64_t> requested_ids,
                                   uint64_t byte_budget);
@@ -112,12 +130,24 @@ StickyLayerPlan plan_explicit_set(const std::vector<LayerCostInfo>& layers, std:
 // ascending layer_id (never by container iteration order -- ranking is
 // computed via std::stable_sort over an explicit std::vector, never an
 // unordered_map/unordered_set), then greedily adds layers in that order
-// while the running byte total stays within `byte_budget`. Throws
-// StickyPlanError if ANY layer in `layers` has no benefit_estimate
-// (std::nullopt) -- unknown cost is never silently treated as zero -- or
-// if any layer's resident_bytes is 0 (benefit-per-byte is undefined).
-// Never claims global optimality: this is a single-pass greedy heuristic
-// over a fixed ranking, not a knapsack solver.
+// while the running byte total stays within `byte_budget`. Never claims
+// global optimality: this is a single-pass greedy heuristic over a fixed
+// ranking, not a knapsack solver.
+//
+// benefit_estimate domain, strictly enforced -- throws StickyPlanError if
+// ANY layer in `layers` violates any of these:
+//   - std::nullopt is rejected (unknown cost is never silently treated as
+//     zero)
+//   - NaN is rejected
+//   - +/-infinity is rejected
+//   - negative values are rejected (benefit_estimate represents a saved
+//     materialization cost/benefit; a negative "benefit" has no
+//     established real-world meaning in this experiment and is treated as
+//     a caller error rather than silently accepted)
+//   - exactly 0.0 IS accepted -- a well-defined, finite "no measured
+//     benefit" value, ranked last among layers with any positive benefit
+//     but still eligible for selection if budget allows
+// resident_bytes == 0 is also rejected (benefit-per-byte is undefined).
 StickyLayerPlan plan_cost_per_byte(const std::vector<LayerCostInfo>& layers, uint64_t byte_budget);
 
 }  // namespace fringelab
