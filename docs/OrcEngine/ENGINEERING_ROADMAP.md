@@ -193,14 +193,12 @@ done:** [Phase 5A KV-Cached Decode Specification](PHASE5A_KV_CACHE_SPEC.md).
 `orcengine-phase5a-freeze` (annotated tag, local/unpushed;
 `DECISION_LOG.md` OE-ADR-029). Phase 5B specification accepted for
 implementation 2026-08-20 on `feat/orcengine-phase5b-tokenizer` (forked
-from the freeze tag; `DECISION_LOG.md` OE-ADR-030); Stage 1 (native
-GGUF tokenizer-metadata construction and fail-closed validation) was
-implemented the same day. Encode/decode and frozen-engine integration
-are not implemented; Phase 5B is not complete or frozen. Phase 5C
-remains deferred until Phase 5B closes, per the dependency ordering
-below.
+from the freeze tag; `DECISION_LOG.md` OE-ADR-030); implementation
+completed and formally frozen 2026-08-22 (`DECISION_LOG.md`
+OE-ADR-036/OE-ADR-037; freeze authority `orcengine-phase5b-freeze`).
+Phase 5C may now begin -- see its own section below.
 
-### Phase 5B — Tokenizer / text-token boundary (implementation in progress: Stage 1 + Stage 2A + Stage 2B complete, decode not started)
+### Phase 5B — Tokenizer / text-token boundary (complete and formally frozen 2026-08-22)
 
 Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,
 BOS/EOS, byte/Unicode/whitespace handling, special-token policy,
@@ -257,24 +255,44 @@ comparison against the production table): 1,198/1,198 checks, 0 failures
 the OE-ADR-035 reconciliation pass's tightened invalid-UTF-8 exception-
 type assertions), across Debug/Release/strict/ASan. Matches the pinned
 oracle across that corpus and the described cases; exhaustive
-equivalence is not claimed. Decoding and frozen-engine integration
-remain unimplemented. See
+equivalence is not claimed. **Native decode, streaming UTF-8 decode,
+the Section 11 frozen-engine integration proof, and the pinned
+llama.cpp `b10436` three-way oracle comparison were implemented and
+validated 2026-08-22** (`DECISION_LOG.md` OE-ADR-036): `decode()`/
+`decode_token_bytes()` (inverse GPT-2 byte-alphabet mapping,
+`DecodeControlPolicy::PreserveControlTokens`/`SkipControlTokens`,
+fail-closed on invalid token IDs, 836/836 checks against the existing
+oracle fixture corpus plus explicit golden/raw-prompt/CONTROL-divergence
+cases); `Utf8StreamDecoder` (incremental accumulation, explicit error on
+malformed or incomplete-at-end-of-stream UTF-8, poisoned-state-after-error
+semantics, 36/36 checks including a genuine cross-token 4-byte UTF-8
+split from a real golden fixture); the Section 11 integration proof
+(native `encode("Hello, world!")` -> frozen Phase 5A `forward_cached_step`
+-> native `decode()`, two independent executions bit-identical across
+logits/selected tokens/continuation/committed KV-cache, 8/8 checks, run
+against the real SmolLM2-135M F32 GGUF); and the three-way tokenizer
+comparison (Hugging Face `tokenizers==0.22.2` / pinned llama.cpp
+`b10436` (2026-08-14) reading the GGUF's own metadata / native Phase 5B
+-- exact agreement on all 5 canonical dual-source fixtures plus a
+15-item representative subset, one apparent disagreement fully
+root-caused as a llama-tokenize.exe CLI-mode limitation, not a
+tokenizer defect). All four lanes (Debug/Release/strict/ASan) clean,
+12/12, including inherited Phase 5A tests newly reachable through this
+phase's build-graph change. Independently reviewed (Grok 4.5, full
+mode, zero BLOCKER findings, three MINOR doc-staleness findings
+reconciled into this freeze pass). See
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) for full
-status. The llama.cpp secondary-oracle comparison remains an
-outstanding validation dependency, required
-before Phase 5B can be
-considered
-complete or frozen, not before implementation may begin.
+status.
 
-### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (deferred, not yet specified)
+### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (may now begin; not yet specified)
 
 Explicit scratch-buffer accounting distinct from `ResidentView`/weight
 residency and from KV-cache residency; workspace-reuse-does-not-change-
 numerics proof; then, only after correctness, prompt/prefill vs first-token
 vs steady-state decode measurement across full-recompute and cached paths.
-Not started; spec to be written when 5A and 5B close, since workspace reuse
-is far more meaningful once decode is actually incremental (5A) and real text
-input exists (5B).
+Not started; its only dependency (Phase 5B closing) is now satisfied --
+spec and Stage 1 to follow in a dedicated worktree forked from
+`orcengine-phase5b-freeze`.
 
 ## Phase 6 — Initial quantization
 

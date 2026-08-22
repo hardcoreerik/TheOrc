@@ -557,16 +557,36 @@ the OE-ADR-035 reconciliation pass's tightened invalid-UTF-8
 exception-type assertions), across Debug/Release/strict/ASan. Matches
 the pinned oracle across that corpus and the described cases; exhaustive
 equivalence is not claimed.
-Decoding, streaming decode, model execution, chat templates, and
-frozen-engine integration are NOT implemented -- Phase 5B
-is not complete, accepted as a finished implementation, or frozen. The
-llama.cpp secondary-oracle comparison remains an outstanding validation
-dependency, required before Phase 5B can be considered complete or
-frozen. Full detail in `DECISION_LOG.md`
-OE-ADR-029/OE-ADR-030/OE-ADR-031/OE-ADR-032/OE-ADR-033/OE-ADR-034/OE-ADR-035,
+Same day (2026-08-22), native decode (`decode()`/`decode_token_bytes()`,
+`DecodeControlPolicy::PreserveControlTokens`/`SkipControlTokens`,
+fail-closed on invalid token IDs, inverse GPT-2 byte-alphabet mapping
+validated at construction), streaming UTF-8 decode (`Utf8StreamDecoder`
+-- explicit error on malformed or incomplete-at-end-of-stream UTF-8,
+poisoned-state-after-error semantics), the Section 11 frozen-engine
+integration proof (native `encode("Hello, world!")` -> frozen Phase 5A
+`forward_cached_step` -> native `decode()`, two independent executions
+bit-identical across complete logits/selected tokens/generated
+continuation/committed KV-cache contents, run against the real
+SmolLM2-135M F32 GGUF), and the pinned llama.cpp `b10436` (2026-08-14,
+commit `6fed9f6ff`) three-way oracle comparison (Hugging Face
+`tokenizers==0.22.2` / llama.cpp reading the GGUF's own metadata /
+native Phase 5B -- exact agreement on all 5 canonical dual-source
+fixtures plus a 15-item representative subset; one apparent
+disagreement fully root-caused as llama-tokenize.exe's CLI having no
+literal-text mode, not a tokenizer defect) were all implemented and
+oracle-validated (`DECISION_LOG.md` OE-ADR-036): decode 836/836 checks,
+streaming decode 36/36, integration 8/8, all across
+Debug/Release/strict/ASan (12/12 including inherited Phase 5A tests
+newly reachable through this phase's build-graph change). Independently
+reviewed (Grok 4.5, full mode, over the complete branch diff since the
+Phase 5A freeze base: zero BLOCKER findings, three MINOR doc-staleness
+findings, all reconciled into this freeze pass). **Phase 5B is complete
+and formally frozen as of 2026-08-22** under the annotated tag
+`orcengine-phase5b-freeze` (`DECISION_LOG.md` OE-ADR-037). Full detail in
+`DECISION_LOG.md`
+OE-ADR-029 through OE-ADR-037,
 `PHASE5A_KV_CACHE_SPEC.md`'s current status sections, and
-`PHASE5B_TOKENIZER_SPEC.md` (status: implementation in progress,
-Stage 1 + Stage 2A + Stage 2B complete).
+`PHASE5B_TOKENIZER_SPEC.md` (status: complete and frozen).
 
 ## Current blockers
 
@@ -588,12 +608,15 @@ required, passing test outcome). Same day, Stage 2A (exact native
 pretokenization, `DECISION_LOG.md` OE-ADR-032) was implemented and
 oracle-validated. Also same day, Stage 2B (native byte mapping, BPE,
 and text-to-token-ID encoding, `DECISION_LOG.md` OE-ADR-034) was
-implemented and oracle-validated -- decoding, streaming decode, model
-execution, chat templates, and frozen-engine integration remain
-unimplemented. The llama.cpp secondary-oracle comparison remains
-the sole outstanding validation dependency before Phase 5B can be
-considered complete or frozen. See `DECISION_LOG.md` OE-ADR-022 through
-OE-ADR-035 for the full record.
+implemented and oracle-validated. On 2026-08-22, native decode,
+streaming UTF-8 decode, the Section 11 frozen-engine integration proof,
+and the pinned llama.cpp `b10436` three-way oracle comparison were
+implemented, oracle-validated, and independently reviewed
+(`DECISION_LOG.md` OE-ADR-036), and Phase 5B was formally frozen
+(`DECISION_LOG.md` OE-ADR-037, tag `orcengine-phase5b-freeze`). **No
+blockers remain for Phase 5B.** Phase 5C may now begin -- its only
+dependency (Phase 5B closing) is satisfied; it has not yet started. See
+`DECISION_LOG.md` OE-ADR-022 through OE-ADR-037 for the full record.
 
 ## How to update this document
 

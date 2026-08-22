@@ -43,7 +43,7 @@ as_of:
     native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_specification_drafting_started_2026_08_20_implementation_not_started_not_authorized
+  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_accepted_and_formally_frozen_2026_08_22_phase_5c_not_yet_started
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -109,21 +109,36 @@ status:
   phase5a_optional_real_gguf_resident_ledger_assertion: deferred_future_strengthening_not_a_freeze_blocker
   # Phase 5B specification accepted for implementation 2026-08-20
   # (maintainer approved all seven previously-unresolved policy
-  # decisions; see DECISION_LOG.md OE-ADR-030). Implementation has NOT
-  # started -- specification acceptance is not implementation
-  # completion. The llama.cpp secondary-oracle comparison remains an
-  # outstanding validation dependency, required before Phase 5B can be
-  # considered complete or frozen, not before implementation may begin.
-  # See docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
-  phase5b_status: implementation_in_progress_stage1_metadata_construction_complete_stage2a_pretokenization_complete_stage2b_byte_mapping_bpe_and_encoding_complete_2026_08_20_oracle_validated_decode_streaming_decode_frozen_engine_integration_not_implemented_not_complete_not_frozen_llama_cpp_secondary_oracle_comparison_outstanding
+  # decisions; see DECISION_LOG.md OE-ADR-030). Implementation completed
+  # and formally frozen 2026-08-22: Stage 1 (metadata), Stage 2A
+  # (pretokenization), Stage 2B (byte mapping/BPE/encoding), native
+  # decode, streaming UTF-8 decode, the Section 11 frozen-engine
+  # integration proof, and the pinned llama.cpp b10436 three-way oracle
+  # comparison are all implemented, oracle-validated, and independently
+  # reviewed (see DECISION_LOG.md OE-ADR-036/OE-ADR-037). See
+  # docs/OrcEngine/PHASE5B_TOKENIZER_SPEC.md.
+  phase5b_status: complete_and_formally_frozen_2026_08_22_stage1_metadata_stage2a_pretokenization_stage2b_encoding_decode_streaming_decode_frozen_engine_integration_and_llama_cpp_b10436_three_way_oracle_comparison_all_implemented_oracle_validated_and_independently_reviewed
   phase5b_spec: PHASE5B_TOKENIZER_SPEC.md
   phase5b_spec_acceptance_decision: DECISION_LOG.md OE-ADR-030
   phase5b_tied_artifact_classification_decision: DECISION_LOG.md OE-ADR-031
   phase5b_stage2a_pretokenization_decision: DECISION_LOG.md OE-ADR-032
   phase5b_stage2b_encoding_decision: DECISION_LOG.md OE-ADR-034
   phase5b_stage2b_reconciliation_decision: DECISION_LOG.md OE-ADR-035
+  phase5b_decode_streaming_integration_oracle_decision: DECISION_LOG.md OE-ADR-036
+  phase5b_freeze_decision: DECISION_LOG.md OE-ADR-037
   phase5b_stage1_target: Tools/OrcEnginePhase5B (orcengine_phase5b, test_tokenizer_metadata)
+  phase5b_llama_cpp_oracle_build: b10436 (2026-08-14, commit 6fed9f6ff, Windows CPU)
+  phase5b_four_lane_validation: done_debug_release_strict_permissive_wx_ehsc_asan_fsanitize_address_ehsc_all_clean_12_of_12_including_inherited_phase5a_tests_affected_by_build_config_change
+  phase5b_independent_review: grok_4_5_full_mode_2026_08_22_zero_blockers_three_minor_doc_staleness_findings_reconciled_see_DECISION_LOG_OE_ADR_037
+  # phase5b_freeze_commit is intentionally omitted -- same self-reference
+  # rationale as phase5a_freeze_commit above (a commit cannot truthfully
+  # contain its own hash). orcengine-phase5b-freeze is the durable
+  # authority; verify its peeled target with `git rev-list -n 1
+  # orcengine-phase5b-freeze`.
+  phase5b_freeze_tag: orcengine-phase5b-freeze
+  phase5b_freeze_verdict: accepted_and_frozen_2026_08_22
   phase5b_branch: feat/orcengine-phase5b-tokenizer
+  phase5b_branch_push: not_done
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute

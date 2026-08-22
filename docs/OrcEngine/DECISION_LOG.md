@@ -2181,3 +2181,306 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   decode, engine integration, Phase 5C, chat templates, performance
   work. No frozen Phase 1-5A file was modified. Nothing was pushed,
   tagged, merged, rebased, or amended.
+
+## OE-ADR-036 — Phase 5B: native decode, streaming UTF-8 decode, Section 11 frozen-engine integration, and pinned llama.cpp three-way oracle comparison implemented and validated
+
+- **Date:** 2026-08-22, America/Los_Angeles.
+- **Decision:** authorizes and records the four remaining pieces of
+  required Phase 5B work: native token-ID decoding (A1), streaming
+  UTF-8 decoding (A2), the Section 11 frozen-engine integration proof
+  (A3), and the pinned llama.cpp `b10436` secondary-oracle comparison
+  (A4). Extends the existing concrete `TokenizerProfile`
+  (`Tools/OrcEnginePhase5B/include/orcengine/tokenizer.hpp` / `src/
+  tokenizer.cpp`) -- no generalized tokenizer framework, interface,
+  factory, or plugin system was added, per the same constraint every
+  prior Phase 5B ADR has honored.
+
+- **A1 — Public API:**
+  ```cpp
+  enum class DecodeControlPolicy { PreserveControlTokens, SkipControlTokens };
+  class DecodingError : public std::runtime_error { ... };
+  std::string TokenizerProfile::decode_token_bytes(
+      int64_t token_id,
+      DecodeControlPolicy policy = DecodeControlPolicy::PreserveControlTokens) const;
+  std::string TokenizerProfile::decode(
+      const std::vector<int64_t>& token_ids,
+      DecodeControlPolicy policy = DecodeControlPolicy::PreserveControlTokens) const;
+  ```
+  Deliberately a separate enum from `encode()`'s `SpecialTokenMode`
+  (Decision Register item 5, Section 19 of the spec, previously
+  APPROVED 2026-08-20): encode's policy governs whether literal
+  CONTROL-token spellings in INPUT TEXT are recognized; decode's policy
+  governs whether already-tokenized CONTROL token IDs are rendered back
+  to text. `PreserveControlTokens` is the default, matching the pinned
+  oracle's `skip_special_tokens=False` behavior (round-trips exactly),
+  NOT the oracle's own default (`skip_special_tokens=True` silently
+  drops CONTROL substrings) -- a decode boundary defaults to lossless,
+  per the accepted Decision Register item 5. Negative or out-of-range
+  token IDs are rejected with `DecodingError` before any output is
+  constructed for the caller to observe (no partial-success return is
+  possible, since `decode()` accumulates into a local buffer that is
+  destroyed, not returned, on any throw).
+- **A1 — Inverse byte-alphabet mapping and construction-time
+  validation:** a `kCodepointToByte` table (the exact inverse of
+  encode's `kByteToCodepoint`) is built once, and every NORMAL
+  vocabulary token's decodability through it is validated ONCE, at
+  `TokenizerProfile` construction (`from_gguf_metadata`), not per
+  `decode()` call -- fail-closed early, matching every other invariant
+  this profile already validates up front. CONTROL tokens decode to
+  their literal vocabulary spelling verbatim (never byte-alphabet-
+  mapped, matching encode's own treatment of CONTROL strings as
+  ordinary ASCII text).
+- **A1 — Evidence:** `test_decode.cpp` round-trips EVERY fixture in the
+  already oracle-verified `encode_oracle_fixtures.hpp` corpus (both
+  mode A and mode B, including the exhaustive 17x17 CONTROL-adjacency
+  matrix) back through `decode(encode(text), Preserve) == text` exactly
+  -- an oracle-anchored proof, not merely self-consistency, since the
+  `ids` being decoded were themselves independently verified against
+  `tokenizers==0.22.2`. Plus explicit cases: the raw-prompt identity
+  fixture (`decode([19556,28,905,17]) == "Hello, world!"`); the golden
+  fixture `text_resembling_special_tokens`'s Preserve/Skip divergence,
+  confirmed to match the oracle's own documented default-decode output
+  exactly; all 17 CONTROL tokens individually and together, both
+  policies; mixed NORMAL/CONTROL/NORMAL sequences; empty input;
+  negative/`==vocab_size`/`>vocab_size` IDs (all rejected, no partial
+  output). **836/836 checks, 0 failures.**
+- **A2 — Public API:**
+  ```cpp
+  class Utf8StreamDecoder {
+   public:
+    explicit Utf8StreamDecoder(const TokenizerProfile&,
+        DecodeControlPolicy = DecodeControlPolicy::PreserveControlTokens);
+    std::string feed(int64_t token_id);
+    void finish();
+  };
+  ```
+  Not a callback framework or async stream abstraction -- the smallest
+  concrete stateful accumulator this decode boundary needs, per
+  Decision Register item 7 (Section 19, previously APPROVED
+  2026-08-20): buffers an incomplete trailing UTF-8 sequence; emits
+  only complete, valid UTF-8 bytes; rejects malformed UTF-8 (bad lead/
+  continuation byte, overlong encoding, surrogate codepoint, codepoint
+  beyond U+10FFFF) with `DecodingError`; treats a still-incomplete
+  sequence at `finish()` as an explicit error, never silently discarded
+  or replaced (Decision Register item 8, same section). After ANY
+  exception from `feed()`, the decoder is POISONED -- every subsequent
+  `feed()`/`finish()` call throws immediately, rather than silently
+  continuing from a possibly-inconsistent buffered position; this
+  poisoned-state behavior is itself tested, not merely documented.
+- **A2 — Evidence:** `test_streaming_decode.cpp` uses the pinned golden
+  fixture `multibyte_utf8_boundary` (three consecutive 4-byte-UTF-8
+  emoji, each one's raw bytes genuinely split 2+1+1 across three real
+  token IDs) as the primary real-split-sequence proof -- confirmed
+  against `TokenizerProfile::decode()`'s already-proven one-shot result
+  for the same ID sub-sequence, not hand-encoded UTF-8 literals. Plus:
+  streaming-accumulated output matches one-shot `decode()` exactly
+  across the whole fixture; a genuinely malformed cross-token-boundary
+  UTF-8 case (a real token's decoded bytes ending in a 4-byte lead byte,
+  followed by a CONTROL token whose literal spelling's first byte is
+  not a valid continuation byte); the poisoned-state proof above;
+  CONTROL-policy respected during streaming. **36/36 checks, 0
+  failures.**
+- **A3 — Section 11 proof, exactly as specified:** native
+  `TokenizerProfile::encode("Hello, world!")` produces the established
+  `[19556, 28, 905, 17]` (`raw_prompt_identity_manifest.json`,
+  confirmed by direct read); the frozen Phase 5A engine
+  (`forward_cached_step`, `Tools/OrcEnginePhase5A/include/orcengine/
+  forward_cached.hpp`, called through its existing public seam, not
+  modified) runs against those native-produced IDs (Execution A) AND,
+  separately, against an explicit LITERAL array of the identical four
+  integers (Execution B, not `encode()`'s own return value) -- proving
+  the frozen engine's result depends only on the integer values, with
+  no hidden dependency on `encode()`'s internal representation of them.
+  Both executions, over a 4-step greedy decode continuation against the
+  real SmolLM2-135M F32 GGUF, produce bit-identical complete logits,
+  selected tokens, generated continuation IDs, committed KV-cache
+  lengths, and committed KV-cache contents (every layer/kv_head/
+  position). The generated continuation (real model output: token IDs
+  339, 5248, 1535, 288, decoding to `" I'm here to"`) was then decoded
+  through both the new one-shot decoder and the streaming accumulator,
+  confirmed to agree exactly. States precisely, in both the test's own
+  comments and this record: the TOKENIZER produces PROMPT ids; the
+  MODEL produces CONTINUATION ids -- the two are never conflated.
+  **8/8 checks, 0 failures.** No frozen Phase 1-5A file was modified;
+  Phase 5B's `CMakeLists.txt` was changed to pull in
+  `add_subdirectory(../OrcEnginePhase5A phase5a)` instead of Phase 2
+  directly (Phase 5A already pulls Phase 3->2->1 transitively, so no
+  target is double-defined and every previously-available target
+  remains available).
+- **A4 — pinned llama.cpp b10436, located and confirmed, not
+  re-downloaded:** the exact binary referenced throughout this
+  project's history (`Tools/OrcEnginePhase0/oracle/
+  llama_cpp_deployment_oracle.py`, `tokenizer_dual_source_check.py`,
+  `README.md`) was found already present at
+  `C:\Users\hardc\AppData\Local\Temp\llamacpp_test\llama-tokenize.exe`,
+  identity confirmed directly by running it: `version: 0.1.0-dev (build
+  10436, commit 6fed9f6ff), built with Clang 20.1.8 for Windows
+  x86_64`, dated 2026-08-14 -- an exact match to the documented
+  provenance, not inferred. SHA-256 of `llama-tokenize.exe`:
+  `622fedfcd72c479b5e2197bd9ad0b6f8ec683a34daaa8ffeec28a3f6a875309d`.
+  SHA-256 of the original downloaded `llama-cpu.zip`:
+  `eebe233f29bd89a6c3c03a1e92c8b97a216a67977f4742aef28005c784b1f02c`.
+  `ORC_LLAMA_TOKENIZE_PATH` set explicitly to this path.
+  `smollm2-135m.gguf` SHA-256 (the canonical tokenizer-bearing
+  artifact, hardlinked into this worktree's
+  `Tools/OrcEnginePhase0/artifacts/` at zero extra disk cost from the
+  Phase 2 GGUF worktree's copy, verified identical by hardlink, not
+  duplicated):
+  `fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac`.
+  `tokenizer.json` SHA-256 (hardlinked the same way, confirmed
+  identical to the pinned value `EXPECTED_TOKENIZER_JSON_SHA256`
+  already enforced by `generate_pretok_tables.py`):
+  `9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c`.
+- **A4 — three-way comparison, reusing the existing evidence path:**
+  `Tools/OrcEnginePhase0/oracle/tokenizer_dual_source_check.py` (HF vs.
+  llama.cpp) was run unmodified against all 5 established dual-source
+  fixtures -- exact agreement on every one. A new minimal CLI,
+  `Tools/OrcEnginePhase5B/tools/native_tokenize_cli.cpp`, added the
+  third (native) leg: reads UTF-8 text one line per stdin (not argv --
+  Windows' narrow-argv construction re-encodes the wide command line
+  through the ANSI/OEM codepage, which was confirmed directly to
+  corrupt a non-ASCII fixture passed as an argument; stdin, opened in
+  binary mode, does not have this problem). Native results matched HF
+  and llama.cpp exactly on all 5 canonical fixtures, plus a 15-item
+  representative subset spanning ASCII/punctuation/contractions/
+  non-ASCII Latin/CJK/emoji/digit-long-run/Arabic-Indic digits/tabs/
+  newlines/CRLF/whitespace variants/a CONTROL-lookalike case.
+- **A4 — one apparent disagreement, investigated and fully explained,
+  not weakened around:** for the CONTROL-lookalike subset fixture
+  (`"text with <|endoftext|> inside and <|im_start|> too"`),
+  `llama-tokenize.exe`'s output recognized the CONTROL substrings while
+  HF (`encode_special_tokens=True`) and native (`LiteralText`, the
+  matching mode) both correctly treated it as literal text -- a genuine
+  three-way split at first glance. Investigated by probing native's own
+  `RecognizeControlTokens` mode against the identical text: it produced
+  `[2692, 351, 216, 0, 2972, 284, 216, 1, 1147]`, BYTE-IDENTICAL to what
+  `llama-tokenize.exe` had produced. Root cause: `llama-tokenize.exe`'s
+  `--ids` CLI always operates in "recognize special tokens" mode with
+  no flag to request literal-text mode -- a documented CLI capability
+  limitation, not a tokenizer correctness defect in any of the three
+  implementations. No fixture was weakened, no tolerance was loosened;
+  the evidence (including the corrected explanation) is preserved
+  exactly as found.
+- **Four-lane validation:** Debug/Release/strict (`/permissive- /WX
+  /EHsc`, confirmed present in actual `cl.exe` invocations)/ASan
+  (`/fsanitize=address /EHsc`, confirmed present, `C4530` absent) --
+  all four clean, 12/12 (the 8 Phase 5B-owned tests plus 4 inherited
+  Phase 5A tests newly reachable through the `CMakeLists.txt`
+  `add_subdirectory` change, all passing). One real issue found and
+  fixed during this pass, not glossed over: the ASan runtime DLL
+  (`clang_rt.asan_dynamic-x86_64.dll`) was present only in the
+  top-level `Debug/` build output directory, not in the nested
+  subdirectories (`phase5a/Debug/`, `phase5a/phase3/Debug/`, etc.)
+  where the newly-reachable inherited tests' executables actually live
+  -- causing 4 spurious `STATUS_DLL_NOT_FOUND` (`0xC0000135`) failures
+  on the first ASan run. Copied the DLL into every executable-output
+  directory and reran: all 4 pass cleanly, confirming this was purely
+  an environment/build-layout gap, never a correctness regression.
+- **File provenance (SHA-256, exact bytes as committed by this
+  entry):**
+  - `include/orcengine/tokenizer.hpp`:
+    `56d34b67759f95d97785f20b5789e5326f39bdbb9d01ed09201604e1ba048fdc`
+  - `src/tokenizer.cpp`:
+    `95f0070761da3627b01e2ac55e2bc4d1986c45ea8258703693346e7b42d933e3`
+  - `tests/test_decode.cpp`:
+    `0fee23726ee080a040a8e786880af3ad34059eeed86ca6f1282558ece054e00a`
+  - `tests/test_streaming_decode.cpp`:
+    `1f8d42a9bb2f2e283b806f177743cf317973b1fc55af0f63fd288aa45e30b250`
+  - `tests/test_frozen_engine_integration.cpp`:
+    `7f123dc9150a35ea519245a6a6f7353fa2d4813fc1e433807fe1d3fd3f43c611`
+  - `tools/native_tokenize_cli.cpp`:
+    `b48f834a4a6c04cbffe1654f3b9a2461356ad26f1abc2645ea1e38dda7d7841a`
+- **Independent review:** Grok 4.5, full mode, over the ENTIRE branch
+  diff since the Phase 5A freeze base (`db3e5f38..HEAD`, 19 files,
+  ~6877 insertions) -- not just this pass's own changes. Zero BLOCKER
+  findings. Three MINOR findings, all confirmed genuine against current
+  code and all pre-existing documentation staleness (not introduced by
+  this pass's own code): `CURRENT_STATE.yaml`'s `lifecycle` field and
+  an adjacent comment still claiming implementation had not started;
+  `ENGINEERING_ROADMAP.md`'s Phase 5A status blurb still saying
+  "Encode/decode ... are not implemented". All three reconciled as part
+  of this same freeze pass (see OE-ADR-037).
+- **Explicitly not authorized by this entry alone:** Phase 5C, chat
+  templates, performance/timing work, production integration. The
+  formal freeze itself is recorded separately in OE-ADR-037. No frozen
+  Phase 1-5A file was modified by this entry's work. Nothing was
+  pushed, tagged, merged, rebased, or amended.
+
+## OE-ADR-037 — Phase 5B formally frozen
+
+- **Date:** 2026-08-22, America/Los_Angeles.
+- **Decision:** Phase 5B (native GGUF tokenizer: metadata construction,
+  pretokenization, encoding, decoding, streaming decoding, and
+  frozen-engine integration) is complete and formally frozen. All
+  required evidence exists: Stage 1 metadata construction/validation
+  (OE-ADR-031), Stage 2A pretokenization (OE-ADR-032/033), Stage 2B
+  encoding (OE-ADR-034/035), and decode/streaming-decode/Section-11-
+  integration/llama.cpp-oracle-comparison (OE-ADR-036) are all
+  implemented, oracle-validated across four lanes, and independently
+  reviewed with zero BLOCKER findings (OE-ADR-036's Grok 4.5 full-mode
+  review). The three MINOR doc-staleness findings from that review are
+  reconciled by this same freeze pass (`CURRENT_STATE.yaml`,
+  `ENGINEERING_ROADMAP.md`, `PROJECT_TRUTH.md` all corrected to state
+  Phase 5B's actual completion status, replacing stale "implementation
+  not started"/"encode/decode not implemented" language left over from
+  intermediate stages).
+- **Freeze authority:** annotated tag `orcengine-phase5b-freeze`, local
+  (pushed to `origin` alongside branch `feat/orcengine-phase5b-tokenizer`
+  only after local freeze verification -- tag object type `tag`, peeled
+  target equal to this freeze commit, worktree clean, no Phase 1-5A
+  frozen file changed -- came back clean; see the freeze commit itself
+  for the exact verification transcript).
+- **What is frozen:** `Tools/OrcEnginePhase5B/`'s public API
+  (`TokenizerProfile::from_gguf_metadata`, `encode`, `decode`,
+  `decode_token_bytes`, `Utf8StreamDecoder`, `SpecialTokenMode`,
+  `DecodeControlPolicy`, `TokenizerMetadataError`, `EncodingError`,
+  `DecodingError`) for the pinned SmolLM2-135M
+  `tokenizer.ggml.model="gpt2"`/`pre="smollm"` profile. Not frozen (out
+  of scope by design, per the spec's own stated non-goals): a general
+  tokenizer framework, other tokenizer families, chat templates,
+  Phase 5C, or any performance/timing guarantee.
+- **Final test counts (all four lanes, Debug/Release/strict/ASan,
+  unless noted):** `test_tokenizer_metadata` (synthetic + explicit
+  real-artifact + legacy-tied-rejection contracts); `test_pretokenize`
+  209/209; `test_encode` 1,198/1,198; `test_decode` 836/836;
+  `test_streaming_decode` 36/36; `test_frozen_engine_integration` 8/8.
+  No registered Phase 5B test intentionally fails. Four inherited
+  Phase 5A tests (`cached_decode`, `virtualized_cached_decode`,
+  `autoregressive_decode`, `autoregressive_decode_f64`), newly
+  reachable through this phase's `CMakeLists.txt`
+  `add_subdirectory` change, also confirmed passing across all four
+  lanes -- not a Phase 5B contract, but directly affected by the
+  build-configuration change and therefore checked, per this freeze
+  pass's own validation scope.
+- **Oracle versions and hashes, consolidated (see OE-ADR-032/033/034/
+  036 for individual derivations):** `tokenizers==0.22.2`;
+  `tokenizer.json` SHA-256
+  `9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c`;
+  pinned llama.cpp `b10436` (2026-08-14, commit `6fed9f6ff`),
+  `llama-tokenize.exe` SHA-256
+  `622fedfcd72c479b5e2197bd9ad0b6f8ec683a34daaa8ffeec28a3f6a875309d`;
+  `smollm2-135m.gguf` SHA-256
+  `fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac`.
+- **Known limitations, recorded not hidden:** exhaustive equivalence
+  over every possible Unicode string is not claimed anywhere in this
+  phase's evidence -- only the specific fixture corpora, boundary
+  probes, and random samples described in each stage's own ADR entry.
+  `llama-tokenize.exe`'s CLI cannot exercise a literal-text decode mode
+  (OE-ADR-036's A4 finding) -- the pinned Hugging Face tokenizer remains
+  the primary byte-exact decode oracle, exactly as the spec always
+  required. Phase 5B's `CMakeLists.txt` build-graph change (Phase 2 ->
+  Phase 5A subdirectory) is local to this worktree's build files, not a
+  frozen production source change.
+- **Explicit non-goals (unchanged from the accepted specification):** a
+  generalized tokenizer framework, other tokenizer families, chat
+  templates, model execution beyond the Section 11 proof's narrow use
+  of the frozen engine, and any Phase 5C functionality.
+- **Confirmed: Phase 5C had not begun before this freeze.** No
+  `OrcEngine-phase5c-*` worktree existed at freeze time; Phase 5C's
+  worktree, specification, and Stage 1 work (if any) begin only after
+  this tag exists, forked from its exact peeled target, per the
+  standing dependency-ordering rule this project has followed since
+  Phase 5A's own freeze.
+- Nothing was merged, rebased, amended, or force-pushed. The branch and
+  tag were pushed to `origin` only after local freeze verification
+  passed clean.

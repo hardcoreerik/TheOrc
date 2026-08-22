@@ -1,6 +1,6 @@
 # Phase 5B: Tokenizer / Text-Token Boundary Reference
 
-Status: **IMPLEMENTATION IN PROGRESS — STAGE 1 (METADATA CONSTRUCTION) COMPLETE, STAGE 2A (PRETOKENIZATION) COMPLETE, STAGE 2B (BYTE MAPPING/BPE/ENCODING) COMPLETE, DECODE NOT IMPLEMENTED, NOT COMPLETE OR FROZEN**
+Status: **COMPLETE AND FORMALLY FROZEN 2026-08-22 — annotated tag `orcengine-phase5b-freeze` (see `DECISION_LOG.md` OE-ADR-036/OE-ADR-037). All stages (metadata construction, pretokenization, byte mapping/BPE/encoding, decode, streaming decode, Section 11 frozen-engine integration, and the pinned llama.cpp `b10436` secondary-oracle comparison) are implemented, oracle-validated across four lanes (Debug/Release/strict/ASan), and independently reviewed (Grok 4.5, zero BLOCKER findings). Phase 5C may now begin.**
 
 Branch: `feat/orcengine-phase5b-tokenizer`, worktree
 `F:\Ai\OrchestratorIDE-phase5b-tokenizer`, forked from `orcengine-phase5a-freeze`.
@@ -320,6 +320,18 @@ tokenizer metadata.
 | Reject vs. replace invalid sequences | Behavior that remains undecided; see Decision Register item 6 |
 | Round-trip comparison basis (Unicode string / raw bytes / both) | Behavior that remains undecided; see Decision Register item 10 |
 
+**Updated 2026-08-22:** every row in this table describes the
+pre-implementation evidence/gap state as of specification drafting.
+All of it is now resolved and implemented -- decode, streaming decode
+(including a real byte-fragment-split-across-tokens case from the
+`multibyte_utf8_boundary` golden fixture), invalid/out-of-range token
+IDs, empty sequences, end-of-stream-with-incomplete-UTF-8, and the
+raw-bytes-primary/Unicode-secondary round-trip basis are all
+implemented per the Decision Register's approved answers (Section 18)
+and validated (`DECISION_LOG.md` OE-ADR-036). This table is left
+unedited above as the historical gap analysis that motivated those
+decisions, not as current status.
+
 ## 7. Special-token policy
 
 This is a first-class, explicit contract per this document's own
@@ -635,10 +647,16 @@ Eventual validation expectations. Status as of Stage 2B (2026-08-20):
   special-token modes)
 - Malformed-metadata attacks (Section 10) — **run**, 43 adversarial
   cases in `test_tokenizer_metadata`'s synthetic suite (see Section 16)
-- Frozen-engine integration proof (Section 11) — **not run**; requires
-  decoding to exist first, which remains unimplemented
-- Independent review before freeze — **outstanding**; the llama.cpp
-  secondary-oracle comparison (Section 9) also remains outstanding
+- Frozen-engine integration proof (Section 11) — **Updated 2026-08-22:
+  run.** `test_frozen_engine_integration`, 8/8 checks, 0 failures,
+  across Debug/Release/strict/ASan (`DECISION_LOG.md` OE-ADR-036).
+- Independent review before freeze — **Updated 2026-08-22: run.** Grok
+  4.5, full mode, over the entire branch diff since the Phase 5A freeze
+  base -- zero BLOCKER findings, three MINOR doc-staleness findings
+  reconciled into the freeze pass. The llama.cpp `b10436` secondary-oracle
+  comparison (Section 9) is also **run**: exact agreement with HF and
+  native on all 5 canonical dual-source fixtures plus a 15-item
+  representative subset (`DECISION_LOG.md` OE-ADR-036).
 
 No test counts are invented here — exact counts come from
 implementation and actual test discovery, not from this document.
@@ -729,20 +747,25 @@ item below as later stages deliver them:
   `smollm2-135m-tied.gguf`, per `DECISION_LOG.md` OE-ADR-031). **The
   golden-fixture/adversarial *encode* comparisons this bullet describes
   were delivered as Stage 2B** (`test_encode`, 1,198 checks against a
-  386-entry oracle fixture corpus); *decode* comparisons remain
-  unimplemented, since decoding does not exist yet.
+  386-entry oracle fixture corpus). **Updated 2026-08-22:** *decode*
+  comparisons are also delivered -- `test_decode` round-trips every
+  fixture in that same oracle corpus back through `decode()` exactly
+  (836/836 checks, `DECISION_LOG.md` OE-ADR-036).
 - Reused golden fixtures (Section 9) — not recreated; exercised by both
   `test_pretokenize` (pretoken boundaries) and `test_encode` (exact
-  token IDs); decode comparisons remain unexercised (no decode to run
-  them against)
+  token IDs). **Updated 2026-08-22:** decode comparisons are now also
+  exercised, via `test_decode`'s oracle-anchored round-trip and the
+  `multibyte_utf8_boundary` golden fixture's real cross-token UTF-8
+  split proof in `test_streaming_decode`.
 - Targeted malformed-metadata tests (Section 8, 10) — **Stage 1
   delivered these, extended in the Stage 2B reconciliation pass**
   (43 adversarial cases × 3 checks each -- throws, correct exception
   type, diagnostic fragment -- in the synthetic suite of
   `test_tokenizer_metadata`; the two additions enforce the merge-rank-
   key and CONTROL-prefix invariants Stage 2B's `encode()` relies on)
-- One frozen-engine integration test (Section 11) — not implemented;
-  requires encode/decode to exist first
+- One frozen-engine integration test (Section 11) — **Updated
+  2026-08-22: delivered.** `test_frozen_engine_integration`, 8/8 checks,
+  0 failures (`DECISION_LOG.md` OE-ADR-036).
 - Documentation evidence — this section and Section 17
 - Native pretokenization (Section 5's text-boundary responsibility, first
   half) — **Stage 2A delivered 2026-08-20**:
@@ -801,15 +824,20 @@ prefix precedence) became explicit fail-closed rejections, and
 failures, across Debug/Release/strict/ASan; `test_tokenizer_metadata`
 synthetic suite 142/142 checks (43 adversarial cases). Stage 1+2A+2B
 together construct/validate tables, determine pretoken boundaries, and
-produce exact token IDs for both accepted special-token policies --
-decoding, streaming decode, model execution, chat templates, and
-frozen-engine integration are separate, not-yet-authorized stages.
-Section 14's acceptance criteria remain unsatisfied.
-Phase 5B is not complete, accepted as a finished implementation, or
-frozen. The llama.cpp secondary-oracle comparison remains outstanding.
-Phase 5C remains deferred, prohibited until Phase 5B is separately
-accepted (as
-an implementation, not just this specification) and frozen.
+produce exact token IDs for both accepted special-token policies.
+**Updated 2026-08-22 (decode/streaming-decode/Section-11-integration/
+llama.cpp-oracle-comparison, `DECISION_LOG.md` OE-ADR-036):** native
+decoding (`TokenizerProfile::decode()`/`decode_token_bytes()`), streaming
+UTF-8 decoding (`Utf8StreamDecoder`), the Section 11 frozen-engine
+integration proof, and the pinned llama.cpp `b10436` secondary-oracle
+comparison are all implemented and oracle-validated -- `test_decode`
+836/836, `test_streaming_decode` 36/36, `test_frozen_engine_integration`
+8/8, all across Debug/Release/strict/ASan. Section 14's acceptance
+criteria are now satisfied. **Phase 5B is complete and was formally
+frozen 2026-08-22** under the annotated tag `orcengine-phase5b-freeze`
+(`DECISION_LOG.md` OE-ADR-037, following an independent Grok 4.5
+full-mode review with zero BLOCKER findings). Phase 5C's dependency on
+Phase 5B closing is now satisfied and it may begin.
 
 ## 18. Decision register
 
