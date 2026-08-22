@@ -145,40 +145,30 @@ int main(int argc, char** argv) {
         // the two agree exactly. The MODEL produced these CONTINUATION ids
         // (Step 2 above); this step hands them to the native Phase 5B
         // DECODER -- the reverse direction from Step 1, and a completely
-        // separate ID sequence from the tokenizer's own PROMPT ids. --------
+        // separate ID sequence from the tokenizer's own PROMPT ids.
+        //
+        // This is a FIXED fixture, not a property test over arbitrary
+        // continuations: for the established greedy continuation
+        // [339, 5248, 1535, 288] (decoding to " I'm here to"), every byte
+        // is complete, valid UTF-8 -- there is no incomplete trailing
+        // sequence for this specific fixture, so no exception is an
+        // acceptable outcome here. A conditional "exception is also fine"
+        // branch would silently convert a real streaming-decoder
+        // regression into a passing check for this exact fixture; the
+        // dedicated incomplete-trailing-sequence contract is already
+        // covered by test_streaming_decode.cpp and is not duplicated here. ---
         std::printf("\n--- Decoding the generated continuation (one-shot and streaming) ---\n");
         const std::string one_shot_decoded = profile.decode(continuation_a);
         std::printf("[INFO] one-shot decoded continuation: \"%s\"\n", one_shot_decoded.c_str());
+        check(one_shot_decoded == " I'm here to",
+              "Step 5: one-shot decoded continuation equals the established expected bytes exactly");
 
         Utf8StreamDecoder stream(profile);
         std::string streaming_decoded;
-        bool streaming_threw = false;
-        try {
-            for (int64_t id : continuation_a) streaming_decoded += stream.feed(id);
-            stream.finish();
-        } catch (const std::exception& ex) {
-            streaming_threw = true;
-            std::printf("[INFO] streaming decode of the generated continuation raised: %s\n", ex.what());
-        }
-        // A short greedy continuation from a real model is not guaranteed to
-        // end exactly on a complete UTF-8 boundary -- if it does not, that is
-        // an honest, correctly-detected incomplete-trailing-sequence
-        // condition (A2's own contract), not a test failure; the one-shot
-        // decoder has no such boundary concept, since it consumes the whole
-        // sequence as one call. Whichever way it lands, the two paths must
-        // agree with each other for whatever they DO both cover.
-        if (!streaming_threw) {
-            check(streaming_decoded == one_shot_decoded,
-                  "Step 6/7: streaming-decoded continuation bytes agree exactly with the one-shot decode");
-        } else {
-            std::printf("[INFO] the generated continuation's raw bytes end mid-UTF-8-sequence -- streaming "
-                        "correctly raised DecodingError at finish() rather than silently emitting a partial "
-                        "character; one-shot decode() still returns the complete raw bytes for the same IDs, "
-                        "which is the correct and expected divergence in this specific case, not a bug in "
-                        "either decoder.\n");
-            check(true, "Step 6/7: streaming decoder correctly detects and reports an incomplete trailing "
-                  "sequence rather than silently mismatching the one-shot result");
-        }
+        for (int64_t id : continuation_a) streaming_decoded += stream.feed(id);
+        stream.finish();
+        check(streaming_decoded == one_shot_decoded,
+              "Step 6/7: streaming-decoded continuation bytes agree exactly with the one-shot decode");
 
         std::printf("\n=== Summary ===\n");
         if (g_failures == 0) {

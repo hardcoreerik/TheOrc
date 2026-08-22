@@ -615,8 +615,20 @@ implemented, oracle-validated, and independently reviewed
 (`DECISION_LOG.md` OE-ADR-036), and Phase 5B was formally frozen
 (`DECISION_LOG.md` OE-ADR-037, tag `orcengine-phase5b-freeze`). **No
 blockers remain for Phase 5B.** Phase 5C may now begin -- its only
-dependency (Phase 5B closing) is satisfied; it has not yet started. See
-`DECISION_LOG.md` OE-ADR-022 through OE-ADR-037 for the full record.
+dependency (Phase 5B closing) is satisfied. **Post-freeze (same day, a
+separate commit on `feat/orcengine-phase5b-tokenizer`, NOT moving the
+freeze tag):** a narrow evidence-hardening pass fixed a false-pass path
+in the frozen-engine integration test, corrected the native comparison
+CLI's protocol to be byte-safe (it previously could not represent a
+prompt containing embedded LF/CRLF), and replaced the three-way oracle
+comparison's previously narrative-only "15-item representative subset"
+claim with a committed, independently-reproducible driver
+(`three_way_tokenizer_comparison.py`, 19-fixture durably-defined corpus,
+exact three-way agreement on all 18 ordinary fixtures plus a correctly
+policy-limited comparison for the one CONTROL-lookalike fixture) --
+see `DECISION_LOG.md` OE-ADR-038. Production tokenizer behavior did not
+change. See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-038 for the
+full record.
 
 ## How to update this document
 
