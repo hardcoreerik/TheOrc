@@ -2484,3 +2484,133 @@ future `ExecutionPlanner`, without authorizing any planner work now.
 - Nothing was merged, rebased, amended, or force-pushed. The branch and
   tag were pushed to `origin` only after local freeze verification
   passed clean.
+
+## OE-ADR-038 — Phase 5B post-freeze evidence hardening (three Codex findings, no production defect)
+
+- **Date:** 2026-08-22, America/Los_Angeles.
+- **Decision:** the frozen tag `orcengine-phase5b-freeze` is NOT moved,
+  recreated, or amended -- it remains the immutable production freeze
+  authority, exactly as of commit `8a36f375110f8002804917809e3a773b25891e1f`.
+  This entry records a narrow POST-FREEZE test/tool/oracle-evidence
+  hardening pass on `feat/orcengine-phase5b-tokenizer`, in response to
+  three confirmed Codex findings against the frozen evidence, none of
+  which is a production tokenizer defect. Production tokenizer behavior
+  (`tokenizer.hpp`/`tokenizer.cpp`) was not touched by this entry's work.
+
+- **Finding A1 -- integration test false-pass path.**
+  `test_frozen_engine_integration.cpp` previously caught any
+  `std::exception` from the streaming-decode step and converted that
+  path into `check(true)`, reasoning that a short greedy continuation
+  might legitimately end mid-UTF-8-sequence. For the ESTABLISHED fixed
+  fixture this test actually exercises -- continuation IDs `[339, 5248,
+  1535, 288]`, decoding to `" I'm here to"`, every byte complete valid
+  UTF-8 -- that conditional path is dead code that would silently mask a
+  real streaming-decoder regression as a pass. **Fixed:** the
+  conditional was removed; `feed()`/`finish()` now run unguarded, so any
+  unexpected exception propagates to the test's own top-level catch and
+  fails the executable; two explicit checks were added instead
+  (`one_shot_decoded == " I'm here to"`, and streaming output equals the
+  one-shot result exactly). The dedicated incomplete-trailing-sequence
+  contract remains solely `test_streaming_decode.cpp`'s, not duplicated
+  here, per the finding's own instruction. Re-run after the fix: still
+  0 failures -- the removed branch was never actually exercised for this
+  fixture, confirming this was a resilience/evidence-integrity
+  correction, not a bug that had been hiding a real failure.
+
+- **Finding A2 -- native comparison protocol could not represent
+  newline/CRLF prompts.** `native_tokenize_cli.cpp` previously read one
+  prompt per LINE from stdin, making `\n` a record separator and
+  stripping trailing `\r` -- so it could not represent a SINGLE prompt
+  containing embedded LF or CRLF, despite the freeze documentation
+  (OE-ADR-036) claiming newline/CRLF fixtures were part of the
+  representative three-way corpus. **Fixed:** the protocol is now
+  byte-safe and one-invocation-per-prompt: the complete stdin byte
+  stream, read through EOF, IS the prompt verbatim -- no delimiter, no
+  `\r` stripping, embedded NUL/LF/CR/CRLF/tabs all preserved. Empty
+  stdin emits one empty-ID record. An explicit
+  `--recognize-control-tokens` option was added (default remains
+  `LiteralText`); an unrecognized option fails closed with usage
+  printed to stderr and exit code 2. Confirmed the tool still resolves
+  its GGUF path argument correctly and Windows binary stdin mode is
+  unchanged. This is a CLI validation-tool protocol fix, not a
+  production tokenizer change -- `TokenizerProfile::encode()` itself was
+  not touched.
+
+- **Finding A3 -- three-way oracle result was narrative-only.** Prior to
+  this entry, OE-ADR-036's claimed "5 canonical fixtures plus a 15-item
+  representative subset" three-way agreement had no committed driver
+  reproducing it -- the corpus and results existed only as prose.
+  **Fixed:** added
+  `Tools/OrcEnginePhase5B/tools/three_way_tokenizer_comparison.py`, a
+  single committed driver that reuses the existing Phase 0
+  HF-invocation and llama.cpp-invocation patterns
+  (`tokenizer_dual_source_check.py`) rather than reimplementing
+  tokenization comparison, and adds the native leg via the corrected
+  byte-safe CLI. Fails closed before running anything if:
+  `tokenizers` is not exactly `0.22.2`; the pinned `tokenizer.json`'s
+  SHA-256 does not match; the canonical `smollm2-135m.gguf`'s SHA-256
+  does not match; `ORC_LLAMA_TOKENIZE_PATH` is unset or does not exist;
+  or `llama-tokenize --version` does not confirm build `10436` / commit
+  `6fed9f6ff`.
+
+  **Durably-defined corpus, 19 fixtures** (up from the previously
+  narrative-only "5 + 15" claim, now an exact, reproducible, versioned
+  list in the script itself): the 5 canonical dual-source fixtures;
+  ASCII words; punctuation; contractions; non-ASCII Latin; non-ASCII
+  CJK; emoji; a long ASCII digit run; Arabic-Indic digits; tabs;
+  embedded LF; embedded CRLF; trailing whitespace; repeated whitespace;
+  the CONTROL-lookalike prompt. **Embedded NUL is deliberately
+  EXCLUDED, not silently dropped**: `llama-tokenize.exe`'s `-p` argument
+  is argv-based and cannot carry a NUL byte at all (a hard CLI
+  interface limitation, not a policy choice) -- native and HF both
+  support it (already covered by `test_decode.cpp`'s existing embedded-
+  NUL fixture), so a three-way NUL comparison cannot be run "as
+  specified" (requiring every invoked interface to support it) and this
+  exclusion is printed in the script's own report output, not hidden.
+
+  **Result: exact three-way agreement on all 18 ordinary fixtures**
+  (HF `tokenizers==0.22.2` == native == pinned llama.cpp `b10436`,
+  including the embedded-LF and embedded-CRLF fixtures this same pass's
+  Finding A2 fix specifically made representable for the first time).
+  **The CONTROL-lookalike fixture is handled with the documented
+  policy-limited comparison**, exactly distinguishing exact three-way
+  agreement from an interface limitation from a real disagreement, per
+  the finding's own requirement: LiteralText mode is compared 2-way
+  (HF vs. native, agree exactly) since llama-tokenize.exe's CLI cannot
+  exercise literal-text mode at all (established in OE-ADR-036's A4
+  finding); RecognizeControlTokens mode is then compared 3-way (HF vs.
+  native vs. llama.cpp, agree exactly) as the mode all three interfaces
+  DO share. No fixture was removed and no incomparable modes were
+  presented as a failed three-way equality to make the report look
+  cleaner.
+
+  **Fault-sensitivity proof, performed and then reverted before
+  committing:** the driver's `native_ids` comparison was temporarily
+  altered to append a fabricated extra token ID; re-run confirmed the
+  driver correctly reports `FAIL` with exit code 1 and `0/18` agreement;
+  the temporary alteration was then removed and the driver re-run to
+  confirm the clean `18/18` result was restored exactly, before this
+  entry's commit. This is not merely asserted -- it was directly
+  observed both ways.
+
+- **Validation, narrowest-affected-targets scope (native tokenizer CLI,
+  frozen-engine integration test, the new three-way driver, and
+  `test_encode`/`test_decode` since they share `orcengine_phase5b`
+  production linkage with the CLI) -- Debug/Release/strict
+  (`/permissive- /WX /EHsc`)/ASan (`/fsanitize=address /EHsc`), all
+  four confirmed clean.** The three-way driver was additionally re-run
+  against the CLI binary built under each of the four lanes, confirming
+  `18/18` in every case. No unrelated multi-hour inherited suite was
+  re-run -- only targets this pass's own changes could plausibly affect.
+
+- **Confirmed: production tokenizer behavior did not change.** Only
+  test and tool files were modified this entry
+  (`test_frozen_engine_integration.cpp`, `native_tokenize_cli.cpp`, the
+  new `three_way_tokenizer_comparison.py`) -- `tokenizer.hpp`/
+  `tokenizer.cpp` are byte-identical to the frozen commit
+  `8a36f375110f8002804917809e3a773b25891e1f`.
+- **Confirmed: `orcengine-phase5b-freeze` was not moved.** It still
+  peels to exactly `8a36f375110f8002804917809e3a773b25891e1f`; this
+  entry's commit is a NEW commit on `feat/orcengine-phase5b-tokenizer`,
+  strictly after the freeze commit, never rewriting it.
+- Nothing was merged, rebased, amended, or force-pushed.
