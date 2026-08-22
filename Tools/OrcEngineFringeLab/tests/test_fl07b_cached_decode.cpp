@@ -614,11 +614,19 @@ void run_cached_decode_tests(const std::string& fixtures_dir) {
         CachedStepResult recovered = model.step(cache, schedule[3].tokens, schedule[3].start_position);
         check(recovered.logits == reference_results[3].logits,
               "in-execution-fault recovery: retried step 3 bit-identical to reference");
-        // Direct overwrite proof: the retry's NEW position's K/V (which the
-        // failed attempt had already written as NaN, uncommitted) now
-        // exactly matches the reference's K/V at that same position --
-        // i.e. the retry genuinely overwrote the poisoned-but-uncommitted
-        // data, not merely that current_length() advanced past it.
+        // Direct overwrite proof: the retry's NEW position's K/V now
+        // exactly matches the reference's K/V at that same position. Note
+        // the failed attempt's own K/V write at this position was already
+        // FINITE and correct -- the corrupted ffn_down weight only reaches
+        // the FFN path (computed downstream of, and independently from,
+        // the K/V projections), so check_finite's NaN detection fires on
+        // the layer's post-FFN output activation, never on K or V
+        // themselves. What this proves is narrower than "overwriting
+        // poisoned data": the retry revisits the previously
+        // written-but-uncommitted positions (written during the failed
+        // attempt, never committed since current_length() did not advance)
+        // and leaves their COMMITTED K/V exactly equal to the reference,
+        // regardless of what value transiently occupied them beforehand.
         const int64_t new_position = schedule[3].start_position;
         for (int64_t li = 0; li < cfg.n_layers; ++li) {
             for (int64_t h = 0; h < cfg.n_kv_heads; ++h) {
@@ -635,7 +643,8 @@ void run_cached_decode_tests(const std::string& fixtures_dir) {
                 }
                 check(row_matches, "in-execution-fault recovery: retried step's K/V at layer " +
                       std::to_string(li) + " kv_head " + std::to_string(h) +
-                      " overwrote the poisoned-but-uncommitted data and now matches the reference exactly");
+                      " (previously written but never committed by the failed attempt) now matches the "
+                      "reference exactly");
             }
         }
 

@@ -615,9 +615,17 @@ raised.
    the review specifically asked for -- the retried step's own new
    position's K/V, for every layer and kv_head, is compared directly
    against the reference cache's K/V at that same position immediately
-   after the retry, confirming the previously-NaN-poisoned-but-uncommitted
-   row was genuinely overwritten with the correct values, not merely that
-   `current_length()` advanced past it.
+   after the retry. Note the failed attempt's own K/V write at this
+   position was already FINITE and correct -- the corrupted `ffn_down`
+   weight only reaches the FFN path, computed downstream of and
+   independently from the K/V projections, so `check_finite`'s NaN
+   detection fires on the layer's post-FFN output activation, never on K
+   or V themselves. What this proves is narrower than "overwriting
+   poisoned data": the retry revisits the previously
+   written-but-uncommitted positions (written during the failed attempt,
+   never committed since `current_length()` did not advance) and leaves
+   their COMMITTED K/V exactly equal to the reference, not merely that
+   `current_length()` advanced past them.
 4. **"Physical" cache-comparison wording was overstated.** The comparison
    helper only ever compared committed rows (`[0, current_length())`), not
    unused capacity out to `max_positions()` -- correct and sufficient for
