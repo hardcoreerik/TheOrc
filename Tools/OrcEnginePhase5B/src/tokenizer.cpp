@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <limits>
 #include <unordered_set>
 
@@ -112,6 +113,78 @@ std::string utf8_encode_codepoint(uint32_t cp) {
     } else {
         out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
         out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+    return out;
+}
+
+// Inverse of kByteToCodepoint: kCodepointToByte[cp] is the raw byte value
+// b such that kByteToCodepoint[b] == cp, or -1 if cp is not in
+// kByteToCodepoint's image. kByteToCodepoint's values never exceed 0x143
+// (see its own comment), so this table need only cover [0, 0x144).
+// Bijective by construction (kByteToCodepoint is a bijection over 256
+// distinct byte values onto 256 distinct codepoints), built once here
+// rather than searched linearly per decode.
+std::array<int32_t, 0x144> build_codepoint_to_byte() {
+    std::array<int32_t, 0x144> table;
+    table.fill(-1);
+    for (int b = 0; b < 256; ++b) {
+        table[kByteToCodepoint[static_cast<size_t>(b)]] = b;
+    }
+    return table;
+}
+const std::array<int32_t, 0x144> kCodepointToByte = build_codepoint_to_byte();
+
+// Decodes one NORMAL vocabulary token's UTF-8 string back to raw bytes via
+// the inverse byte-alphabet mapping. Every codepoint in a NORMAL token's
+// spelling is, by construction of the encode-side alphabet, either a
+// single ASCII byte (< 0x80, self-mapped) or a 2-byte UTF-8 sequence
+// encoding a codepoint in [0x80, 0x143] (see utf8_encode_codepoint(),
+// which never produces a 3- or 4-byte form for this alphabet's range) --
+// so this decoder only ever needs to handle those two forms; anything
+// else (a 3/4-byte lead byte, a bad continuation byte, or a codepoint
+// outside the alphabet's image) means this vocabulary token cannot
+// possibly have come from this alphabet, and is a construction-time
+// TokenizerMetadataError, not a per-call decode failure.
+std::string decode_normal_token_via_alphabet(std::string_view token, size_t token_index) {
+    std::string out;
+    out.reserve(token.size());
+    size_t i = 0;
+    while (i < token.size()) {
+        const unsigned char b0 = static_cast<unsigned char>(token[i]);
+        uint32_t cp;
+        size_t len;
+        if (b0 < 0x80) {
+            cp = b0;
+            len = 1;
+        } else if ((b0 & 0xE0) == 0xC0) {
+            if (i + 1 >= token.size()) {
+                throw TokenizerMetadataError("tokenizer.ggml.tokens[" + std::to_string(token_index) +
+                                             "] ends mid-UTF-8-sequence -- not decodable through the GPT-2 "
+                                             "byte-alphabet mapping");
+            }
+            const unsigned char b1 = static_cast<unsigned char>(token[i + 1]);
+            if ((b1 & 0xC0) != 0x80) {
+                throw TokenizerMetadataError("tokenizer.ggml.tokens[" + std::to_string(token_index) +
+                                             "] contains an invalid UTF-8 continuation byte -- not decodable "
+                                             "through the GPT-2 byte-alphabet mapping");
+            }
+            cp = (static_cast<uint32_t>(b0 & 0x1F) << 6) | (b1 & 0x3F);
+            len = 2;
+        } else {
+            throw TokenizerMetadataError("tokenizer.ggml.tokens[" + std::to_string(token_index) +
+                                         "] contains a codepoint outside the GPT-2 byte-alphabet's range "
+                                         "(3/4-byte UTF-8 lead byte encountered) -- not decodable through the "
+                                         "inverse byte-alphabet mapping");
+        }
+        if (cp >= kCodepointToByte.size() || kCodepointToByte[cp] < 0) {
+            throw TokenizerMetadataError("tokenizer.ggml.tokens[" + std::to_string(token_index) +
+                                         "] contains codepoint U+" +
+                                         [&] { char buf[8]; std::snprintf(buf, sizeof(buf), "%04X", cp); return std::string(buf); }() +
+                                         ", which is not in the GPT-2 byte-alphabet's image -- not decodable "
+                                         "through the inverse byte-alphabet mapping");
+        }
+        out.push_back(static_cast<char>(static_cast<unsigned char>(kCodepointToByte[cp])));
+        i += len;
     }
     return out;
 }
@@ -364,6 +437,18 @@ TokenizerProfile TokenizerProfile::from_gguf_metadata(const GgufArtifact& artifa
     }
     profile.control_count_ = control_count;
 
+    // Decode-side derived table: for every NORMAL token, precompute (and
+    // validate, fail-closed) its raw decoded bytes through the inverse
+    // byte-alphabet mapping. CONTROL tokens' entries are left empty --
+    // decode_token_bytes() reads tokens_[id] directly for those, they are
+    // never byte-alphabet-mapped.
+    profile.normal_decoded_bytes_.resize(profile.tokens_.size());
+    for (size_t i = 0; i < profile.tokens_.size(); ++i) {
+        if (profile.token_types_[i] == TokenizerTokenType::Normal) {
+            profile.normal_decoded_bytes_[i] = decode_normal_token_via_alphabet(profile.tokens_[i], i);
+        }
+    }
+
     return profile;
 }
 
@@ -495,6 +580,140 @@ std::vector<int64_t> TokenizerProfile::encode(std::string_view utf8_text, Specia
     }
     flush_ordinary(n);
     return ids;
+}
+
+std::string TokenizerProfile::decode_token_bytes(int64_t token_id, DecodeControlPolicy policy) const {
+    if (token_id < 0 || static_cast<size_t>(token_id) >= tokens_.size()) {
+        throw DecodingError("token ID " + std::to_string(token_id) + " is outside the vocabulary [0, " +
+                            std::to_string(tokens_.size()) + ")");
+    }
+    const size_t id = static_cast<size_t>(token_id);
+    if (token_types_[id] == TokenizerTokenType::Control) {
+        if (policy == DecodeControlPolicy::SkipControlTokens) return std::string();
+        return tokens_[id];  // CONTROL spellings are literal text, not byte-mapped
+    }
+    return normal_decoded_bytes_[id];
+}
+
+std::string TokenizerProfile::decode(const std::vector<int64_t>& token_ids, DecodeControlPolicy policy) const {
+    // Validate every ID before appending any output, so a rejection never
+    // leaves a caller with a partial result to accidentally observe --
+    // decode_token_bytes() itself already validates per call, so a single
+    // pass that accumulates into a local (not caller-visible) buffer and
+    // only returns on full success already satisfies this: on throw, the
+    // local `out` is destroyed with the exception, never returned.
+    std::string out;
+    for (int64_t id : token_ids) {
+        out += decode_token_bytes(id, policy);
+    }
+    return out;
+}
+
+namespace {
+
+// Scans `data` for the longest prefix consisting only of COMPLETE, valid
+// UTF-8 sequences. A well-formed but not-yet-complete trailing sequence
+// (a valid lead byte followed by zero or more valid continuation bytes,
+// short of the length its lead byte demands) is deliberately excluded
+// from the returned prefix -- Utf8StreamDecoder buffers it for a later
+// feed() call, not this function's concern. Throws DecodingError for any
+// genuinely malformed byte sequence within the scanned prefix: an invalid
+// lead byte, a continuation byte that fails the 10xxxxxx pattern
+// (including in what would otherwise look like an incomplete trailing
+// sequence -- a structurally wrong continuation byte is never "maybe
+// still incomplete"), an overlong encoding, a UTF-16 surrogate codepoint
+// (U+D800-U+DFFF), or a codepoint exceeding U+10FFFF.
+size_t longest_complete_utf8_prefix(std::string_view data) {
+    size_t i = 0;
+    size_t complete_end = 0;
+    while (i < data.size()) {
+        const unsigned char b0 = static_cast<unsigned char>(data[i]);
+        size_t len;
+        uint32_t min_cp;
+        uint32_t cp;
+        if (b0 < 0x80) {
+            len = 1;
+            min_cp = 0;
+            cp = b0;
+        } else if ((b0 & 0xE0) == 0xC0) {
+            len = 2;
+            min_cp = 0x80;
+            cp = b0 & 0x1Fu;
+        } else if ((b0 & 0xF0) == 0xE0) {
+            len = 3;
+            min_cp = 0x800;
+            cp = b0 & 0x0Fu;
+        } else if ((b0 & 0xF8) == 0xF0) {
+            len = 4;
+            min_cp = 0x10000;
+            cp = b0 & 0x07u;
+        } else {
+            throw DecodingError("invalid UTF-8 lead byte at stream offset " + std::to_string(i));
+        }
+        if (i + len > data.size()) {
+            // Possibly-incomplete trailing sequence -- the continuation
+            // bytes actually present so far must still be structurally
+            // valid, or this is a real error, not merely "not yet enough
+            // bytes".
+            for (size_t k = i + 1; k < data.size(); ++k) {
+                if ((static_cast<unsigned char>(data[k]) & 0xC0) != 0x80) {
+                    throw DecodingError("invalid UTF-8 continuation byte at stream offset " + std::to_string(k));
+                }
+            }
+            break;
+        }
+        for (size_t k = 1; k < len; ++k) {
+            const unsigned char c = static_cast<unsigned char>(data[i + k]);
+            if ((c & 0xC0) != 0x80) {
+                throw DecodingError("invalid UTF-8 continuation byte at stream offset " + std::to_string(i + k));
+            }
+            cp = (cp << 6) | (c & 0x3Fu);
+        }
+        if (cp < min_cp) {
+            throw DecodingError("overlong UTF-8 encoding at stream offset " + std::to_string(i));
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) {
+            throw DecodingError("UTF-8 sequence encodes a surrogate codepoint at stream offset " + std::to_string(i));
+        }
+        if (cp > 0x10FFFF) {
+            throw DecodingError("UTF-8 sequence encodes a codepoint beyond U+10FFFF at stream offset " +
+                                std::to_string(i));
+        }
+        i += len;
+        complete_end = i;
+    }
+    return complete_end;
+}
+
+}  // namespace
+
+std::string Utf8StreamDecoder::feed(int64_t token_id) {
+    if (poisoned_) {
+        throw DecodingError("Utf8StreamDecoder::feed() called after a previous error -- this decoder is "
+                            "poisoned and must not be reused");
+    }
+    try {
+        pending_ += profile_.decode_token_bytes(token_id, policy_);
+        const size_t complete_len = longest_complete_utf8_prefix(pending_);
+        std::string emit = pending_.substr(0, complete_len);
+        pending_.erase(0, complete_len);
+        return emit;
+    } catch (...) {
+        poisoned_ = true;
+        throw;
+    }
+}
+
+void Utf8StreamDecoder::finish() {
+    if (poisoned_) {
+        throw DecodingError("Utf8StreamDecoder::finish() called on a decoder already poisoned by a previous "
+                            "feed() error");
+    }
+    if (!pending_.empty()) {
+        poisoned_ = true;
+        throw DecodingError("Utf8StreamDecoder::finish(): " + std::to_string(pending_.size()) +
+                            " incomplete trailing UTF-8 byte(s) remain buffered at end-of-stream");
+    }
 }
 
 }  // namespace orcengine

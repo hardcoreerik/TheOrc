@@ -16,7 +16,14 @@ enable_testing()
 
 # Phase 2 already add_subdirectory's Phase 1 itself -- do not also add it
 # here, that would double-define its targets (same pattern Phase 3/5A use).
-add_subdirectory(../OrcEnginePhase2 phase2)
+# A3 (Section 11 frozen-engine integration proof) needs Phase 5A's
+# forward_cached_step seam, so this pulls in Phase 5A instead of Phase 2
+# directly -- Phase 5A already add_subdirectory's Phase 3, which
+# add_subdirectory's Phase 2, which add_subdirectory's Phase 1, so every
+# target Phase 5B previously got via Phase 2 is still available
+# transitively; adding Phase 2 a second time directly would double-define
+# its targets.
+add_subdirectory(../OrcEnginePhase5A phase5a)
 
 add_library(orcengine_phase5b
     src/tokenizer.cpp
@@ -101,3 +108,65 @@ if(ORCENGINE_REAL_F32_GGUF)
 else()
     message(STATUS "Phase 5B Stage 2B encode test: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
 endif()
+
+# A1: native token-ID decoding. Reuses the same encode_oracle_fixtures.hpp
+# corpus Stage 2B's own test_encode.cpp uses -- decode is validated as
+# encode's oracle-anchored inverse, no separate decode-only pinned
+# artifact is required. Same real-GGUF requirement as encode (no synthetic
+# metadata path for a real TokenizerProfile).
+if(ORCENGINE_REAL_F32_GGUF)
+    message(STATUS "Phase 5B decode test: REGISTERED")
+    add_executable(test_tokenizer_decode tests/test_decode.cpp)
+    target_link_libraries(test_tokenizer_decode PRIVATE orcengine_phase5b)
+    target_include_directories(test_tokenizer_decode PRIVATE tests)
+    target_compile_options(test_tokenizer_decode PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    add_test(NAME decode COMMAND test_tokenizer_decode "${ORCENGINE_REAL_F32_GGUF}")
+else()
+    message(STATUS "Phase 5B decode test: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
+endif()
+
+# A2: streaming UTF-8 decode (Utf8StreamDecoder). Same real-GGUF
+# requirement as decode/encode.
+if(ORCENGINE_REAL_F32_GGUF)
+    message(STATUS "Phase 5B streaming decode test: REGISTERED")
+    add_executable(test_streaming_decode tests/test_streaming_decode.cpp)
+    target_link_libraries(test_streaming_decode PRIVATE orcengine_phase5b)
+    target_compile_options(test_streaming_decode PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    add_test(NAME streaming_decode COMMAND test_streaming_decode "${ORCENGINE_REAL_F32_GGUF}")
+else()
+    message(STATUS "Phase 5B streaming decode test: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
+endif()
+
+# A3: Section 11 frozen-engine integration proof. Needs orcengine_phase5a
+# (forward_cached_step), pulled in transitively via the add_subdirectory
+# change above.
+if(ORCENGINE_REAL_F32_GGUF)
+    message(STATUS "Phase 5B frozen-engine integration test: REGISTERED")
+    add_executable(test_frozen_engine_integration tests/test_frozen_engine_integration.cpp)
+    target_link_libraries(test_frozen_engine_integration PRIVATE orcengine_phase5b orcengine_phase5a)
+    target_compile_options(test_frozen_engine_integration PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    add_test(NAME frozen_engine_integration COMMAND test_frozen_engine_integration "${ORCENGINE_REAL_F32_GGUF}")
+    set_tests_properties(frozen_engine_integration PROPERTIES TIMEOUT 1800)
+else()
+    message(STATUS "Phase 5B frozen-engine integration test: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
+endif()
+
+# A4: minimal CLI for the native leg of the three-way tokenizer
+# comparison (tools/native_tokenize_cli.cpp). Not a test target -- a
+# small utility invoked manually/by a comparison script, same category
+# as gguf_cached_forward.cpp elsewhere in this project.
+add_executable(orcengine_native_tokenize tools/native_tokenize_cli.cpp)
+target_link_libraries(orcengine_native_tokenize PRIVATE orcengine_phase5b)
+target_compile_options(orcengine_native_tokenize PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
