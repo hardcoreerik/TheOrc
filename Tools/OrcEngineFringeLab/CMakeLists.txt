@@ -116,3 +116,36 @@ target_compile_options(test_fl07b_cached_decode PRIVATE
 )
 add_test(NAME fringelab_fl07b_cached_decode COMMAND test_fl07b_cached_decode
          "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+
+# FL-07B Commit 3 -- real-GGUF evidence. Same StickyLayerCachedModel/
+# StickyLayerPlan harness as Commit 2/2A, now driven by real per-layer
+# weights read from disk via Phase 3's bind_gguf_source() seam
+# (orcengine_phase3_gguf) instead of the synthetic in-memory fixture.
+if(ORCENGINE_REAL_F32_GGUF)
+    message(STATUS "FL-07B Commit 3 real-GGUF evidence: REGISTERED")
+    add_executable(test_fl07b_real_evidence tests/test_fl07b_real_evidence.cpp)
+    target_link_libraries(test_fl07b_real_evidence PRIVATE fringelab_sticky_layer_cached_model
+        fringelab_sticky_layer_model fringelab_sticky_layer_plan orcengine_phase5a orcengine_phase3_gguf)
+    target_compile_options(test_fl07b_real_evidence PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    add_test(NAME fringelab_fl07b_real_evidence COMMAND test_fl07b_real_evidence "${ORCENGINE_REAL_F32_GGUF}")
+    set_tests_properties(fringelab_fl07b_real_evidence PROPERTIES TIMEOUT 1800)
+else()
+    message(STATUS "FL-07B Commit 3 real-GGUF evidence: SKIPPED -- ORCENGINE_REAL_F32_GGUF not configured")
+endif()
+
+# FL-07B B4 -- isolated-window timing measurements. Not a test (no
+# add_test registration): a manually-invoked tool, run only when no
+# other build/test/sanitizer work is consuming CPU, per the coordination
+# rule this experiment's own charter requires for citable timing.
+if(ORCENGINE_REAL_F32_GGUF)
+    add_executable(fringelab_fl07b_real_timing tools/fl07b_real_timing.cpp)
+    target_link_libraries(fringelab_fl07b_real_timing PRIVATE fringelab_sticky_layer_cached_model
+        fringelab_sticky_layer_model fringelab_sticky_layer_plan orcengine_phase5a orcengine_phase3_gguf)
+    target_compile_options(fringelab_fl07b_real_timing PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+endif()

@@ -1,6 +1,6 @@
 # FL-07B — Multi-Step Sticky-Layer Planning
 
-Status: **IN PROGRESS — Commit 2A landed (Commit 2 corrected/hardened per Codex review); Commit 3 (real-GGUF evidence) not yet started; stopped here for Codex review per the authorizing instruction**
+Status: **COMPLETE — Commit 3 (real-GGUF evidence) landed. Disposition: SUPPORTED FOR LATER PHASE 7B CONSIDERATION. This is a Fringe Lab research result, not a production decision or Phase 5C promotion.**
 
 Worktree: `F:\Ai\OrchestratorIDE-fringelab-fl07b`
 Branch: `research/orcengine-fl07b-sticky-planner`
@@ -698,3 +698,290 @@ hand-authored schedule). Additionally:
   counts -- a longer or differently-shaped schedule would need its own
   (differently-parameterized) formula, not a verbatim reuse of these
   numbers.
+
+## Scope of this commit (Commit 3): real-GGUF evidence
+
+Answers, with real-model evidence rather than a 2-layer synthetic fixture,
+the question this whole experiment exists to answer: **does keeping a
+selected subset of real transformer layers resident reduce repeated
+backing I/O during multi-step cached decoding, while preserving the
+frozen model's numerical result and respecting the declared memory
+budget?**
+
+### Model identity
+
+- **Artifact:** `smollm2-135m.gguf` (F32, explicit/untied), the exact same
+  canonical artifact `Tools/OrcEnginePhase5A/tests/test_real_cache_attacks.cpp`
+  and Phase 5B's own Section 11 frozen-engine integration proof already use.
+- **SHA-256:** `fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac`
+- **Config (read directly from the loaded model, not assumed):**
+  `n_layers=30`, `n_q_heads=9`, `n_kv_heads=3`, `head_dim=64`, `vocab=49152`,
+  `max_positions=8192`.
+- One transformer layer: 14,160,384 resident bytes (14.2 MB). All 30
+  layers: 424,811,520 bytes (424.8 MB). Bookends (token embedding + final
+  norm + output head, untied): 226,494,720 resident bytes (226.5 MB).
+
+### Design
+
+`Tools/OrcEngineFringeLab/tests/test_fl07b_real_evidence.cpp` -- reuses
+`StickyLayerCachedModel`/`StickyLayerPlan` exactly as committed in Commit
+2A, with NO new planner or residency implementation. Reads real per-layer
+weights from disk via Phase 3's own `bind_gguf_source()` seam
+(`orcengine_phase3_gguf`), called but not modified. `layer_costs_from_source()`
+independently discovers and validates all 30 real transformer layers from
+the `ModelSource` before any plan is trusted, identical discipline to
+every synthetic-fixture test in Commits 1A-2A.
+
+**Real multi-step schedule (6 steps):** prefill with the established
+prompt ids `[19556, 28, 905, 17]` (the same "Hello, world!" ids Phase 5B's
+own Section 11 proof independently derives from its tokenizer on the
+identical GGUF -- used here as four plain literal integers, FL-07B has no
+dependency on Phase 5B's tokenizer), then the real model's own GREEDY
+continuation for 4 decode steps (discovered once via `forward_cached_step`
+against the plain frozen `Model`, then FIXED as a static schedule so every
+plan and the reference are driven through the identical sequence), plus
+one deliberate final step reusing the prompt's own first token id at a
+brand-new position -- the same repeated-token/new-position proof pattern
+Commit 2 used on the synthetic fixture, now exercised on the real model.
+
+**Plan matrix (6 plans), equivalent budgets used wherever policies are
+compared:** `zero-sticky` (budget 0); `firstk-small` (budget = 1 layer,
+selects layer 0); `firstk-medium` (budget = half of all layer bytes,
+selects the first 15 layers); `explicit-nonprefix-lastk` (the LAST 15
+layers, non-prefix, at the SAME budget firstk-medium actually used --
+not a different allocation); `cost-per-byte-synthetic` (`CostSource::
+Synthetic`, honestly disclosed -- ranks odd-indexed layers 2x higher per
+byte than even-indexed ones, at the same budget as firstk-medium, so it
+selects a genuinely different, cost-driven 15-layer set rather than
+reproducing FirstK's prefix); `all-sticky` (budget = all 30 layers'
+bytes).
+
+### Correctness evidence
+
+For every one of the 6 plans, across all 6 steps: complete logits
+bit-identical to an independently-built fully-resident reference
+(`materialize_gguf_model` + `forward_cached_step`, frozen Phase 1/2/5A,
+called but not modified); selected token identical; all logits finite;
+committed KV-cache length matches the reference; committed KV-cache
+contents (every layer, every kv_head, every position) match the
+reference exactly; resident bytes return exactly to the bookends+sticky
+baseline after the full sequence. Determinism: `firstk-medium`'s full
+6-step sequence was run twice, independently from scratch, and produced
+bit-identical logits both times.
+
+### Residency and I/O evidence (exact, not descriptive-only)
+
+Same exact-formula discipline as Commit 2A, now over real per-layer
+byte counts and a 6-step real schedule, verified against
+`ResidencyLedger`'s actual counters for every plan:
+`materialization_count == 3 (bookends) + sticky*9 + steps*cold*9`;
+`release_count == steps*cold*9`; `backing_bytes_read == bookend backing +
+sticky backing + steps*cold backing`; `repeated_backing_bytes_read ==
+(steps-1)*cold backing`; `peak_active_layers == 1` iff any cold layer
+ever executes; `peak_resident_weight_bytes == baseline + the largest
+single cold layer's resident bytes` (never the sum of multiple cold
+layers -- confirmed exactly, since only one cold layer is ever resident
+at an instant regardless of how many total cold layers a plan has).
+
+| Plan | sticky/30 | budget util. | materializations | releases | backing read | repeated read | peak resident |
+|---|---|---|---|---|---|---|---|
+| zero-sticky | 0 | 0.0% | 1623 | 1620 | 2775.4 MB | 2124.1 MB | 240.7 MB |
+| firstk-small | 1 | 100.0% | 1578 | 1566 | 2704.6 MB | 2053.3 MB | 254.8 MB |
+| firstk-medium | 15 | 100.0% | 948 | 810 | 1713.3 MB | 1062.0 MB | 453.1 MB |
+| explicit-nonprefix-lastk | 15 | 100.0% | 948 | 810 | 1713.3 MB | 1062.0 MB | 453.1 MB |
+| cost-per-byte-synthetic | 15 | 100.0% | 948 | 810 | 1713.3 MB | 1062.0 MB | 453.1 MB |
+| all-sticky | 30 | 100.0% | 273 | 0 | 651.3 MB | 0.0 MB | 651.3 MB |
+
+`firstk-medium`, `explicit-nonprefix-lastk`, and `cost-per-byte-synthetic`
+report numerically IDENTICAL materialization/backing-byte totals -- expected
+and correct, not a bug: this model's transformer layers are uniform in
+byte size, so any 15-layer sticky SET (regardless of which specific 15,
+or which policy chose them) produces the same aggregate byte totals; what
+differs between these three plans is WHICH layers are held resident, not
+how many bytes -- a distinction the exact per-plan correctness proof above
+(not this table) is what actually verifies.
+
+**Bytes avoided relative to the zero-sticky baseline** (descriptive
+evidence only -- no timing or "better" conclusion drawn from this table
+alone):
+
+| Plan | backing bytes avoided | percent |
+|---|---|---|
+| firstk-small | 70.8 MB | 2.6% |
+| firstk-medium | 1062.0 MB | 38.3% |
+| explicit-nonprefix-lastk | 1062.0 MB | 38.3% |
+| cost-per-byte-synthetic | 1062.0 MB | 38.3% |
+| all-sticky | 2124.1 MB | 76.5% |
+
+This is a genuine, real, measured reduction in backing I/O -- not a
+timing claim (that is the separate isolated-window measurement below, if
+performed) and not evidence that any one policy is superior to another at
+equal budget (all three 15-layer plans above are numerically identical on
+this axis by construction, precisely because per-layer byte sizes are
+uniform for this model; distinguishing FirstK from a cost-driven policy
+requires either non-uniform real per-layer costs -- this model does not
+have them -- or a downstream signal I/O-avoidance alone cannot supply).
+
+### Real-model fault evidence
+
+Reused the exact same `CorruptingMaterializer` in-execution-fault
+technique from Commit 2A, now targeting a REAL cold layer's own
+`w_down` weight (GGUF-backed logical tensor name `"layer1.w_down"`),
+corrupted to NaN on its first (and, for the targeted plan, only)
+materialization. Proved, on real per-layer weights read from disk: the
+fault occurs during the intended execution path (Phase 5A's own
+`check_finite()`, message `"...NaN/Inf detected in
+'layer1.post_ffn_residual'..."`, firing from strictly inside
+`execute_cached_transformer_layer`, not a pre-execution hook standing in
+for it); the exception propagates; `cache.current_length()` does not
+advance (committed decode state unchanged); transient residency is
+cleaned up (resident bytes return exactly to the bookends+sticky
+baseline); a retried call succeeds and is bit-identical to the reference.
+
+### B4: isolated-window timing measurements
+
+**Methodology.** Before collecting these numbers: no other build, test,
+sanitizer run, or benchmark was running (confirmed via process listing
+immediately before and is easy to re-verify: `ps aux | grep -iE
+"cmake|msbuild|cl\.exe|test_|ctest"` returned no matches). Same
+Release build configuration for every plan measured. Identical prompt,
+decode schedule, model, and machine conditions across all measurements
+(same process invocation, same 6-step schedule discovered once and
+reused). One untimed warm-up run precedes the timed repetitions, so
+these numbers reflect WARM-CACHE performance (OS filesystem caching has
+already primed the model file's pages) -- stated explicitly, not left
+implicit: a genuine cold-start measurement (first access to the 653 MB
+file after eviction) was NOT separately collected in this pass and
+would likely show a larger, I/O-bound gap between low- and
+high-residency plans than the numbers below. Three repetitions per
+plan, each a fresh `StickyLayerCachedModel` construction plus the full
+6-step schedule; median and [min, max] spread reported, not only the
+single best run.
+
+**Distinguished explicitly:** construction (weight load + sticky-layer
+materialization, happens once) vs. prefill (the first step, a 4-token
+batch) vs. steady-state decode (the remaining 5 single-token steps,
+reported as both a total and a per-step average).
+
+| Plan | construction (median, ms) | prefill (median, ms) | decode total (median, ms) | decode per-step (median, ms) |
+|---|---|---|---|---|
+| zero-sticky | 253.7 [246.7, 277.8] | 925.2 [905.9, 997.4] | 3321.6 [3306.2, 3385.6] | 664.3 [661.2, 677.1] |
+| firstk-medium | 520.3 [511.1, 546.3] | 638.9 [619.7, 665.0] | 1847.9 [1821.7, 1872.9] | 369.6 [364.3, 374.6] |
+| cost-per-byte-synthetic | 519.1 [511.6, 548.8] | 629.6 [624.2, 641.2] | 1809.8 [1803.3, 1810.8] | 362.0 [360.7, 362.2] |
+| all-sticky | 838.9 [816.6, 846.7] | 362.9 [352.3, 375.2] | 426.6 [411.4, 535.2] | 85.3 [82.3, 107.0] |
+
+**Reported honestly, spread is tight** (a few percent, no wide-tailed
+noise) **across all four plans**, so the pattern below is not an
+artifact of run-to-run variance: higher sticky-layer residency
+increases one-time construction cost (253.7ms -> 838.9ms, zero-sticky
+to all-sticky) but decreases per-step decode time substantially
+(664.3ms/step -> 85.3ms/step, a ~7.8x reduction) and prefill time
+(925.2ms -> 362.9ms). `firstk-medium` and `cost-per-byte-synthetic`
+are, once again, indistinguishable within measurement spread -- the
+same uniform-per-layer-cost limitation already established in the I/O
+evidence above applies identically to timing on this model: there is
+no real cost signal for the cost-per-byte policy to exploit here.
+**This is a genuine "less backing I/O AND better time" result for this
+model and this warm-cache condition** -- one of the valid outcomes this
+experiment's own charter anticipated, not the only possible one, and
+not assumed in advance.
+
+### Commit 3 verification
+
+**194/194 checks pass, 0 failures** in `test_fl07b_real_evidence`, across
+all four required lanes:
+
+| Lane | Result |
+|---|---|
+| Debug | 194/194, exit 0 |
+| Release | 194/194, exit 0, 40.8s |
+| Strict (`/permissive- /WX /EHsc`) | 194/194, exit 0 |
+| ASan (`/fsanitize=address /EHsc`) | 194/194, exit 0 |
+
+No source file outside `Tools/OrcEngineFringeLab/` was touched; no frozen
+Phase 1-5A file was modified.
+
+## Disposition (Commit 3, final for this experiment)
+
+**SUPPORTED FOR LATER PHASE 7B CONSIDERATION.**
+
+Real-model evidence directly answers FL-07B's original research
+questions:
+
+1. **Multi-step cached-decode correctness holds** across a real 30-layer
+   model, a real 6-step prefill+decode schedule including a repeated-
+   token/new-position case: every one of 6 tested plans is bit-identical
+   to an independently-built fully-resident reference across complete
+   logits, selected tokens, and complete committed KV-cache contents.
+2. **Cumulative backing I/O genuinely diverges across residency budgets**
+   on a real model: a measured, real reduction from 2775.4 MB (zero
+   sticky) down to 1713.3 MB (half the layers resident, any of three
+   different selection policies) to 651.3 MB (all resident) over this
+   6-step schedule -- not a synthetic or inferred number.
+3. **An explicit planner-selected, non-prefix resident-layer set works
+   identically to "first N"** -- `explicit-nonprefix-lastk` (the LAST 15
+   layers) is exactly as correct and exactly as I/O-efficient as
+   `firstk-medium` (the FIRST 15 layers) at the same budget.
+4. **The cost-per-byte policy is not shown to outperform FirstK on this
+   model** -- at equal budget, all three 15-layer plans (FirstK, explicit
+   non-prefix, cost-ranked) produce numerically identical I/O totals,
+   because SmolLM2-135M's transformer layers are uniform in byte size.
+   This is an honest NULL result for question 4, not a suppressed one:
+   this model gives the cost-per-byte policy no real per-layer cost
+   variation to exploit, so its only real advantage over FirstK here
+   (selecting a genuinely different, non-prefix set) provides zero
+   additional benefit when every layer costs the same. A model with
+   heterogeneous per-layer costs (mixed quantization, mixed layer types,
+   or real measured materialization/backing-read TIMES rather than
+   static byte sizes) would be a fair test of question 4; this one is not.
+5. **Honest reporting, not an invented benefit:** question 4's null
+   result above is reported as a null result, not reframed as a win.
+
+6. **Timing, measured in an isolated window, confirms less I/O AND
+   better time for this model** -- higher sticky-layer residency
+   increased one-time construction cost (253.7ms -> 838.9ms,
+   zero-sticky to all-sticky) but reduced per-step decode time by
+   ~7.8x (664.3ms/step -> 85.3ms/step) and prefill time by more than
+   half (925.2ms -> 362.9ms), with tight, low-noise measurement
+   spread across 3 repetitions per plan. This is ONE of the several
+   valid outcomes this experiment's charter explicitly anticipated
+   (not promised in advance), reported under warm-cache conditions
+   (stated explicitly, not implied) -- a genuine cold-start
+   measurement was not separately collected. `firstk-medium` and
+   `cost-per-byte-synthetic` remain indistinguishable on timing too,
+   for the identical uniform-per-layer-cost reason question 4 already
+   established.
+
+Not claimed: production readiness, a stable ABI, integration into
+Phase 5C or any production `ExecutionPlanner`, that any policy is
+superior on a heterogeneous-cost model, or that this timing result
+generalizes to cold-start conditions, other models, or other hardware.
+
+## Limitations (Commit 3)
+
+- Real model, but a single model (SmolLM2-135M, F32, untied) -- uniform
+  per-layer byte sizes mean this experiment cannot distinguish a
+  byte-order policy (FirstK) from a genuinely cost-aware policy; that
+  requires either a heterogeneous-layer model or real measured
+  materialize/execute timings as the ranking signal instead of static size.
+- `cost-per-byte-synthetic`'s benefit values remain fabricated
+  (`CostSource::Synthetic`, honestly disclosed), chosen only to force a
+  genuinely different, non-prefix selection at the same budget as FirstK.
+- The 6-step schedule is short; longer real decode sequences, cache
+  eviction, and `max_positions` boundary behavior remain unexercised.
+- No production integration, no UI, no stable telemetry ABI, no claim of
+  globally optimal layer selection (the cost-per-byte policy remains a
+  single-pass greedy heuristic, documented as such since Commit 1).
+- Cache "rollback" on a failed step is the same logical commit-length
+  gate documented since Commit 2A -- not physical clearing of unused
+  cache capacity.
+- B4's timing numbers are warm-cache only (one untimed warm-up run
+  precedes the timed repetitions); a genuine cold-start measurement
+  (first file access after page-cache eviction) was not separately
+  collected and would likely show a larger gap between low- and
+  high-residency plans, since zero-sticky's advantage disappears
+  entirely once OS filesystem caching is warm.
+- Timing was measured on one machine, one build (Release), one run of
+  3 repetitions per plan -- not a statistically rigorous benchmark
+  suite; the tight observed spread is evidence against gross
+  measurement noise, not a formal confidence interval.
