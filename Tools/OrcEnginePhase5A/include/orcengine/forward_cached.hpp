@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "orcengine/activation_workspace.hpp"
 #include "orcengine/context.hpp"
 #include "orcengine/model.hpp"
 
@@ -40,6 +41,32 @@ std::vector<float> execute_cached_transformer_layer(
     const std::vector<std::vector<float>>& cos_by_pos,
     const std::vector<std::vector<float>>& sin_by_pos,
     ContiguousAttentionKVStore& cache);
+
+// Phase 5C addition (backward-compatible): IDENTICAL math to the
+// overload above -- both now route through one shared internal
+// implementation (see forward_cached.cpp) -- except the nine largest,
+// most-repeated per-layer intermediates (the two RMSNorm outputs, Q/K/V
+// projections, attention output projection, FFN gate/up projections,
+// the SiLU-activated gate, and the FFN down-projection output) are
+// written into `workspace`'s own reusable buffers instead of being
+// freshly allocated on every call. `workspace.layer_buffers(new_len)`
+// is called internally exactly once; `new_len` must not exceed
+// `workspace.max_tokens_per_step()` (throws ActivationWorkspaceError
+// otherwise, before any numerical work). The overload above remains
+// available, unchanged in its own observable behavior, and is NOT
+// implemented in terms of this one (nor vice versa) -- both call the
+// same shared per-op arithmetic (ops::rmsnorm_into/linear_no_bias_into/
+// silu_into), never a second copy of it. RoPE's per-head-dim
+// temporaries, the manual attention-context accumulation, and the
+// residual/final-output additions are NOT covered by `workspace` in
+// this Stage 1 -- see docs/OrcEngine/PHASE5C_ACTIVATION_WORKSPACE_SPEC.md
+// for the exact, honestly-scoped buffer inventory.
+std::vector<float> execute_cached_transformer_layer(
+    const std::vector<float>& x, int64_t new_len, int64_t start_position,
+    const LayerWeights& lw, const ModelConfig& cfg, int64_t layer,
+    const std::vector<std::vector<float>>& cos_by_pos,
+    const std::vector<std::vector<float>>& sin_by_pos,
+    ContiguousAttentionKVStore& cache, ActivationWorkspace& workspace);
 
 // Processes new_token_ids (length new_len) as new positions
 // [start_position, start_position + new_len), reading cache.k_row/v_row for

@@ -1,6 +1,6 @@
 # Phase 5C: Bounded Activation Workspace and Prompt/Decode Benchmarking
 
-Status: **SPECIFICATION ONLY -- STAGE 1 IMPLEMENTATION BLOCKED ON A MISSING SEAM, DOCUMENTED BELOW. Not started, not authorized to proceed until this is resolved by a maintainer decision.**
+Status: **AUTHORIZED FOR IMPLEMENTATION (2026-08-22) -- the maintainer selected option (a) from Section 7 below: a narrow, backward-compatible output-buffer/workspace seam may be added to inherited Phase 1/5A files. The seam investigation in Sections 3-5 remains below EXACTLY as originally written, as historical evidence of what was actually checked before this decision -- it is not rewritten as though the gap never existed. See Section 8 for the resulting rule and Section 9 for the Stage 1 implementation record.**
 
 Branch: `feat/orcengine-phase5c-activation-workspace`, worktree
 `F:\Ai\OrchestratorIDE-phase5c-activation-workspace`, forked from
@@ -205,3 +205,133 @@ One of, not decided by this document:
 
 No implementation proceeds until one of these (or an equivalent) is
 explicitly decided.
+
+## 8. Maintainer decision (2026-08-22): option (a) selected
+
+**The maintainer selected option (a).** This is explicit authorization
+for a narrow, backward-compatible output-buffer/workspace seam, with
+the following rule governing it, recorded here verbatim because it
+changes how "frozen" is interpreted for this one purpose:
+
+> The Phase 5B tag is immutable, but a later Phase 5C branch may evolve
+> inherited source files through backward-compatible additions.
+> Existing public APIs and their numerical behavior must remain
+> available and tested. A frozen tag preserves historical authority. It
+> does not permanently prohibit later branches from extending shared
+> implementation files.
+
+Concretely, this means: `orcengine-phase5b-freeze` (and every earlier
+freeze tag) remains untouched and immutable -- it still names an exact,
+unmovable commit, and nothing about this decision moves, recreates, or
+reinterprets any existing tag. What changes is that `feat/orcengine-
+phase5c-activation-workspace`, as a LATER branch built on top of that
+frozen history, is now authorized to ADD new overloads to Phase 1's
+`ops.hpp`/`ops.cpp` and Phase 5A's `forward_cached.hpp`/`forward_
+cached.cpp`, under the single-implementation requirement below -- not to
+modify, remove, or change the numerical behavior of any existing
+signature.
+
+**Single-implementation requirement, restated as the binding
+constraint on every conversion:** for each converted primitive, there
+is exactly one arithmetic implementation; the new output-buffer
+overload writes into caller-provided storage; the existing return-by-
+value signature remains available, unchanged in its own observable
+behavior, and is now implemented by allocating an exactly-sized result
+and delegating to the SAME shared arithmetic the new overload uses.
+Every existing test for the existing signatures must still pass,
+unmodified, proving this equivalence in practice, not just in
+intent -- see Section 9's validation record.
+
+## 9. Stage 1 implementation record
+
+**Converted primitives (Phase 1 `ops.hpp`/`ops.cpp`):** `rmsnorm_into`,
+`linear_no_bias_into`, `silu_into` -- output-buffer (`std::span<float>`)
+overloads added alongside the existing return-by-value signatures,
+which now allocate an exactly-sized result and delegate to the same
+arithmetic. Deliberately NOT converted this stage: `apply_rope`,
+`softmax_last_axis`, and the manual elementwise/accumulation loops for
+RoPE application, attention-context accumulation, and residual adds --
+these remain local `std::vector<float>` allocations in both the
+reference and workspace-driven paths, per the "only add output-buffer
+forms for operations actually needed" instruction, not mechanically
+added for every operation. This is a real, honestly-scoped subset, not
+a claim of eliminating every per-layer allocation.
+
+**`ActivationWorkspace`** (`Tools/OrcEnginePhase1/include/orcengine/
+activation_workspace.hpp` + `src/activation_workspace.cpp`): ten named
+`std::vector<float>` buffers (`norm_out` -- shared, sequential-never-
+concurrent slot for attn_norm/ffn_norm/final_norm; `q_proj`; `k_proj`;
+`v_proj`; `attn_out`; `gate_proj`; `up_proj`; `gate_activated`;
+`ffn_out`; `logits`), each allocated exactly once at construction via
+`.assign()`, sized for a fixed model configuration and a fixed maximum
+tokens-per-step, never resized afterward. `capacity_bytes()` is fixed
+forever after construction; `current_bytes()`/`peak_bytes()` reflect
+the MOST RECENT single accessor call, not a running total across a
+step's several accessor calls (documented explicitly in the header, a
+deliberate scoping decision made during implementation); `reuse_count()`/
+`total_prepare_calls()` count every accessor call across
+`layer_buffers()`/`final_norm_buffer()`/`logits_buffer()` combined.
+
+**`Tools/OrcEnginePhase5A/src/forward_cached.cpp`:** the original
+`execute_cached_transformer_layer` body was extracted, unchanged, into
+a private `execute_cached_transformer_layer_impl(..., ActivationWorkspace*)`;
+the frozen public signature now calls `impl(..., nullptr)` (falling
+back to fresh local `std::vector<float>` buffers, mirroring the
+pre-refactor sizes exactly); a new overload taking `ActivationWorkspace&`
+calls `impl(..., &workspace)`. RoPE cos/sin temporaries, the manual
+attention-context accumulation, and the residual adds are NOT
+workspace-covered in either mode, per the scope above.
+
+**`Tools/OrcEnginePhase5C/{include,src}/orcengine/forward_cached_workspace.{hpp,cpp}`**
+(new): `forward_cached_step_workspace()` / `forward_cached_step_workspace_
+unsafe_explicit_position()`, mirroring Phase 5A's own `forward_cached_step`/
+`forward_cached_step_unsafe_explicit_position` exactly in structure and
+invariants (including the position-must-equal-current_length() guard
+and commit-on-success-only discipline), with one added check:
+`new_len > workspace.max_tokens_per_step()` is rejected before any
+cache mutation.
+
+**Numerical-equivalence proof:** `Tools/OrcEnginePhase5C/tests/
+test_activation_workspace.cpp` (synthetic Fixture C -- multi-token
+prefill + 8 single-token decode steps, 65/65 checks) and `test_
+activation_workspace_real.cpp` (real SmolLM2-135M F32 GGUF, SHA-256
+`fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac` --
+2-token prefill + 6 single-token decode steps) both compare the
+workspace-driven path against Phase 5A's frozen return-by-value
+reference on two independently constructed KV caches fed the identical
+token sequence: logits bit-identical (`max_abs_diff == 0.0f`), selected
+tokens identical, committed KV-cache content and length identical,
+all workspace-path logits finite, `capacity_bytes()` unchanged
+throughout, `peak_bytes() <= capacity_bytes()` always,
+`total_prepare_calls()`/`reuse_count()` matching the exact expected
+call count (`steps * (n_layers + 2)`, reuse = total - 1). Failure/retry
+behavior also proven: a mismatched-position call is rejected before
+mutation, cache state is unchanged after rejection, and a correct
+retry afterward still matches the reference exactly -- on both the
+synthetic fixture and the real model.
+
+**Benchmark** (`Tools/OrcEnginePhase5C/tools/phase5c_workspace_timing.cpp`,
+isolated window, real SmolLM2-135M, 1 untimed warm-up + 5 timed
+repetitions per path, interleaved reference/workspace ordering, median
++ min/max spread reported, `ActivationWorkspace` construction cost
+measured separately from decode timing): workspace-path
+`decode_per_step_ms` median 554.94 vs reference-path median 559.23
+(~0.8% lower, well within the observed [549.83,565.74] combined
+spread) -- a NEUTRAL result, not a claimed speedup. Expected: Stage 1
+converts only three primitives covering nine of many per-layer
+allocations, and matmul cost dominates wall-clock at this model size;
+no improvement was promised or assumed going in.
+
+**Validation matrix:** Debug 19/19 (Phase 5C tree, including the new
+`activation_workspace` synthetic test) + real-model test passing
+separately; Release 23/24 (the one failure is `gguf_real_f32_forward`,
+an inherited Phase 2 test requiring `ORCENGINE_HF_SOURCE_DIR`, which
+was not configured this pass -- an environment gap unrelated to Phase
+5C, not a regression); strict `/W4 /WX /permissive-` zero warnings
+across the full affected-target set (Phase 1, Phase 5A, Phase 5C);
+ASan 13/13 affected targets, no memory-safety findings. The cherry-
+picked Phase 5B Track A hardening commit was also re-validated in this
+worktree: 29/30 (same out-of-scope `gguf_real_f32_forward` failure),
+including `frozen_engine_integration` (86.41s, real model) and the
+full tokenizer suite, confirming the cherry-pick and Phase 5C's
+parallel Phase 1/5A changes did not disturb it.

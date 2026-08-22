@@ -24,6 +24,7 @@ function(add_orcengine_variant target_suffix use_f64)
         src/fixture_loader.cpp
         src/validation.cpp
         src/materialization.cpp
+        src/activation_workspace.cpp
     )
     target_include_directories(${lib_name} PUBLIC include)
     target_compile_options(${lib_name} PRIVATE

@@ -3,6 +3,7 @@
 #include "orcengine/forward_cached.hpp"
 
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 
 #include "orcengine/diagnostics.hpp"
@@ -12,41 +13,96 @@ namespace orcengine {
 
 namespace {
 
-void check_finite(const std::string& name, const std::vector<float>& data) {
-    if (diagnostics::check_tap(name, data)) {
+void check_finite(const std::string& name, std::span<const float> data) {
+    // diagnostics::check_tap (frozen Phase 1 API) takes a std::vector<float>
+    // specifically; this local helper accepts a span (so it works for both
+    // owned-vector and workspace-span buffers) and copies only for this
+    // check, not on any hot numerical path.
+    if (diagnostics::check_tap(name, std::vector<float>(data.begin(), data.end()))) {
         throw std::runtime_error("forward_cached_step: NaN/Inf detected in '" + name +
                                   "' -- failing closed rather than propagating poisoned data");
     }
 }
 
-}  // namespace
-
-std::vector<float> execute_cached_transformer_layer(
+// Shared internal implementation both execute_cached_transformer_layer
+// overloads route through (Phase 5C, OE-ADR: narrow backward-compatible
+// workspace seam). `workspace` is null for the original frozen-compatible
+// entry point (every buffer below is freshly allocated locally, exactly
+// as before this refactor -- observably byte-identical) and non-null for
+// the workspace-aware overload (the nine named buffers below alias
+// `workspace`'s own permanently-owned storage instead). RoPE's per-
+// head-dim temporaries, the manual attention-context accumulation, and
+// the residual/final-output additions are local std::vector in BOTH
+// modes -- not covered by `workspace` in this Stage 1, disclosed as such
+// in the public header's own doc comment.
+std::vector<float> execute_cached_transformer_layer_impl(
     const std::vector<float>& x, int64_t new_len, int64_t start_position,
     const LayerWeights& lw, const ModelConfig& cfg, int64_t layer,
     const std::vector<std::vector<float>>& cos_by_pos,
     const std::vector<std::vector<float>>& sin_by_pos,
-    ContiguousAttentionKVStore& cache) {
+    ContiguousAttentionKVStore& cache, ActivationWorkspace* workspace) {
     const int64_t hidden = cfg.hidden;
     const int64_t group_size = cfg.group_size();
     const float scale = 1.0f / std::sqrt(static_cast<float>(cfg.head_dim));
-
-    std::vector<float> a = ops::rmsnorm(x, new_len, hidden, lw.attn_norm_weight.raw(), cfg.rmsnorm_epsilon);
-    check_finite("layer" + std::to_string(layer) + ".a", a);
-
     const int64_t q_dim = cfg.n_q_heads * cfg.head_dim;
     const int64_t kv_dim = cfg.n_kv_heads * cfg.head_dim;
-    std::vector<float> q_flat = ops::linear_no_bias(a, new_len, hidden, lw.w_q.raw(), q_dim);
-    std::vector<float> k_flat_new = ops::linear_no_bias(a, new_len, hidden, lw.w_k.raw(), kv_dim);
-    std::vector<float> v_flat_new = ops::linear_no_bias(a, new_len, hidden, lw.w_v.raw(), kv_dim);
 
-    // q_rope: [n_q_heads][new_len][head_dim] (only this step's new query positions).
+    // Select the nine named buffers: workspace-owned spans (reused across
+    // calls) or freshly-allocated local storage (owned by this call only,
+    // matching the pre-refactor behavior exactly). Either way, the rest of
+    // this function only ever sees `std::span<float>` -- the arithmetic
+    // below does not know or care which mode is active.
+    std::optional<LayerActivationBuffers> from_workspace;
+    std::vector<float> local_norm_out, local_q_proj, local_k_proj, local_v_proj, local_attn_out, local_gate_proj,
+        local_up_proj, local_gate_activated, local_ffn_out;
+    std::span<float> norm_out, q_proj, k_proj, v_proj, attn_out_buf, gate_proj, up_proj, gate_activated, ffn_out_buf;
+    if (workspace != nullptr) {
+        from_workspace = workspace->layer_buffers(new_len);
+        norm_out = from_workspace->norm_out;
+        q_proj = from_workspace->q_proj;
+        k_proj = from_workspace->k_proj;
+        v_proj = from_workspace->v_proj;
+        attn_out_buf = from_workspace->attn_out;
+        gate_proj = from_workspace->gate_proj;
+        up_proj = from_workspace->up_proj;
+        gate_activated = from_workspace->gate_activated;
+        ffn_out_buf = from_workspace->ffn_out;
+    } else {
+        local_norm_out.resize(static_cast<size_t>(new_len * hidden));
+        local_q_proj.resize(static_cast<size_t>(new_len * q_dim));
+        local_k_proj.resize(static_cast<size_t>(new_len * kv_dim));
+        local_v_proj.resize(static_cast<size_t>(new_len * kv_dim));
+        local_attn_out.resize(static_cast<size_t>(new_len * hidden));
+        local_gate_proj.resize(static_cast<size_t>(new_len * cfg.intermediate));
+        local_up_proj.resize(static_cast<size_t>(new_len * cfg.intermediate));
+        local_gate_activated.resize(static_cast<size_t>(new_len * cfg.intermediate));
+        local_ffn_out.resize(static_cast<size_t>(new_len * hidden));
+        norm_out = local_norm_out;
+        q_proj = local_q_proj;
+        k_proj = local_k_proj;
+        v_proj = local_v_proj;
+        attn_out_buf = local_attn_out;
+        gate_proj = local_gate_proj;
+        up_proj = local_up_proj;
+        gate_activated = local_gate_activated;
+        ffn_out_buf = local_ffn_out;
+    }
+
+    ops::rmsnorm_into(x, new_len, hidden, lw.attn_norm_weight.raw(), cfg.rmsnorm_epsilon, norm_out);
+    check_finite("layer" + std::to_string(layer) + ".a", norm_out);
+
+    ops::linear_no_bias_into(norm_out, new_len, hidden, lw.w_q.raw(), q_dim, q_proj);
+    ops::linear_no_bias_into(norm_out, new_len, hidden, lw.w_k.raw(), kv_dim, k_proj);
+    ops::linear_no_bias_into(norm_out, new_len, hidden, lw.w_v.raw(), kv_dim, v_proj);
+
+    // q_rope: [n_q_heads][new_len][head_dim] (only this step's new query
+    // positions). Not workspace-covered in this Stage 1 -- always local.
     std::vector<float> q_rope(static_cast<size_t>(cfg.n_q_heads * new_len * cfg.head_dim));
     for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
         for (int64_t i = 0; i < new_len; ++i) {
             std::vector<float> vec(static_cast<size_t>(cfg.head_dim));
             for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                vec[static_cast<size_t>(d)] = q_flat[static_cast<size_t>(i * q_dim + h * cfg.head_dim + d)];
+                vec[static_cast<size_t>(d)] = q_proj[static_cast<size_t>(i * q_dim + h * cfg.head_dim + d)];
             }
             std::vector<float> rotated = ops::apply_rope(vec, cos_by_pos[static_cast<size_t>(i)],
                                                            sin_by_pos[static_cast<size_t>(i)]);
@@ -62,7 +118,7 @@ std::vector<float> execute_cached_transformer_layer(
         for (int64_t i = 0; i < new_len; ++i) {
             std::vector<float> k_vec(static_cast<size_t>(cfg.head_dim));
             for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                k_vec[static_cast<size_t>(d)] = k_flat_new[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
+                k_vec[static_cast<size_t>(d)] = k_proj[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
             }
             std::vector<float> k_rotated = ops::apply_rope(k_vec, cos_by_pos[static_cast<size_t>(i)],
                                                             sin_by_pos[static_cast<size_t>(i)]);
@@ -70,7 +126,7 @@ std::vector<float> execute_cached_transformer_layer(
 
             std::vector<float> v_vec(static_cast<size_t>(cfg.head_dim));
             for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                v_vec[static_cast<size_t>(d)] = v_flat_new[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
+                v_vec[static_cast<size_t>(d)] = v_proj[static_cast<size_t>(i * kv_dim + h * cfg.head_dim + d)];
             }
             cache.write_v(layer, h, start_position + i, v_vec.data());
         }
@@ -79,6 +135,7 @@ std::vector<float> execute_cached_transformer_layer(
     // Attention: query position (start_position + qi) attends to key positions
     // [0, start_position + qi] inclusive -- prior cache content plus this step's
     // own new keys up to and including its own position (rectangular causal mask).
+    // Not workspace-covered in this Stage 1 -- always local.
     std::vector<float> context_heads(static_cast<size_t>(cfg.n_q_heads * new_len * cfg.head_dim));
     for (int64_t h = 0; h < cfg.n_q_heads; ++h) {
         const int64_t kv_h = h / group_size;
@@ -118,25 +175,51 @@ std::vector<float> execute_cached_transformer_layer(
         }
     }
 
-    std::vector<float> attn_out = ops::linear_no_bias(context_flat, new_len, q_dim, lw.w_o.raw(), hidden);
+    ops::linear_no_bias_into(context_flat, new_len, q_dim, lw.w_o.raw(), hidden, attn_out_buf);
 
+    // Residual add -- not workspace-covered in this Stage 1 -- always local.
     std::vector<float> r(x.size());
-    for (size_t i = 0; i < x.size(); ++i) r[i] = x[i] + attn_out[i];
+    for (size_t i = 0; i < x.size(); ++i) r[i] = x[i] + attn_out_buf[i];
     check_finite("layer" + std::to_string(layer) + ".post_attention_residual", r);
 
-    std::vector<float> f = ops::rmsnorm(r, new_len, hidden, lw.ffn_norm_weight.raw(), cfg.rmsnorm_epsilon);
-    std::vector<float> gate = ops::linear_no_bias(f, new_len, hidden, lw.w_gate.raw(), cfg.intermediate);
-    std::vector<float> up = ops::linear_no_bias(f, new_len, hidden, lw.w_up.raw(), cfg.intermediate);
-    std::vector<float> gate_act = ops::silu(gate);
-    std::vector<float> activated(gate.size());
-    for (size_t i = 0; i < gate.size(); ++i) activated[i] = gate_act[i] * up[i];
-    std::vector<float> ffn = ops::linear_no_bias(activated, new_len, cfg.intermediate, lw.w_down.raw(), hidden);
+    ops::rmsnorm_into(r, new_len, hidden, lw.ffn_norm_weight.raw(), cfg.rmsnorm_epsilon, norm_out);
+    ops::linear_no_bias_into(norm_out, new_len, hidden, lw.w_gate.raw(), cfg.intermediate, gate_proj);
+    ops::linear_no_bias_into(norm_out, new_len, hidden, lw.w_up.raw(), cfg.intermediate, up_proj);
+    ops::silu_into(gate_proj, gate_activated);
+    // In-place: gate_activated := silu(gate_proj) * up_proj -- avoids a
+    // tenth named buffer for the elementwise product (gate_activated's own
+    // pre-multiply value is no longer needed once this line completes).
+    for (size_t i = 0; i < gate_activated.size(); ++i) gate_activated[i] *= up_proj[i];
+    ops::linear_no_bias_into(gate_activated, new_len, cfg.intermediate, lw.w_down.raw(), hidden, ffn_out_buf);
 
+    // Residual add -- not workspace-covered in this Stage 1 -- always local.
     std::vector<float> y(r.size());
-    for (size_t i = 0; i < r.size(); ++i) y[i] = r[i] + ffn[i];
+    for (size_t i = 0; i < r.size(); ++i) y[i] = r[i] + ffn_out_buf[i];
     check_finite("layer" + std::to_string(layer) + ".post_ffn_residual", y);
 
     return y;
+}
+
+}  // namespace
+
+std::vector<float> execute_cached_transformer_layer(
+    const std::vector<float>& x, int64_t new_len, int64_t start_position,
+    const LayerWeights& lw, const ModelConfig& cfg, int64_t layer,
+    const std::vector<std::vector<float>>& cos_by_pos,
+    const std::vector<std::vector<float>>& sin_by_pos,
+    ContiguousAttentionKVStore& cache) {
+    return execute_cached_transformer_layer_impl(x, new_len, start_position, lw, cfg, layer, cos_by_pos, sin_by_pos,
+                                                  cache, nullptr);
+}
+
+std::vector<float> execute_cached_transformer_layer(
+    const std::vector<float>& x, int64_t new_len, int64_t start_position,
+    const LayerWeights& lw, const ModelConfig& cfg, int64_t layer,
+    const std::vector<std::vector<float>>& cos_by_pos,
+    const std::vector<std::vector<float>>& sin_by_pos,
+    ContiguousAttentionKVStore& cache, ActivationWorkspace& workspace) {
+    return execute_cached_transformer_layer_impl(x, new_len, start_position, lw, cfg, layer, cos_by_pos, sin_by_pos,
+                                                  cache, &workspace);
 }
 
 CachedStepResult forward_cached_step_unsafe_explicit_position(

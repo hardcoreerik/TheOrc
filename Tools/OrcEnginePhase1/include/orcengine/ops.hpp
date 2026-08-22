@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace orcengine::ops {
@@ -35,6 +36,21 @@ std::vector<float> rmsnorm(const std::vector<float>& x, int64_t rows, int64_t co
 
 std::vector<float> silu(const std::vector<float>& x);
 
+// --- Output-buffer forms (Phase 5C addition, backward-compatible) ---------
+// Same arithmetic as the return-by-value forms above (see ops.cpp: the
+// return-by-value forms are now implemented BY CALLING these -- there is
+// exactly one implementation of each operation's math, never two). Writes
+// into caller-supplied `out`; never resizes, reallocates, or takes
+// ownership of it. `out.size()` must exactly equal the operation's output
+// element count (row*col products are overflow-checked before any write);
+// throws std::invalid_argument/std::overflow_error before writing anything
+// if it does not. Added only for the operations Phase 5C's cached-decode
+// activation workspace actually reuses across steps (rmsnorm,
+// linear_no_bias, silu) -- not mechanically added to every operation.
+void rmsnorm_into(std::span<const float> x, int64_t rows, int64_t cols,
+                  std::span<const float> weight, float epsilon, std::span<float> out);
+void silu_into(std::span<const float> x, std::span<float> out);
+
 // x: [rows, cols]. Softmax over the last axis (cols), per row, max-subtracted.
 std::vector<float> softmax_last_axis(const std::vector<float>& x, int64_t rows, int64_t cols);
 
@@ -55,6 +71,8 @@ std::vector<float> apply_rope(const std::vector<float>& x, const std::vector<flo
 // x: [rows, in_features]. weight_out_in: [out_features, in_features]. Returns [rows, out_features].
 std::vector<float> linear_no_bias(const std::vector<float>& x, int64_t rows, int64_t in_features,
                                    const std::vector<float>& weight_out_in, int64_t out_features);
+void linear_no_bias_into(std::span<const float> x, int64_t rows, int64_t in_features,
+                         std::span<const float> weight_out_in, int64_t out_features, std::span<float> out);
 
 // table: [vocab, hidden]. token_ids: [seq]. Returns [seq, hidden].
 std::vector<float> embedding_lookup(const std::vector<float>& table, int64_t hidden,

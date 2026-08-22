@@ -6,12 +6,29 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace orcengine::ops {
 
-std::vector<float> rmsnorm(const std::vector<float>& x, int64_t rows, int64_t cols,
-                            const std::vector<float>& weight, float epsilon) {
-    std::vector<float> out(static_cast<size_t>(rows * cols));
+namespace {
+// Local overflow-checked helper, matching the convention every other
+// phase in this project already uses (a small local checked_mul rather
+// than a shared cross-phase utility) -- see e.g. sticky_layer_plan.cpp's
+// own checked_add for the identical pattern.
+int64_t checked_mul_i64(int64_t a, int64_t b, const char* what) {
+    if (a != 0 && b > std::numeric_limits<int64_t>::max() / a) {
+        throw std::overflow_error(std::string("orcengine::ops: ") + what + " overflowed int64_t");
+    }
+    return a * b;
+}
+}  // namespace
+
+void rmsnorm_into(std::span<const float> x, int64_t rows, int64_t cols,
+                  std::span<const float> weight, float epsilon, std::span<float> out) {
+    const int64_t expected = checked_mul_i64(rows, cols, "rmsnorm element count");
+    if (static_cast<int64_t>(out.size()) != expected) {
+        throw std::invalid_argument("orcengine::ops::rmsnorm_into: out.size() does not match rows*cols");
+    }
     for (int64_t r = 0; r < rows; ++r) {
         AccumT sum_sq = AccumT(0);
         for (int64_t c = 0; c < cols; ++c) {
@@ -25,15 +42,28 @@ std::vector<float> rmsnorm(const std::vector<float>& x, int64_t rows, int64_t co
             out[idx] = x[idx] * inv_rms * weight[static_cast<size_t>(c)];
         }
     }
+}
+
+std::vector<float> rmsnorm(const std::vector<float>& x, int64_t rows, int64_t cols,
+                            const std::vector<float>& weight, float epsilon) {
+    std::vector<float> out(static_cast<size_t>(checked_mul_i64(rows, cols, "rmsnorm element count")));
+    rmsnorm_into(x, rows, cols, weight, epsilon, out);
     return out;
 }
 
-std::vector<float> silu(const std::vector<float>& x) {
-    std::vector<float> out(x.size());
+void silu_into(std::span<const float> x, std::span<float> out) {
+    if (out.size() != x.size()) {
+        throw std::invalid_argument("orcengine::ops::silu_into: out.size() does not match x.size()");
+    }
     for (size_t i = 0; i < x.size(); ++i) {
         float v = x[i];
         out[i] = v * (1.0f / (1.0f + std::exp(-v)));
     }
+}
+
+std::vector<float> silu(const std::vector<float>& x) {
+    std::vector<float> out(x.size());
+    silu_into(x, out);
     return out;
 }
 
@@ -113,9 +143,12 @@ std::vector<float> apply_rope(const std::vector<float>& x, const std::vector<flo
     return out;
 }
 
-std::vector<float> linear_no_bias(const std::vector<float>& x, int64_t rows, int64_t in_features,
-                                   const std::vector<float>& weight_out_in, int64_t out_features) {
-    std::vector<float> out(static_cast<size_t>(rows * out_features), 0.0f);
+void linear_no_bias_into(std::span<const float> x, int64_t rows, int64_t in_features,
+                         std::span<const float> weight_out_in, int64_t out_features, std::span<float> out) {
+    const int64_t expected = checked_mul_i64(rows, out_features, "linear_no_bias element count");
+    if (static_cast<int64_t>(out.size()) != expected) {
+        throw std::invalid_argument("orcengine::ops::linear_no_bias_into: out.size() does not match rows*out_features");
+    }
     for (int64_t r = 0; r < rows; ++r) {
         for (int64_t o = 0; o < out_features; ++o) {
             AccumT acc = AccumT(0);
@@ -126,6 +159,13 @@ std::vector<float> linear_no_bias(const std::vector<float>& x, int64_t rows, int
             out[static_cast<size_t>(r * out_features + o)] = static_cast<float>(acc);
         }
     }
+}
+
+std::vector<float> linear_no_bias(const std::vector<float>& x, int64_t rows, int64_t in_features,
+                                   const std::vector<float>& weight_out_in, int64_t out_features) {
+    std::vector<float> out(static_cast<size_t>(checked_mul_i64(rows, out_features, "linear_no_bias element count")),
+                           0.0f);
+    linear_no_bias_into(x, rows, in_features, weight_out_in, out_features, out);
     return out;
 }
 
