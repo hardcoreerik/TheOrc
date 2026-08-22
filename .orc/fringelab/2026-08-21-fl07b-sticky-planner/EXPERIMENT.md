@@ -813,14 +813,22 @@ alone):
 | cost-per-byte-synthetic | 1062.0 MB | 38.3% |
 | all-sticky | 2124.1 MB | 76.5% |
 
-This is a genuine, real, measured reduction in backing I/O -- not a
-timing claim (that is the separate isolated-window measurement below, if
-performed) and not evidence that any one policy is superior to another at
-equal budget (all three 15-layer plans above are numerically identical on
-this axis by construction, precisely because per-layer byte sizes are
-uniform for this model; distinguishing FirstK from a cost-driven policy
-requires either non-uniform real per-layer costs -- this model does not
-have them -- or a downstream signal I/O-avoidance alone cannot supply).
+`backing_bytes_read` is a LOGICAL accounting quantity -- the declared
+byte length of each backing extent `ResidencyLedger::materialized()` is
+told about at materialization time (`SourceTensor::backing.byte_length()`
+from GGUF metadata), summed across every materialization call. It is not
+a measured PHYSICAL disk-read count: it has no syscall-level
+instrumentation and is blind to OS page-cache hits, so a "materialization"
+counted here may or may not correspond to an actual disk access depending
+on what the OS has already cached. This is still a genuine, real
+reduction in that logical backing/materialization-read volume -- not a
+timing claim (that is the separate isolated-window measurement below) and
+not evidence that any one policy is superior to another at equal budget
+(all three 15-layer plans above are numerically identical on this axis by
+construction, precisely because per-layer byte sizes are uniform for this
+model; distinguishing FirstK from a cost-driven policy requires either
+non-uniform real per-layer costs -- this model does not have them -- or a
+downstream signal this logical count alone cannot supply).
 
 ### Real-model fault evidence
 
@@ -875,15 +883,19 @@ noise) **across all four plans**, so the pattern below is not an
 artifact of run-to-run variance: higher sticky-layer residency
 increases one-time construction cost (253.7ms -> 838.9ms, zero-sticky
 to all-sticky) but decreases per-step decode time substantially
-(664.3ms/step -> 85.3ms/step, a ~7.8x reduction) and prefill time
-(925.2ms -> 362.9ms). `firstk-medium` and `cost-per-byte-synthetic`
-are, once again, indistinguishable within measurement spread -- the
-same uniform-per-layer-cost limitation already established in the I/O
-evidence above applies identically to timing on this model: there is
-no real cost signal for the cost-per-byte policy to exploit here.
-**This is a genuine "less backing I/O AND better time" result for this
-model and this warm-cache condition** -- one of the valid outcomes this
-experiment's own charter anticipated, not the only possible one, and
+(664.3ms/step -> 85.3ms/step, a ~7.8x reduction **measured only for this
+model, this exact 6-step schedule, this one machine, and this warm-cache
+condition -- not a general claim about sticky-layer residency's speedup
+elsewhere**) and prefill time (925.2ms -> 362.9ms). `firstk-medium` and
+`cost-per-byte-synthetic` are, once again, indistinguishable within
+measurement spread -- the same uniform-per-layer-cost limitation already
+established in the logical I/O evidence above applies identically to
+timing on this model: there is no real cost signal for the cost-per-byte
+policy to exploit here.
+**This is a genuine "less logical backing/materialization-read volume
+AND better time" result for this model and this warm-cache condition** --
+one of the valid outcomes this experiment's own charter anticipated, not
+the only possible one, and
 not assumed in advance.
 
 ### Commit 3 verification
@@ -913,11 +925,14 @@ questions:
    token/new-position case: every one of 6 tested plans is bit-identical
    to an independently-built fully-resident reference across complete
    logits, selected tokens, and complete committed KV-cache contents.
-2. **Cumulative backing I/O genuinely diverges across residency budgets**
-   on a real model: a measured, real reduction from 2775.4 MB (zero
-   sticky) down to 1713.3 MB (half the layers resident, any of three
-   different selection policies) to 651.3 MB (all resident) over this
-   6-step schedule -- not a synthetic or inferred number.
+2. **Cumulative logical backing/materialization-read volume genuinely
+   diverges across residency budgets** on a real model: a real reduction
+   from 2775.4 MB (zero sticky) down to 1713.3 MB (half the layers
+   resident, any of three different selection policies) to 651.3 MB (all
+   resident) over this 6-step schedule -- not a synthetic or inferred
+   number, but also not a measured physical-disk-I/O count (see the
+   "logical accounting" note under the residency/I/O evidence table
+   above); OS page-cache behavior is not represented by this number.
 3. **An explicit planner-selected, non-prefix resident-layer set works
    identically to "first N"** -- `explicit-nonprefix-lastk` (the LAST 15
    layers) is exactly as correct and exactly as I/O-efficient as
@@ -937,16 +952,21 @@ questions:
 5. **Honest reporting, not an invented benefit:** question 4's null
    result above is reported as a null result, not reframed as a win.
 
-6. **Timing, measured in an isolated window, confirms less I/O AND
-   better time for this model** -- higher sticky-layer residency
-   increased one-time construction cost (253.7ms -> 838.9ms,
-   zero-sticky to all-sticky) but reduced per-step decode time by
-   ~7.8x (664.3ms/step -> 85.3ms/step) and prefill time by more than
-   half (925.2ms -> 362.9ms), with tight, low-noise measurement
-   spread across 3 repetitions per plan. This is ONE of the several
-   valid outcomes this experiment's charter explicitly anticipated
-   (not promised in advance), reported under warm-cache conditions
-   (stated explicitly, not implied) -- a genuine cold-start
+6. **Timing, measured in an isolated window, confirms less logical
+   backing/materialization-read volume AND better time for this specific
+   model, schedule, machine, and warm-cache condition** -- higher
+   sticky-layer residency increased one-time construction cost (253.7ms
+   -> 838.9ms, zero-sticky to all-sticky) but reduced per-step decode
+   time by ~7.8x (664.3ms/step -> 85.3ms/step) and prefill time by more
+   than half (925.2ms -> 362.9ms), with tight, low-noise measurement
+   spread across 3 repetitions per plan. **The ~7.8x figure is not a
+   general claim -- it applies only to this one recorded experiment
+   (this model, this 6-step schedule, this machine, this warm-cache
+   condition) and should not be read as a property of sticky-layer
+   residency in general.** This is ONE of the several valid outcomes
+   this experiment's charter explicitly anticipated (not promised in
+   advance), reported under warm-cache conditions (stated explicitly,
+   not implied) -- a genuine cold-start
    measurement was not separately collected. `firstk-medium` and
    `cost-per-byte-synthetic` remain indistinguishable on timing too,
    for the identical uniform-per-layer-cost reason question 4 already
