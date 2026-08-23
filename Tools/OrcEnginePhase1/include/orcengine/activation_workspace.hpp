@@ -24,8 +24,10 @@
 // the per-layer path.
 //
 // EXPERIMENTAL, Phase 5C research scope. Not a general memory-pool
-// framework: nine concretely-named `std::vector<float>` buffers, sized
-// once at construction for a fixed model configuration and a fixed
+// framework: ten concretely-named `std::vector<float>` buffers (the nine
+// per-layer ones described above, plus a tenth step-level logits buffer
+// -- see `logits_buffer()` below), sized once at construction for a
+// fixed model configuration and a fixed
 // maximum tokens-per-step, never resized afterward. No global singleton
 // -- each context (e.g. each decode driver instance) owns its own
 // `ActivationWorkspace`, so separate contexts never share mutable state.

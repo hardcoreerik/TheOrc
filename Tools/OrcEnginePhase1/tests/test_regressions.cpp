@@ -12,6 +12,7 @@
 #include "orcengine/fixture_loader.hpp"
 #include "orcengine/forward.hpp"
 #include "orcengine/materialization.hpp"
+#include "orcengine/ops.hpp"
 #include "orcengine/validation.hpp"
 
 using namespace orcengine;
@@ -172,8 +173,59 @@ int main(int argc, char** argv) {
             (void)materialize(logical, backing);
         });
 
+        // Hostile-input coverage for ops::rmsnorm_into/linear_no_bias_into's
+        // dimension contract (Phase 5C independent-review follow-up,
+        // DECISION_LOG.md OE-ADR-041): negative dimensions and INT64_MIN
+        // must be rejected before any multiplication runs, not merely
+        // produce a wrong answer or undefined behavior. checked_mul_i64
+        // itself only guarded the positive-overflow case before this pass.
+        {
+            const int64_t kMin = std::numeric_limits<int64_t>::min();
+            std::vector<float> buf4(4, 0.0f);
+            expect_clean_failure("rmsnorm_into rejects negative rows", [&] {
+                ops::rmsnorm_into(buf4, -1, 4, buf4, 1e-5f, buf4);
+            });
+            expect_clean_failure("rmsnorm_into rejects negative cols", [&] {
+                ops::rmsnorm_into(buf4, 1, -4, buf4, 1e-5f, buf4);
+            });
+            expect_clean_failure("rmsnorm_into rejects zero cols (would divide 0/0)", [&] {
+                std::vector<float> empty;
+                ops::rmsnorm_into(empty, 1, 0, empty, 1e-5f, empty);
+            });
+            expect_clean_failure("rmsnorm_into rejects INT64_MIN rows", [&] {
+                ops::rmsnorm_into(buf4, kMin, 4, buf4, 1e-5f, buf4);
+            });
+            expect_clean_failure("rmsnorm_into rejects INT64_MIN cols", [&] {
+                ops::rmsnorm_into(buf4, 1, kMin, buf4, 1e-5f, buf4);
+            });
+            expect_clean_failure("linear_no_bias_into rejects negative rows", [&] {
+                ops::linear_no_bias_into(buf4, -1, 4, buf4, 1, buf4);
+            });
+            expect_clean_failure("linear_no_bias_into rejects negative in_features", [&] {
+                ops::linear_no_bias_into(buf4, 1, -4, buf4, 1, buf4);
+            });
+            expect_clean_failure("linear_no_bias_into rejects negative out_features", [&] {
+                ops::linear_no_bias_into(buf4, 1, 4, buf4, -1, buf4);
+            });
+            expect_clean_failure("linear_no_bias_into rejects INT64_MIN in_features", [&] {
+                ops::linear_no_bias_into(buf4, 1, kMin, buf4, 1, buf4);
+            });
+            expect_clean_failure("linear_no_bias_into rejects INT64_MIN out_features", [&] {
+                ops::linear_no_bias_into(buf4, 1, 4, buf4, kMin, buf4);
+            });
+            // A hostile pair chosen so the OLD checked_mul_i64 bound
+            // (`b > INT64_MAX / a`, only ever checked for a != 0) would
+            // have let a negative-times-huge-positive product through
+            // without throwing -- confirms the new explicit a<0||b<0
+            // rejection actually closes that gap, not just the cases
+            // that were already accidentally caught.
+            expect_clean_failure("linear_no_bias_into rejects negative rows with huge out_features", [&] {
+                ops::linear_no_bias_into(buf4, -2, 4, buf4, std::numeric_limits<int64_t>::max() / 2, buf4);
+            });
+        }
+
         if (failures == 0) {
-            std::printf("ALL 18 HARDENING REGRESSIONS PASSED\n");
+            std::printf("ALL HARDENING REGRESSIONS PASSED\n");
             return 0;
         }
         std::printf("%d HARDENING REGRESSION FAILURES\n", failures);

@@ -2788,3 +2788,99 @@ optional extra parameter, keep the original public signature calling
 `impl(..., real-value)`, prove equivalence by rerunning every existing
 test for the unchanged signature -- is the reusable template for any
 future phase that needs the same kind of extension, not a one-off.
+
+## OE-ADR-041 — Phase 5C post-freeze hardening (Codex independent-review findings, `orcengine-phase5c-freeze` unchanged)
+
+**Context.** A second independent review (Codex, 2026-08-22) of the
+already-frozen Phase 5C Stage 1 diff, requested after OE-ADR-039/040's
+freeze, found two FIX-BEFORE-any-future-freeze issues Grok's own review
+had not flagged, plus confirmed Grok's disposition of the deferred
+`check_finite` item and the nine-vs-ten wording as accurate. Same
+discipline as Phase 5B's OE-ADR-038: `orcengine-phase5c-freeze` is NOT
+moved, recreated, or reinterpreted -- this is a new commit on
+`feat/orcengine-phase5c-activation-workspace`, strictly after the
+freeze commit.
+
+**Finding 1 (FIX-BEFORE-any-future-freeze): incomplete dimension
+checking in `ops.cpp`'s `checked_mul_i64`.** The helper only guarded
+the positive-overflow case (`a != 0 && b > INT64_MAX/a`); for negative
+operands, that bound does not correctly reject every overflowing
+combination (e.g. a small negative `a` with a large positive `b`), and
+the public `_into` functions did not reject negative dimensions before
+calling it. Ordinary OrcEngine execution was never affected -- every
+internal call site passes already-positive model dimensions -- but
+these are now public, inherited primitives Phase 6 may build on top
+of. Fixed: `checked_mul_i64` now rejects `a<0 || b<0` outright before
+any arithmetic; a new `check_positive_dim()` helper rejects non-positive
+`rows`/`cols`/`in_features`/`out_features` at the top of
+`rmsnorm_into`/`linear_no_bias_into` (zero `cols` rejected specifically
+for RMSNorm, since it would otherwise divide `0/0` into a silently
+poisoned NaN rather than a clear error). Eleven new hostile-input
+regression cases added to `Tools/OrcEnginePhase1/tests/
+test_regressions.cpp` (negative rows/cols/in_features/out_features,
+`INT64_MIN` in each position, and one case specifically chosen -- a
+negative `rows` paired with a huge positive `out_features` -- to prove
+the OLD bound would have let that exact combination through
+unrejected, not just that the new code happens to reject the cases
+that were already accidentally caught).
+
+**Finding 2 (FIX-BEFORE-any-future-freeze): real-model evidence
+overstated.** `PHASE5C_ACTIVATION_WORKSPACE_SPEC.md` Section 9 stated
+that both the synthetic AND real-model tests prove committed KV-cache
+CONTENT is identical between the reference and workspace paths. The
+synthetic test (`test_activation_workspace.cpp`) genuinely does compare
+every committed K/V value; the real-model test
+(`test_activation_workspace_real.cpp`) previously compared only
+complete logits, selected tokens, finiteness, and cache LENGTH -- not
+cache CONTENT. Codex correctly noted this was not evidence of wrong
+computation (exact logits across multiple real-model decode steps is
+already strong evidence), but the stated proof was broader than the
+actual assertion. Fixed by ADDING the same committed-cache comparison
+to the real test (a `cache_matches()` helper, identical in structure to
+the synthetic test's own, comparing every K/V value bit-for-bit across
+every layer/head/position up to the committed length) rather than
+weakening the documentation to match a smaller claim.
+
+**Grok's deferred `check_finite` disposition: confirmed correct by
+Codex's independent read.** The shared `check_finite` now always
+heap-copies its span argument into a temporary `std::vector` on the
+frozen non-workspace path (previously passed an existing vector by
+const reference) -- a performance-only change, not a correctness or
+failure-behavior change. Both reviewers agree this is real but
+OPTIONAL, appropriate to fix during a future Stage 2 extension rather
+than reopening Phase 5C solely for it. Left as-is.
+
+**Documentation cleanup:** `activation_workspace.hpp`'s class-level
+doc comment said the workspace owns "nine" buffers; the class actually
+owns TEN (nine per-layer buffers plus a tenth step-level logits
+buffer) -- `PHASE5C_ACTIVATION_WORKSPACE_SPEC.md` already correctly
+said ten. Fixed the header comment to match. (The other "nine"
+references in `forward_cached.hpp`, this decision log, and the spec
+document were independently confirmed accurate -- they describe the
+nine PER-LAYER buffers specifically, correctly excluding the
+step-level logits buffer, not a total-buffer-count claim.)
+
+**Phase 5B branch, separate finding (not on this branch): the
+canonical `three_way_tokenizer_comparison.py` on
+`feat/orcengine-phase5b-tokenizer` still had the pre-fix version of
+`llama_cpp_tokenize()`** -- the fix applied to the Phase 5C worktree's
+cherry-picked copy (via this same review's earlier grok pass) had not
+been ported back to the original Phase 5B branch. Fixed with a narrow
+follow-up commit on `feat/orcengine-phase5b-tokenizer` itself
+(`llama_cpp_tokenize()` now checks `proc.returncode != 0` before
+parsing stdout), plus a new standalone regression test
+(`tools/test_llama_cpp_tokenize_returncode.py`, using
+`unittest.mock.patch` to simulate a non-zero-exit-but-parseable-stdout
+fake oracle and confirm it is now rejected, and that a legitimate
+zero-exit case still succeeds) -- 2/2 passing. `orcengine-phase5b-freeze`
+remains untouched.
+
+**Validation.** All fixes re-verified: Debug (synthetic
+`activation_workspace` 65/65 plus 10 new precondition/rejection checks;
+real-model test including the new cache-content comparison; hardening
+regressions 29/29 including 11 new hostile-input cases), strict (`/W4
+/WX /permissive-`, zero warnings, same three targets), ASan (same three
+targets, no memory-safety findings). `orcengine-phase5c-freeze`
+confirmed unchanged (still peels to `a93e6c6e98a4b9b86f161a4d6695401a7980965e`)
+before and after this commit. `orcengine-phase5b-freeze` confirmed
+unchanged on its own branch after the separate follow-up commit there.

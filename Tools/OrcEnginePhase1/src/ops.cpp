@@ -15,16 +15,51 @@ namespace {
 // phase in this project already uses (a small local checked_mul rather
 // than a shared cross-phase utility) -- see e.g. sticky_layer_plan.cpp's
 // own checked_add for the identical pattern.
+//
+// Dimension contract: both operands must be non-negative. Every call
+// site in this file passes already-validated (via check_positive_dim
+// below) positive dimensions, but this function is a shared internal
+// helper and is hardened independently -- negative operands are
+// rejected here too, rather than relying solely on callers to have
+// checked first. The prior version only guarded a>0's positive-overflow
+// case; for negative `a`, `std::numeric_limits<int64_t>::max() / a` is
+// itself a valid but differently-signed bound, and the comparison
+// against it does not correctly reject every overflowing negative
+// combination (e.g. small negative `a` with a large positive `b`), so
+// negative inputs are now rejected outright instead of being run
+// through arithmetic that was never designed to bound them.
 int64_t checked_mul_i64(int64_t a, int64_t b, const char* what) {
+    if (a < 0 || b < 0) {
+        throw std::invalid_argument(std::string("orcengine::ops: ") + what + " received a negative dimension");
+    }
     if (a != 0 && b > std::numeric_limits<int64_t>::max() / a) {
         throw std::overflow_error(std::string("orcengine::ops: ") + what + " overflowed int64_t");
     }
     return a * b;
 }
+
+// Dimension contract for every _into function below: row/feature counts
+// must be strictly positive. Zero is rejected here (not just negative)
+// because a zero feature dimension is mathematically invalid for these
+// operations specifically -- RMSNorm divides by `cols` (a zero cols
+// would divide 0/0, producing a silently poisoned NaN rather than a
+// clear error), and a zero `rows`/`in_features`/`out_features` produces
+// a vacuously "correct" empty result that almost certainly indicates a
+// caller bug rather than an intentional no-op. Checked before any
+// multiplication, so the error is a clear, named rejection rather than
+// a confusing downstream span-size mismatch or a poisoned NaN.
+void check_positive_dim(int64_t value, const char* what) {
+    if (value <= 0) {
+        throw std::invalid_argument(std::string("orcengine::ops: ") + what + " must be positive, got " +
+                                    std::to_string(value));
+    }
+}
 }  // namespace
 
 void rmsnorm_into(std::span<const float> x, int64_t rows, int64_t cols,
                   std::span<const float> weight, float epsilon, std::span<float> out) {
+    check_positive_dim(rows, "rmsnorm rows");
+    check_positive_dim(cols, "rmsnorm cols");
     const int64_t expected = checked_mul_i64(rows, cols, "rmsnorm element count");
     if (static_cast<int64_t>(out.size()) != expected) {
         throw std::invalid_argument("orcengine::ops::rmsnorm_into: out.size() does not match rows*cols");
@@ -151,6 +186,9 @@ std::vector<float> apply_rope(const std::vector<float>& x, const std::vector<flo
 
 void linear_no_bias_into(std::span<const float> x, int64_t rows, int64_t in_features,
                          std::span<const float> weight_out_in, int64_t out_features, std::span<float> out) {
+    check_positive_dim(rows, "linear_no_bias rows");
+    check_positive_dim(in_features, "linear_no_bias in_features");
+    check_positive_dim(out_features, "linear_no_bias out_features");
     const int64_t expected = checked_mul_i64(rows, out_features, "linear_no_bias element count");
     if (static_cast<int64_t>(out.size()) != expected) {
         throw std::invalid_argument("orcengine::ops::linear_no_bias_into: out.size() does not match rows*out_features");
