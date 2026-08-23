@@ -16,6 +16,7 @@
 #include <functional>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "orcengine/gguf.hpp"
@@ -291,7 +292,7 @@ int main() {
             check(q8_0_backing_bytes == 34 && f32_resident_bytes == 128 && q8_0_backing_bytes != f32_resident_bytes,
                   "ledger proof: Q8_0 backing bytes (34) and F32 resident bytes (128) reported separately and correctly");
 
-            std::filesystem::remove(tmp);
+            { std::error_code remove_ec; std::filesystem::remove(tmp, remove_ec); }
         }
 
         // --- 16. materialize_gguf_tensor: byte-extent mismatch for a Q8_0
@@ -318,7 +319,7 @@ int main() {
             expect_gguf_error_containing("materialize_gguf_tensor rejects a Q8_0 byte-extent mismatch (33 declared vs 34 required)",
                                          [&] { (void)materialize_gguf_tensor(bad); },
                                          "backing length does not match");
-            std::filesystem::remove(tmp);
+            { std::error_code remove_ec; std::filesystem::remove(tmp, remove_ec); }
         }
 
         std::printf("\n=== Summary ===\n");
