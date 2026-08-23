@@ -627,8 +627,25 @@ claim with a committed, independently-reproducible driver
 exact three-way agreement on all 18 ordinary fixtures plus a correctly
 policy-limited comparison for the one CONTROL-lookalike fixture) --
 see `DECISION_LOG.md` OE-ADR-038. Production tokenizer behavior did not
-change. See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-038 for the
-full record.
+change. **On 2026-08-22, Phase 5C Stage 1 (a narrow, backward-
+compatible reusable activation-workspace seam for the cached-decode
+transformer-layer path) was implemented, numerically proven
+bit-identical to the frozen Phase 5A reference on both the synthetic
+fixture and the real SmolLM2-135M GGUF, independently reviewed (zero
+BLOCKERs, five of six MINORs fixed, one deferred as performance-only),
+and formally frozen** (`DECISION_LOG.md` OE-ADR-039/OE-ADR-040, tag
+`orcengine-phase5c-freeze`). This is the project's first exercise of
+the "later branch, backward-compatible addition to a frozen file"
+pattern: `orcengine-phase5a-freeze` and `orcengine-phase5b-freeze` both
+remain unmoved and unchanged -- Phase 5C only ADDS new output-buffer
+overloads and a new workspace-aware layer-execution overload alongside
+the existing frozen signatures, which remain available, tested, and
+behaviorally unchanged. Stage 1's scope is deliberately narrow (three
+of many primitives converted; RoPE/attention-context/residual-add
+allocations left untouched) and its benchmark result is neutral (~0.8%
+difference, within measurement spread) -- no performance claim is made.
+See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-040 for the full
+record.
 
 ## How to update this document
 

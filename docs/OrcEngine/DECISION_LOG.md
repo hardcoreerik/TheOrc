@@ -2614,3 +2614,177 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   entry's commit is a NEW commit on `feat/orcengine-phase5b-tokenizer`,
   strictly after the freeze commit, never rewriting it.
 - Nothing was merged, rebased, amended, or force-pushed.
+
+## OE-ADR-039 — Phase 5C Stage 1: ActivationWorkspace, workspace-driven cached decode, and independent review
+
+**Context.** `PHASE5C_ACTIVATION_WORKSPACE_SPEC.md`'s original
+investigation (Sections 3-5, preserved unedited) found Stage 1 blocked:
+every activation-producing primitive in frozen Phase 1-5A returns
+`std::vector<float>` by value; there was no output-buffer seam to
+reuse. The maintainer's continuation prompt (2026-08-22) selected
+Section 7 option A and stated the binding rule verbatim, recorded as
+Section 8: "The Phase 5B tag is immutable, but a later Phase 5C branch
+may evolve inherited source files through backward-compatible
+additions. Existing public APIs and their numerical behavior must
+remain available and tested. A frozen tag preserves historical
+authority. It does not permanently prohibit later branches from
+extending shared implementation files."
+
+**Decision: implement Stage 1 under that authorization, narrowly
+scoped.**
+
+- **Converted primitives** (Phase 1 `ops.hpp`/`ops.cpp`): `rmsnorm_into`,
+  `linear_no_bias_into`, `silu_into` -- output-buffer (`std::span<float>`)
+  overloads added alongside the existing return-by-value signatures.
+  Single-implementation requirement: each return-by-value signature now
+  allocates an exactly-sized result and delegates to the SAME arithmetic
+  the new overload uses; the arithmetic itself was moved verbatim, not
+  duplicated. Deliberately NOT converted: `apply_rope`,
+  `softmax_last_axis`, RoPE application, attention-context accumulation,
+  residual adds -- these remain local allocations in both paths, per the
+  authorizing instruction's "only add output-buffer forms for operations
+  actually needed... do not mechanically add overloads for every
+  operation." A real, honestly-scoped subset, not a claim of eliminating
+  every per-layer allocation.
+- **`ActivationWorkspace`** (new, `Tools/OrcEnginePhase1/include/
+  orcengine/activation_workspace.hpp` + `src/activation_workspace.cpp`):
+  ten named `std::vector<float>` buffers, each allocated exactly once at
+  construction, sized for a fixed model configuration and a fixed
+  maximum tokens-per-step, never resized afterward. Not a general
+  memory-pool framework; no global singleton.
+- **`Tools/OrcEnginePhase5A/src/forward_cached.cpp`**: the original
+  `execute_cached_transformer_layer` body was extracted, unchanged,
+  into a private `..._impl(..., ActivationWorkspace*)`; the frozen
+  public signature now calls `impl(..., nullptr)`; a new overload
+  taking `ActivationWorkspace&` calls `impl(..., &workspace)`. Proven
+  behavior-preserving by rerunning Phase 1's full 7/7 suite and Phase
+  5A's full 18/18 synthetic suite plus the real-GGUF
+  `real_cache_attacks` test (91.04s) unchanged, in a fresh Debug build,
+  after the refactor.
+- **`Tools/OrcEnginePhase5C/{include,src}/orcengine/
+  forward_cached_workspace.{hpp,cpp}`** (new): `forward_cached_step_
+  workspace()` / `..._unsafe_explicit_position()`, mirroring Phase 5A's
+  own safe/unsafe entry points exactly (position-must-equal-current_
+  length() guard, commit-on-success-only), plus a `new_len >
+  workspace.max_tokens_per_step()` check and (added during the
+  independent-review fix pass below) an upfront workspace-vs-model
+  dimension check.
+
+**Numerical-equivalence proof.** `test_activation_workspace.cpp`
+(synthetic Fixture C, multi-token prefill + 8 single-token decode
+steps, 65/65 checks) and `test_activation_workspace_real.cpp` (real
+SmolLM2-135M F32 GGUF, SHA-256
+`fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac`, 2-
+token prefill + 6 single-token decode steps) both compare the
+workspace-driven path against Phase 5A's frozen reference on two
+independently constructed KV caches fed the identical token sequence:
+`max_abs_diff(logits) == 0.0f` (bit-identical), selected tokens
+identical, committed KV-cache content/length identical, all logits
+finite, `capacity_bytes()` fixed throughout, `peak_bytes() <=
+capacity_bytes()`, `total_prepare_calls()`/`reuse_count()` matching the
+exact expected call count. Failure/retry proven on both fixtures: a
+mismatched-position call is rejected before mutation, cache state is
+unchanged after rejection, and a correct retry afterward matches the
+reference exactly.
+
+**Benchmark** (`phase5c_workspace_timing.cpp`, isolated window, 1
+untimed warm-up + 5 timed repetitions per path, interleaved
+reference/workspace ordering, construction cost measured separately):
+workspace-path `decode_per_step_ms` median 554.94ms vs reference
+559.23ms (~0.8% lower, within the observed spread) -- reported as a
+NEUTRAL result. No improvement was promised or assumed; Stage 1
+converts only three primitives covering nine of many per-layer
+allocations, and matmul cost dominates wall-clock at this model size.
+
+**Validation matrix.** Debug 24/25 (Phase 5C tree incl. the new
+`activation_workspace` tests); Release 23/24; strict (`/W4 /WX
+/permissive-`) zero warnings across the full affected-target set
+(Phase 1, Phase 5A, Phase 5C); ASan 13+/13+ affected targets, no
+memory-safety findings. In every lane the sole failure is
+`gguf_real_f32_forward`, an inherited Phase 2 test requiring
+`ORCENGINE_HF_SOURCE_DIR`, which was not configured this pass -- an
+environment gap unrelated to Phase 5C, not a regression. The cherry-
+picked Phase 5B Track A hardening commit (`eb7d3e7d` on
+`feat/orcengine-phase5b-tokenizer`, cherry-picked here as `c4e825ae`)
+was re-validated in this worktree: 29/30 (same out-of-scope failure),
+including `frozen_engine_integration` (86.41s, real model) and the
+full tokenizer suite, confirming the cherry-pick and Phase 5C's
+parallel Phase 1/5A changes did not disturb it.
+
+**Independent review: grok-4.5, full mode, `orcengine-phase5b-
+freeze..HEAD` (19 files, +2014/-92 at review time), zero BLOCKERs, six
+MINORs.** Disposition:
+
+1. `ENGINEERING_ROADMAP.md` stale Phase 5C status vs. this ADR --
+   **FIX-BEFORE-FREEZE**, corrected in this freeze pass.
+2. `rmsnorm_into`/`linear_no_bias_into` validated only `out.size()`; an
+   undersized `x`/`weight` span would read out of bounds instead of
+   failing closed -- **FIX-BEFORE-FREEZE**, fixed: explicit size checks
+   added for both inputs in both functions.
+3. `forward_cached_step_workspace` didn't check workspace dimensions
+   against the model config up front, so a mismatch surfaced late (mid-
+   layer-loop, after some cache writes) as a less-obvious `ops::*_into`
+   size exception -- **FIX-BEFORE-FREEZE**, fixed: upfront dimension
+   check added before any per-layer work.
+4. `test_activation_workspace.cpp`'s max-tokens-per-step rejection
+   check used `rejected || fixture_len <= 1`, which could pass
+   vacuously if the fixture ever shrank -- the same false-pass shape
+   OE-ADR-038 fixed elsewhere -- **FIX-BEFORE-FREEZE**, fixed: split
+   into an explicit precondition assertion plus an unconditional
+   rejection check.
+5. `three_way_tokenizer_comparison.py`'s `llama_cpp_tokenize()` ignored
+   `proc.returncode`, so a non-zero llama-tokenize exit with a
+   coincidentally parseable stray `[...]` line on stdout would be
+   accepted as real oracle output -- **FIX-BEFORE-FREEZE** (a real
+   fail-open gap in an evidence-generating tool, even though outside
+   Phase 5C's own new files), fixed: raises on non-zero exit.
+6. `check_finite`'s shared implementation now always heap-copies the
+   span into a temporary `std::vector` on the frozen non-workspace
+   path, which previously passed an existing vector by const reference
+   -- **OPTIONAL**, deferred: a performance-only observation (already
+   proven behavior-identical by the full Phase 5A suite including the
+   real-GGUF fault-attack test), not a correctness or safety issue; not
+   fixed this pass.
+
+Findings 1-5 fixed in a follow-up commit on this branch; re-validated
+strict (zero warnings) and ASan (clean) on the affected
+`activation_workspace` test after the fix. Full review saved at
+`.orc/reviews/grok_full_20260822_163422.md`.
+
+## OE-ADR-040 — Phase 5C Stage 1 formally frozen
+
+**Decision.** Phase 5C Stage 1 (ActivationWorkspace + workspace-driven
+cached decode, OE-ADR-039) is accepted and formally frozen as of
+2026-08-22, under tag `orcengine-phase5c-freeze` on branch
+`feat/orcengine-phase5c-activation-workspace`.
+
+**What is frozen.** The Stage 1 seam: `ops::rmsnorm_into`/
+`linear_no_bias_into`/`silu_into` (Phase 1), `ActivationWorkspace`
+(Phase 1), the workspace-aware `execute_cached_transformer_layer`
+overload (Phase 5A, routed through the shared `_impl`), and
+`forward_cached_step_workspace`/`..._unsafe_explicit_position` (Phase
+5C). All five documented independent-review findings addressed
+(OE-ADR-039); the sixth (performance-only) explicitly deferred, not
+blocking.
+
+**What this freeze does NOT do.** It does not move, recreate, or
+reinterpret `orcengine-phase5a-freeze` or `orcengine-phase5b-freeze` --
+both remain unchanged (verified: `orcengine-phase5b-freeze` still peels
+to `8a36f375110f8002804917809e3a773b25891e1f` after every commit on
+this branch, checked immediately before this freeze commit). It does
+not claim Stage 2 (converting `apply_rope`/`softmax_last_axis`, or
+workspace coverage of RoPE temporaries/attention-context accumulation/
+residual adds) -- that scope was deliberately excluded this pass and
+remains open future work, not implicitly promised. It does not claim a
+performance improvement -- the benchmark result is neutral and reported
+as such.
+
+**Precedent recorded.** This is the first Phase in the project to
+exercise the "later branch, backward-compatible addition to a frozen
+file" pattern (Section 8's rule). The pattern used here -- extract the
+original body unchanged into a private `_impl` taking a nullable/
+optional extra parameter, keep the original public signature calling
+`impl(..., null-equivalent)`, add a new overload calling
+`impl(..., real-value)`, prove equivalence by rerunning every existing
+test for the unchanged signature -- is the reusable template for any
+future phase that needs the same kind of extension, not a one-off.

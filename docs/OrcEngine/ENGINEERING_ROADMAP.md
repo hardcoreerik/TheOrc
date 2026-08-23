@@ -284,15 +284,28 @@ reconciled into this freeze pass). See
 [Phase 5B Tokenizer Specification](PHASE5B_TOKENIZER_SPEC.md) for full
 status.
 
-### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (may now begin; not yet specified)
+### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (Stage 1 complete and formally frozen, 2026-08-22)
 
 Explicit scratch-buffer accounting distinct from `ResidentView`/weight
 residency and from KV-cache residency; workspace-reuse-does-not-change-
 numerics proof; then, only after correctness, prompt/prefill vs first-token
 vs steady-state decode measurement across full-recompute and cached paths.
-Not started; its only dependency (Phase 5B closing) is now satisfied --
-spec and Stage 1 to follow in a dedicated worktree forked from
-`orcengine-phase5b-freeze`.
+Stage 1 (the narrow, backward-compatible seam: `ActivationWorkspace`,
+`rmsnorm_into`/`linear_no_bias_into`/`silu_into`, and the workspace-
+driven `forward_cached_step_workspace`) implemented, numerically proven
+bit-identical to the frozen Phase 5A reference on both the synthetic
+fixture and the real SmolLM2-135M F32 GGUF, benchmarked (a neutral
+~0.8% result, no speedup claimed), independently reviewed (Grok 4.5,
+full mode, zero BLOCKERs, five of six MINORs fixed), and formally
+frozen under tag `orcengine-phase5c-freeze`. Scope was deliberately
+narrow: only three of many per-layer primitives converted; RoPE
+temporaries, attention-context accumulation, and residual adds are not
+workspace-covered this stage. See [Phase 5C Activation Workspace
+Specification](PHASE5C_ACTIVATION_WORKSPACE_SPEC.md) Section 9 and
+`DECISION_LOG.md` OE-ADR-039/OE-ADR-040 for the full record. Stage 2
+(converting `apply_rope`/`softmax_last_axis` and covering the remaining
+per-layer temporaries) is open future work, not yet scoped or
+scheduled.
 
 ## Phase 6 — Initial quantization
 

@@ -140,6 +140,36 @@ status:
   phase5b_branch: feat/orcengine-phase5b-tokenizer
   phase5b_branch_push: not_done
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
+  # Phase 5C: a narrow, backward-compatible reusable activation-workspace
+  # seam for the cached-decode transformer-layer path (Stage 1 only:
+  # rmsnorm/linear_no_bias/silu converted to output-buffer form, the
+  # largest/most-numerous per-layer intermediates -- RoPE temporaries,
+  # attention-context accumulation, and residual adds remain local
+  # allocations). Maintainer-authorized exception (PHASE5C_ACTIVATION_
+  # WORKSPACE_SPEC.md Section 8) permits backward-compatible ADDITIONS to
+  # Phase 1/5A's frozen files without moving/violating orcengine-phase5b-
+  # freeze -- single-implementation requirement proven by rerunning every
+  # pre-existing Phase 1/5A test unchanged. See PHASE5C_ACTIVATION_
+  # WORKSPACE_SPEC.md.
+  phase5c_status: stage1_complete_and_formally_frozen_2026_08_22_activation_workspace_and_workspace_driven_cached_decode_implemented_numerically_proven_against_frozen_reference_synthetic_and_real_model_independently_reviewed
+  phase5c_spec: PHASE5C_ACTIVATION_WORKSPACE_SPEC.md
+  phase5c_maintainer_authorization_decision: PHASE5C_ACTIVATION_WORKSPACE_SPEC.md Section 8 (maintainer prompt, 2026-08-22)
+  phase5c_stage1_scope: rmsnorm_into_linear_no_bias_into_silu_into_plus_ActivationWorkspace_ten_named_buffers_plus_forward_cached_step_workspace_driver
+  phase5c_numerical_equivalence: bit_identical_logits_selected_tokens_and_kv_cache_vs_frozen_reference_synthetic_fixture_c_65_of_65_checks_and_real_smollm2_135m_f32_gguf
+  phase5c_benchmark: neutral_workspace_decode_per_step_median_554_94ms_vs_reference_559_23ms_within_spread_no_speedup_claimed
+  phase5c_four_lane_validation: done_debug_24_of_25_release_23_of_24_strict_wx_permissive_zero_warnings_asan_clean_sole_failure_each_lane_is_gguf_real_f32_forward_an_inherited_out_of_scope_phase2_test_needing_unconfigured_ORCENGINE_HF_SOURCE_DIR
+  phase5c_phase5b_cherry_pick_revalidation: done_29_of_30_same_out_of_scope_failure_frozen_engine_integration_86s_and_full_tokenizer_suite_passing
+  phase5c_independent_review: grok_4_5_full_mode_2026_08_22_zero_blockers_six_minor_four_fixed_two_deferred_optional_see_DECISION_LOG_OE_ADR_039
+  # phase5c_freeze_commit is intentionally omitted -- same self-reference
+  # rationale as phase5a/phase5b_freeze_commit above (a commit cannot
+  # truthfully contain its own hash). orcengine-phase5c-freeze is the
+  # durable authority; verify its peeled target with `git rev-list -n 1
+  # orcengine-phase5c-freeze`.
+  phase5c_freeze_tag: orcengine-phase5c-freeze
+  phase5c_freeze_verdict: accepted_and_frozen_2026_08_22
+  phase5c_branch: feat/orcengine-phase5c-activation-workspace
+  phase5c_branch_push: not_done
+  phase5c_worktree: "F:\\Ai\\OrchestratorIDE-phase5c-activation-workspace"
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
