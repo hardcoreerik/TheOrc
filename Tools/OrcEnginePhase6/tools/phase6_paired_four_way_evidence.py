@@ -152,8 +152,7 @@ def _run_external_leg(server_path: str, gguf_path: str, entries: list[dict], lab
     pinned server, using the shared neutral payload, and returns
     {prompt_id: {"argmax": int, "top5": [...], "token_ids_match": bool}}."""
     port = oracle._free_local_port()
-    proc = subprocess.Popen([server_path, "-m", gguf_path, "--port", str(port), "--no-warmup"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = oracle._launch_controlled_server(server_path, gguf_path, port)
     results: dict[str, dict] = {}
     try:
         oracle._wait_for_health(proc, port)
@@ -230,6 +229,7 @@ def run(server_path: str, f32_gguf: str, q8_gguf: str, evidence_path: str, repor
             "q8_full_vocab_logsumexp": entry["q8_full_vocab_logsumexp"],
             "orc_f32_top5_ids": entry["f32_top5_ids"], "orc_f32_top5_logits": entry["f32_top5_logits"],
             "orc_q8_top5_ids": entry["q8_top5_ids"], "orc_q8_top5_logits": entry["q8_top5_logits"],
+            "controlled_server_args": list(oracle.CONTROLLED_NUMERICAL_SERVER_ARGS),
         })
 
     _write_report(report_path, rows)

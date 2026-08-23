@@ -206,6 +206,35 @@ def _free_local_port() -> int:
     return port
 
 
+# Codex remediation round 4, Gate 2: the pinned b10436 llama-server.exe
+# defaults --cache-type-k/--cache-type-v to f16 and --flash-attn to
+# 'auto' (confirmed via `llama-server.exe --help`) -- so every prior
+# external-oracle run in this project compared OrcEngine's/PyTorch's F32
+# computation against a llama.cpp invocation that was NOT actually
+# running its KV cache at F32, and left flash-attention kernel selection
+# implicit. This confounds any F32-vs-F32 "ground truth" comparison. The
+# controlled numerical contract below forces F32 K/V cache and disables
+# flash attention explicitly, for BOTH the F32 and Q8_0 legs -- a single
+# shared constant, not two separately maintained argument lists, so the
+# two legs cannot silently drift apart.
+CONTROLLED_NUMERICAL_SERVER_ARGS = (
+    "--cache-type-k", "f32",
+    "--cache-type-v", "f32",
+    "--flash-attn", "off",
+)
+
+
+def _launch_controlled_server(server_path: str, gguf_path: str, port: int) -> subprocess.Popen:
+    """The ONE shared server-launch path every external leg (Q8 oracle,
+    F32 localizer, paired four-way tool) must use, so the controlled
+    numerical arguments cannot be duplicated-and-drift across call
+    sites. Returns the live Popen handle; caller owns _wait_for_health()
+    and eventual termination."""
+    args = [server_path, "-m", gguf_path, "--port", str(port), "--no-warmup",
+            *CONTROLLED_NUMERICAL_SERVER_ARGS]
+    return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def _wait_for_health(proc: subprocess.Popen, port: int, timeout_s: float = 60.0) -> None:
     """Fails closed (sys.exit) if the launched process exits before
     becoming healthy, or times out -- never silently falls through to
@@ -347,10 +376,7 @@ def run(q8_path: str, evidence_path: str, report_path: str) -> bool:
     _verify_q8_gguf_identity(q8_path, orcengine_evidence)
 
     port = _free_local_port()
-    proc = subprocess.Popen(
-        [LLAMA_SERVER_PATH, "-m", q8_path, "--port", str(port), "--no-warmup"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    proc = _launch_controlled_server(LLAMA_SERVER_PATH, q8_path, port)
     all_ok = True
     results = []
     try:
@@ -411,7 +437,8 @@ def run(q8_path: str, evidence_path: str, report_path: str) -> bool:
 
             results.append({"id": entry["id"], "token_ids_match": True, "orc_argmax": orc_argmax,
                             "llama_argmax": llama_argmax, "argmax_agree": argmax_agree,
-                            "comparisons": comparisons})
+                            "comparisons": comparisons,
+                            "controlled_server_args": list(CONTROLLED_NUMERICAL_SERVER_ARGS)})
     finally:
         proc.terminate()
         try:

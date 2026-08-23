@@ -117,8 +117,7 @@ def run(server_path: str, f32_path: str, evidence_path: str, report_path: str) -
     oracle._verify_f32_gguf_identity(f32_path, entries)
 
     port = oracle._free_local_port()
-    proc = subprocess.Popen([server_path, "-m", f32_path, "--port", str(port), "--no-warmup"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = oracle._launch_controlled_server(server_path, f32_path, port)
     results = []
     try:
         oracle._wait_for_health(proc, port)
@@ -157,6 +156,7 @@ def run(server_path: str, f32_path: str, evidence_path: str, report_path: str) -
                 "llama_f32_argmax": llama_argmax, "agree": agree,
                 "llama_f32_top5": top, "orc_f32_top5_ids": e["f32_top5_ids"],
                 "orc_f32_top5_logits": e["f32_top5_logits"],
+                "controlled_server_args": list(oracle.CONTROLLED_NUMERICAL_SERVER_ARGS),
             })
     finally:
         proc.terminate()

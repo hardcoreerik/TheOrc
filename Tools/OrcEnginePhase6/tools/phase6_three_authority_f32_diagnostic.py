@@ -53,9 +53,21 @@ for these prompts.
 Usage:
     python phase6_three_authority_f32_diagnostic.py \
         --hf-model-dir PATH_TO_smollm2-135m_HF_DIR \
+        --manifest PATH_TO_real_candidate_conversion_manifest.json \
+        --f32-gguf PATH_TO_smollm2-135m.gguf \
         --evidence PATH_TO_evidence_v3.jsonl \
         --paired-report PATH_TO_phase6_paired_four_way_report.jsonl \
         --report PATH_TO_output_report.jsonl
+
+Codex remediation round 4, Gate 3: --manifest and --f32-gguf are new,
+required arguments -- the original version of this script hashed
+model.safetensors against a hardcoded constant only, never opened the
+already-committed provenance manifest at runtime, and never hashed the
+actual F32 GGUF used for the comparison, which overclaimed what the
+program's success message actually verified. Both are now genuinely
+opened/hashed and cross-checked (manifest <-> actual files <->
+independently pinned constants <-> evidence rows) before any model is
+loaded.
 """
 from __future__ import annotations
 
@@ -87,27 +99,86 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hf-model-dir", required=True,
                         help="Path to the pinned local HF SmolLM2-135M directory (config.json/model.safetensors)")
+    parser.add_argument("--manifest", required=True,
+                        help="Path to Tools/OrcEnginePhase0/artifacts/real_candidate_conversion_manifest.json")
+    parser.add_argument("--f32-gguf", required=True,
+                        help="Path to the actual F32 GGUF used by OrcEngine/llama.cpp for this comparison")
     parser.add_argument("--evidence", required=True)
     parser.add_argument("--paired-report", required=True)
     parser.add_argument("--report", required=True)
     return parser.parse_args()
 
 
-def _verify_pytorch_authority(hf_model_dir: str) -> None:
-    """Fails closed (sys.exit) unless the local HF artifact's weight file
-    hash matches the pinned authority AND the already-committed
-    provenance manifest's recorded chain (source hash -> output GGUF
-    hash matches the F32 GGUF used throughout Phase 6)."""
+def _load_and_validate_manifest(manifest_path: str) -> dict:
+    """Codex remediation round 4, Gate 3: the ORIGINAL _verify_pytorch_
+    authority() never actually opened real_candidate_conversion_
+    manifest.json at runtime -- it only checked model.safetensors
+    against a hardcoded constant and cited the manifest in comments/
+    messages, which overclaimed what the program verified. This
+    function genuinely opens and parses it, requiring the expected hash
+    fields to be present, non-null STRINGS (not merely "truthy")."""
+    if not os.path.isfile(manifest_path):
+        sys.exit(f"ABORT: provenance manifest not found at {manifest_path!r} -- cannot establish the "
+                 f"PyTorch source-model authority (Outcome P4).")
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+    except json.JSONDecodeError as ex:
+        sys.exit(f"ABORT: provenance manifest {manifest_path!r} is malformed JSON: {ex} (Outcome P4).")
+    for field in ("source_safetensors_sha256", "output_gguf_sha256"):
+        value = manifest.get(field)
+        if not isinstance(value, str) or not value:
+            sys.exit(f"ABORT: provenance manifest {manifest_path!r} field {field!r} is missing, null, "
+                     f"empty, or not a string (got {value!r}) -- refusing to trust an incomplete "
+                     f"manifest (Outcome P4).")
+    return manifest
+
+
+def _verify_pytorch_authority(hf_model_dir: str, manifest_path: str, f32_gguf_path: str,
+                              evidence_entries: list[dict]) -> dict:
+    """Fails closed (sys.exit), BEFORE any model is loaded/executed,
+    unless: the manifest is genuinely opened and complete; the actual
+    local model.safetensors hash matches BOTH the manifest's own
+    source_safetensors_sha256 AND the independently pinned expected
+    constant; and the actual F32 GGUF passed for this comparison run
+    hashes to the manifest's own output_gguf_sha256, the independently
+    pinned expected constant, AND every applicable evidence row's own
+    recorded f32_artifact_sha256. Returns the loaded manifest (used to
+    record identity in the durable report)."""
+    manifest = _load_and_validate_manifest(manifest_path)
+
     safetensors_path = os.path.join(hf_model_dir, "model.safetensors")
     if not os.path.isfile(safetensors_path):
-        sys.exit(f"ABORT: model.safetensors not found at {safetensors_path!r} -- cannot establish the "
-                 f"PyTorch source-model authority (Outcome P4).")
-    actual_hash = _sha256_file(safetensors_path)
-    if actual_hash != EXPECTED_SOURCE_SAFETENSORS_SHA256:
-        sys.exit(f"ABORT: model.safetensors SHA-256 {actual_hash} does not match the pinned authority "
-                 f"{EXPECTED_SOURCE_SAFETENSORS_SHA256} recorded in "
-                 f"Tools/OrcEnginePhase0/artifacts/real_candidate_conversion_manifest.json "
-                 f"(source_safetensors_sha256) -- refusing an unverified weight file (Outcome P4).")
+        sys.exit(f"ABORT: model.safetensors not found at {safetensors_path!r} (Outcome P4).")
+    actual_safetensors_hash = _sha256_file(safetensors_path)
+    if actual_safetensors_hash != manifest["source_safetensors_sha256"]:
+        sys.exit(f"ABORT: model.safetensors SHA-256 {actual_safetensors_hash} does not match the "
+                 f"manifest's own source_safetensors_sha256 {manifest['source_safetensors_sha256']!r} "
+                 f"-- refusing an unverified weight file (Outcome P4).")
+    if actual_safetensors_hash != EXPECTED_SOURCE_SAFETENSORS_SHA256:
+        sys.exit(f"ABORT: model.safetensors SHA-256 {actual_safetensors_hash} does not match the "
+                 f"independently pinned expected constant {EXPECTED_SOURCE_SAFETENSORS_SHA256} -- the "
+                 f"manifest and this script's own pin have diverged (Outcome P4).")
+
+    if not os.path.isfile(f32_gguf_path):
+        sys.exit(f"ABORT: F32 GGUF not found at {f32_gguf_path!r} (Outcome P4).")
+    actual_gguf_hash = _sha256_file(f32_gguf_path)
+    if actual_gguf_hash != manifest["output_gguf_sha256"]:
+        sys.exit(f"ABORT: F32 GGUF SHA-256 {actual_gguf_hash} does not match the manifest's own "
+                 f"output_gguf_sha256 {manifest['output_gguf_sha256']!r} -- this diagnostic would be "
+                 f"comparing PyTorch against a DIFFERENT F32 GGUF than the one the manifest attests was "
+                 f"produced from the verified source weights (Outcome P4).")
+    if actual_gguf_hash != EXPECTED_F32_GGUF_SHA256:
+        sys.exit(f"ABORT: F32 GGUF SHA-256 {actual_gguf_hash} does not match the independently pinned "
+                 f"expected constant {EXPECTED_F32_GGUF_SHA256} (Outcome P4).")
+    for entry in evidence_entries:
+        evidence_hash = entry.get("f32_artifact_sha256")
+        if evidence_hash is not None and evidence_hash != actual_gguf_hash:
+            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} records f32_artifact_sha256="
+                     f"{evidence_hash!r}, which does not match the verified F32 GGUF hash "
+                     f"{actual_gguf_hash} -- evidence was generated against a different file "
+                     f"(Outcome P4).")
+
     config_path = os.path.join(hf_model_dir, "config.json")
     if not os.path.isfile(config_path):
         sys.exit(f"ABORT: config.json not found at {config_path!r} (Outcome P4).")
@@ -116,9 +187,13 @@ def _verify_pytorch_authority(hf_model_dir: str) -> None:
     if config.get("architectures") != ["LlamaForCausalLM"] or config.get("model_type") != "llama":
         sys.exit(f"ABORT: config.json does not describe a LlamaForCausalLM model as expected: "
                  f"{config.get('architectures')!r}/{config.get('model_type')!r} (Outcome P4).")
-    print(f"PyTorch authority verified: model.safetensors SHA-256 {actual_hash} matches the pinned "
-          f"authority and the committed real_candidate_conversion_manifest.json's recorded provenance "
-          f"chain (source -> output F32 GGUF {EXPECTED_F32_GGUF_SHA256}).")
+
+    print(f"PyTorch authority verified: manifest {manifest_path!r} opened and parsed; "
+          f"model.safetensors SHA-256 {actual_safetensors_hash} matches BOTH the manifest's "
+          f"source_safetensors_sha256 AND the independently pinned constant; F32 GGUF SHA-256 "
+          f"{actual_gguf_hash} matches the manifest's output_gguf_sha256, the independently pinned "
+          f"constant, AND every applicable evidence row.")
+    return manifest
 
 
 def _load_pytorch_model(hf_model_dir: str):
@@ -156,28 +231,64 @@ def _top_k(logits: list[float], k: int) -> list[tuple[int, float]]:
     return [(i, logits[i]) for i in indexed]
 
 
-def run(hf_model_dir: str, evidence_path: str, paired_report_path: str, report_path: str) -> list[dict]:
+def _load_exact_corpus(path: str, label: str) -> dict[str, dict]:
+    """Codex remediation round 4, Gate 3: fails closed on duplicate,
+    missing, empty, or unexpected prompt IDs BEFORE building the
+    {id: row} dict -- the ORIGINAL code built the dict via a
+    comprehension that would silently let a later duplicate entry
+    overwrite an earlier one. Reuses the same validation shape as
+    phase6_paired_four_way_evidence.py's _validate_paired_corpus()."""
+    with open(path, encoding="utf-8") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+
+    ids = [r.get("id") for r in rows]
+    empty = [i for i, pid in enumerate(ids) if not pid]
+    if empty:
+        sys.exit(f"ABORT: {label} contains {len(empty)} row(s) with a missing/empty 'id' at index/indices "
+                 f"{empty}.")
+
+    expected = set(CONTROL_PROMPT_IDS) | set(DIVERGENT_PROMPT_IDS)
+    id_set = set(ids)
+    missing = expected - id_set
+    if missing:
+        sys.exit(f"ABORT: {label} is missing expected prompt ID(s): {sorted(missing)}")
+    if len(ids) != len(id_set):
+        seen, duplicated = set(), set()
+        for pid in ids:
+            (duplicated if pid in seen else seen).add(pid)
+        duplicated_relevant = duplicated & expected
+        if duplicated_relevant:
+            sys.exit(f"ABORT: {label} contains duplicate entries for expected prompt ID(s): "
+                     f"{sorted(duplicated_relevant)}")
+
+    return {pid: r for pid, r in zip(ids, rows) if pid in expected}
+
+
+def run(hf_model_dir: str, manifest_path: str, f32_gguf_path: str, evidence_path: str,
+        paired_report_path: str, report_path: str) -> list[dict]:
     if not os.path.isfile(evidence_path):
         sys.exit(f"ABORT: evidence file not found at {evidence_path!r}")
     if not os.path.isfile(paired_report_path):
         sys.exit(f"ABORT: paired four-way report not found at {paired_report_path!r} -- run "
                  f"phase6_paired_four_way_evidence.py first.")
 
-    with open(evidence_path, encoding="utf-8") as f:
-        evidence_by_id = {(e := json.loads(line))["id"]: e for line in f if line.strip()}
-    with open(paired_report_path, encoding="utf-8") as f:
-        paired_by_id = {(r := json.loads(line))["id"]: r for line in f if line.strip()}
+    evidence_by_id = _load_exact_corpus(evidence_path, "evidence")
+    paired_by_id = _load_exact_corpus(paired_report_path, "paired report")
 
-    expected_ids = set(CONTROL_PROMPT_IDS) | set(DIVERGENT_PROMPT_IDS)
-    missing_evidence = expected_ids - set(evidence_by_id)
-    missing_paired = expected_ids - set(paired_by_id)
-    if missing_evidence:
-        sys.exit(f"ABORT: evidence is missing expected prompt ID(s): {sorted(missing_evidence)}")
-    if missing_paired:
-        sys.exit(f"ABORT: paired report is missing expected prompt ID(s): {sorted(missing_paired)}")
-
-    _verify_pytorch_authority(hf_model_dir)
+    manifest = _verify_pytorch_authority(hf_model_dir, manifest_path, f32_gguf_path,
+                                         list(evidence_by_id.values()))
     model, torch_module = _load_pytorch_model(hf_model_dir)
+
+    import transformers as transformers_module
+    run_identity = {
+        "pytorch_version": torch_module.__version__,
+        "transformers_version": transformers_module.__version__,
+        "hf_model_dir": os.path.abspath(hf_model_dir),
+        "manifest_path": os.path.abspath(manifest_path),
+        "manifest_source_safetensors_sha256": manifest["source_safetensors_sha256"],
+        "manifest_output_gguf_sha256": manifest["output_gguf_sha256"],
+        "verified_f32_gguf_sha256": EXPECTED_F32_GGUF_SHA256,
+    }
 
     rows = []
     print(f"\n{'Prompt':24s} {'group':10s} {'PT':>7s} {'Orc':>7s} {'llama':>7s} "
@@ -243,8 +354,13 @@ def run(hf_model_dir: str, evidence_path: str, paired_report_path: str, report_p
             "pytorch_full_vocab_logsumexp": pt_logsumexp,
             "pytorch_top10": [{"id": i, "logit": v, "logprob": v - pt_logsumexp} for i, v in pt_top10],
             "comparisons_where_directly_comparable": comparisons,
+            "numerical_error_scope": "overlapping top-k tokens only (PyTorch top-10 intersected with "
+                                     "OrcEngine top-5 / llama.cpp top-5) -- NOT a full-vocabulary "
+                                     "equality proof",
             "max_abs_error_vs_orc": max_abs_error_vs_orc, "rmse_vs_orc": rmse_vs_orc,
             "max_abs_error_vs_llama": max_abs_error_vs_llama, "rmse_vs_llama": rmse_vs_llama,
+            "llama_controlled_server_args": paired.get("controlled_server_args"),
+            "run_identity": run_identity,
         })
 
     try:
@@ -261,7 +377,8 @@ def run(hf_model_dir: str, evidence_path: str, paired_report_path: str, report_p
 
 if __name__ == "__main__":
     args = _parse_args()
-    result_rows = run(args.hf_model_dir, args.evidence, args.paired_report, args.report)
+    result_rows = run(args.hf_model_dir, args.manifest, args.f32_gguf, args.evidence,
+                      args.paired_report, args.report)
     print(f"\nDONE: three-authority F32 diagnostic collected for {len(result_rows)} prompts, "
           f"written to {args.report!r}")
     raise SystemExit(0)

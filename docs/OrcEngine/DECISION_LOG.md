@@ -3294,3 +3294,104 @@ equally unresolved. Stages 4-6 remain not started.
 authorize creating it. No RoPE/attention/RMSNorm/residual/position-
 handling code was investigated or modified. FL-08 remains not started.
 Stopping here for Codex review, as instructed.
+
+## OE-ADR-046 — Controlled external-oracle harness, genuine PyTorch provenance verification, documentation/evidence hygiene (combined Codex/Grok remediation round 4, Commit 1)
+
+**This is a correction/follow-up record. OE-ADR-044 and OE-ADR-045 are
+preserved unchanged as historical evidence of the reasoning and results
+at the time; the confounds and overclaims found by this round's review
+are documented here, not retroactively edited into those entries.**
+
+**Major finding (Codex): the OE-ADR-045 three-authority comparison's
+llama.cpp leg was numerically uncontrolled.** `llama-server.exe --help`
+confirms the pinned b10436 build defaults `--cache-type-k`/
+`--cache-type-v` to `f16` and `--flash-attn` to `auto`. Every prior
+external-oracle run in this project (the Q8 oracle, the F32 localizer,
+the paired four-way tool, and the three-authority diagnostic) launched
+the server WITHOUT these flags -- meaning the "F32 vs F32 vs F32"
+framing in OE-ADR-045 compared OrcEngine's and PyTorch's true F32
+computation against a llama.cpp KV cache that was NOT actually F32.
+This does not prove llama.cpp is wrong; it means the recorded Outcome
+P2 result is confounded and must be treated as provisional pending a
+controlled rerun.
+
+**Fix (Gate 2).** A single shared constant,
+`CONTROLLED_NUMERICAL_SERVER_ARGS = (--cache-type-k f32, --cache-type-v
+f32, --flash-attn off)`, and one shared launch function,
+`_launch_controlled_server()`, added to `phase6_llama_cpp_q8_0_
+oracle.py`. All three consuming modules (the Q8 oracle's own `run()`,
+the F32 localizer, the paired four-way tool) now launch exclusively
+through this one function -- no separate F32/Q8 argument lists exist to
+drift apart. The effective server arguments are now recorded in every
+generated evidence row (`controlled_server_args`/
+`llama_controlled_server_args` fields). 6 new regression tests
+intercept the actual `subprocess.Popen` argument vector and prove: the
+F32 and Q8 legs receive byte-identical settings, the F32 K/V cache
+flags are present, flash-attention is explicit (never `auto`), and both
+consuming modules launch via the shared helper (source-level check, not
+a duplicated argument list).
+
+**Second finding (Codex): the PyTorch provenance diagnostic overclaimed
+what it verified.** `_verify_pytorch_authority()` (OE-ADR-045) hashed
+`model.safetensors` against a hardcoded constant, never opened
+`real_candidate_conversion_manifest.json` at runtime (only cited it in
+comments/messages), and never hashed the actual F32 GGUF used for that
+specific comparison run -- so its "PyTorch authority verified" success
+message claimed more than the program actually checked.
+
+**Fix (Gate 3).** `phase6_three_authority_f32_diagnostic.py` now takes
+explicit `--manifest`/`--f32-gguf` arguments; `_load_and_validate_
+manifest()` genuinely opens and parses the manifest, requiring
+`source_safetensors_sha256`/`output_gguf_sha256` to be present, non-
+null, non-empty strings; `_verify_pytorch_authority()` hashes the
+ACTUAL local `model.safetensors` and cross-checks it against BOTH the
+manifest's own recorded hash AND the independently pinned constant, and
+hashes the ACTUAL F32 GGUF passed for this run and cross-checks it
+against the manifest's output hash, the independently pinned constant,
+AND every applicable evidence row's own `f32_artifact_sha256` -- all
+before any model is loaded. The durable report now records the
+verified hashes, manifest path/identity, PyTorch/Transformers versions,
+and effective llama.cpp server settings per row. A new `_load_exact_
+corpus()` (reusing the paired tool's established validation shape) also
+fixes a silent-duplicate-overwrite risk in the three-authority loader's
+dict construction, failing closed on missing/duplicate/empty prompt
+IDs. 20 new regression tests
+(`tests/test_phase6_three_authority_f32_diagnostic.py`) cover: missing/
+malformed manifest, missing/null source and output hash fields, source
+mismatch, manifest-vs-pinned-constant divergence, actual F32 GGUF
+mismatch, evidence-row hash mismatch, valid complete chain, and the
+exact-corpus loader's missing/duplicate/empty/unrelated-extra cases.
+
+**Documentation/evidence hygiene (Gate 4).**
+`PHASE6_GATE4_PAIRED_EVIDENCE.md`'s citation of a test name renamed in
+the prior remediation round (`test_q8_oracle_leg_and_f32_localization_
+leg_send_byte_identical_payloads`) corrected to the two tests that
+actually exist. `PHASE6_THREE_AUTHORITY_STATUS.md`'s "strongest
+possible confirmation" / "full forward pass matches ground truth"
+language corrected to state precisely what was measured: selected-token
+agreement is 7/7 for the recorded corpus; numerical errors are measured
+ONLY over the intersection of PyTorch's top-10 with OrcEngine's top-5
+(max observed ~3.429e-05 nats, not a full-vocabulary claim); the old
+llama.cpp result is explicitly labeled uncontrolled/superseded pending
+the controlled rerun -- full-vocabulary logits were deliberately NOT
+generated merely to preserve the old sentence; narrowing the claim was
+preferred. The committed `phase6_three_authority_f32_run_output.txt`
+(CR/CRLF-mixed tqdm progress-bar artifacts that made
+`git diff --check 0bfb9ce7..4f515b67` fail) was cleaned to plain
+LF-terminated text with no trailing whitespace.
+
+**Verification.** Full combined Python regression suite across both
+test files: 78 tests (58 in `test_phase6_llama_cpp_q8_0_oracle.py` --
+the historically accurate 52 plus 6 new controlled-launch tests -- and
+20 new in `test_phase6_three_authority_f32_diagnostic.py`), all PASS.
+`git diff --check` on the working tree: clean. Grok's earlier "54
+tests" source-count suggestion is confirmed a false positive (Codex
+independently reran and confirmed 52 before this pass's additions) and
+did not drive any documentation change.
+
+**Disposition.** This commit is harness/provenance/documentation
+correction only -- no OrcEngine transformer math changed, and the
+controlled external-oracle rerun and the internal Q8_0 tolerance
+investigation are separate, subsequent steps. Stages 4-6 remain not
+started. `orcengine-phase6-freeze` does not exist and this entry does
+not authorize creating it. FL-08 remains not started.

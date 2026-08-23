@@ -35,9 +35,14 @@ completion payload
 `top_p=1.0`, `min_p=0.0`, `presence_penalty=0.0`,
 `frequency_penalty=0.0`) -- proven identical by construction (both legs
 call the one shared function; see
-`SharedCompletionPayloadTests.test_q8_oracle_leg_and_f32_localization_
-leg_send_byte_identical_payloads`), not by visual inspection of two
-separate dicts. Token-ID identity was independently re-verified against
+`SharedCompletionPayloadTests.test_request_completion_emits_the_same_
+payload_on_every_call` and `SharedCompletionPayloadTests.test_
+localizer_and_paired_tool_call_the_shared_request_completion_helper`
+-- corrected citation; an earlier draft of this document cited a test
+name, `test_q8_oracle_leg_and_f32_localization_leg_send_byte_identical_
+payloads`, that was renamed during the prior remediation round and no
+longer exists), not by visual inspection of two separate dicts.
+Token-ID identity was independently re-verified against
 the live server for every prompt on both legs before any logit was
 trusted; all 7 x 2 = 14 checks passed (no tokenization mismatch
 anywhere in this run). Raw run output:

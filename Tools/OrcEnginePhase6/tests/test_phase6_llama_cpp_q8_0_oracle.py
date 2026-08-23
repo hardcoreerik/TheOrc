@@ -210,6 +210,77 @@ class Q8GgufIdentityTests(unittest.TestCase):
             os.remove(path)
 
 
+class ControlledServerLaunchTests(unittest.TestCase):
+    """Codex remediation round 4, Gate 2: intercepts the ACTUAL
+    subprocess argument vector _launch_controlled_server() builds and
+    proves the controlled numerical settings are present and identical
+    regardless of which GGUF/label is passed -- not merely that a
+    constant exists somewhere in the module."""
+
+    def _captured_args(self, gguf_path: str) -> list:
+        captured = []
+
+        def fake_popen(args, **kwargs):
+            captured.append(args)
+            return mock.Mock()
+
+        with mock.patch("subprocess.Popen", side_effect=fake_popen):
+            oracle._launch_controlled_server("fake-server.exe", gguf_path, 12345)
+        return captured[0]
+
+    def test_cache_type_k_f32_present(self):
+        args = self._captured_args("f32.gguf")
+        idx = args.index("--cache-type-k")
+        self.assertEqual(args[idx + 1], "f32")
+
+    def test_cache_type_v_f32_present(self):
+        args = self._captured_args("f32.gguf")
+        idx = args.index("--cache-type-v")
+        self.assertEqual(args[idx + 1], "f32")
+
+    def test_flash_attn_explicitly_off(self):
+        args = self._captured_args("f32.gguf")
+        idx = args.index("--flash-attn")
+        self.assertEqual(args[idx + 1], "off")
+
+    def test_f32_leg_and_q8_leg_receive_identical_numerical_settings(self):
+        # The GGUF path differs (that's the whole point of the two legs)
+        # but every OTHER argument, and specifically the controlled
+        # numerical settings, must be byte-identical.
+        f32_args = self._captured_args("f32.gguf")
+        q8_args = self._captured_args("q8_0.gguf")
+        f32_without_model = [a for a in f32_args if a != "f32.gguf"]
+        q8_without_model = [a for a in q8_args if a != "q8_0.gguf"]
+        self.assertEqual(f32_without_model, q8_without_model)
+
+    def test_omitting_a_controlled_flag_would_fail_this_suite(self):
+        # Guards against silent regression: if CONTROLLED_NUMERICAL_
+        # SERVER_ARGS were ever emptied or a flag removed, the presence
+        # assertions above would fail -- this test documents that intent
+        # explicitly rather than relying on it being self-evident.
+        self.assertIn("--cache-type-k", oracle.CONTROLLED_NUMERICAL_SERVER_ARGS)
+        self.assertIn("--cache-type-v", oracle.CONTROLLED_NUMERICAL_SERVER_ARGS)
+        self.assertIn("--flash-attn", oracle.CONTROLLED_NUMERICAL_SERVER_ARGS)
+        # And every value must be explicit -- 'auto' is not an
+        # acceptable flash-attention setting for a controlled comparison.
+        fa_idx = oracle.CONTROLLED_NUMERICAL_SERVER_ARGS.index("--flash-attn")
+        self.assertIn(oracle.CONTROLLED_NUMERICAL_SERVER_ARGS[fa_idx + 1], ("on", "off"))
+
+    def test_localizer_and_paired_tool_launch_via_the_shared_helper(self):
+        # Source-level architectural evidence (matching the existing
+        # pattern for the shared completion payload): both consuming
+        # modules must call oracle._launch_controlled_server(), not
+        # construct their own subprocess.Popen argument list.
+        tools_dir = os.path.join(os.path.dirname(__file__), "..", "tools")
+        for module_file in ("phase6_localize_f32_divergence.py", "phase6_paired_four_way_evidence.py"):
+            with open(os.path.join(tools_dir, module_file), encoding="utf-8") as f:
+                source = f.read()
+            self.assertIn("oracle._launch_controlled_server(", source,
+                          f"{module_file} must launch via the shared controlled-server helper")
+            self.assertNotIn('"--no-warmup"', source,
+                             f"{module_file} must not hand-construct its own server argument list")
+
+
 class PortIsolationTests(unittest.TestCase):
     """Covers: port/server isolation."""
 

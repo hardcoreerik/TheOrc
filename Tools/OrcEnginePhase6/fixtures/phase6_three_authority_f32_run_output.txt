@@ -1,5 +1,5 @@
 PyTorch authority verified: model.safetensors SHA-256 80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1 matches the pinned authority and the committed real_candidate_conversion_manifest.json's recorded provenance chain (source -> output F32 GGUF fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac).
-Loading weights:   0%|          | 0/272 [00:00<?, ?it/s]Loading weights: 100%|##########| 272/272 [00:00<00:00, 3529.26it/s]
+
 
 Prompt                   group           PT     Orc   llama  PT==Orc  PT==llama
 dev_capital_of_france    control        260     260     260     True       True

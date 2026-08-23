@@ -10,6 +10,14 @@ controls and all 3 divergent prompts) and disagrees with llama.cpp on
 exactly the same 3 prompts where OrcEngine already disagreed with
 llama.cpp. Classified as Outcome P2.**
 
+**SUPERSEDED, PROVISIONAL (see "Confounded by uncontrolled llama.cpp
+cache/flash-attention settings" below): this run's llama.cpp leg used
+default (F16 KV cache, implicit flash-attention) server settings, not
+a genuinely equal-precision F32 comparison. The Outcome P2
+classification recorded here should be treated as provisional until a
+controlled rerun (explicit `--cache-type-k f32 --cache-type-v f32
+--flash-attn off` on both legs) confirms or revises it.**
+
 This is a read-only diagnostic. No transformer math was changed, no
 tolerance was widened, and Stages 4-6/freeze/FL-08 are not started as a
 result of this finding.
@@ -97,14 +105,29 @@ Raw run output: `phase6_three_authority_f32_run_output.txt`. Structured
 report (per-prompt PyTorch top-10, comparisons, error metrics):
 `phase6_three_authority_f32_report.jsonl`.
 
-## Diagnostic error metrics (where directly comparable; not a pass/fail gate)
+## Diagnostic error metrics (where directly comparable; not a pass/fail gate; corrected scope)
 
-For every token ID in PyTorch's own top-10 that ALSO appears in
-OrcEngine's top-5 (using OrcEngine's own recorded
-`f32_full_vocab_logsumexp` to convert its raw logit to a log-
-probability) or in llama.cpp's own reported top-5 (already
-log-probabilities), max absolute error and RMSE in log-probability
-space:
+**Scope, stated precisely (an earlier draft overstated this -- see the
+correction below the table):** these numbers cover ONLY the
+intersection of PyTorch's own top-10 tokens with OrcEngine's own top-5
+tokens (or with llama.cpp's own reported top-5, which itself came from
+an UNCONTROLLED server invocation -- see the "Confounded by uncontrolled
+llama.cpp cache/flash-attention settings" section below). Selected-
+token (argmax) agreement is 7/7 across the recorded corpus; that is a
+full statement. The numerical error metrics below are NOT full-
+vocabulary comparisons and do NOT establish full-vocabulary numerical
+equivalence between OrcEngine and PyTorch -- OrcEngine's evidence only
+ever recorded its own top-5 raw logits, never its full 49152-entry
+vocabulary, so a true full-vocabulary max-absolute-error against
+PyTorch cannot be computed from the existing evidence without
+regenerating OrcEngine's evidence to dump full logits, which was not
+done in this pass (narrowing the claim was preferred over generating
+that data solely to preserve an overstated sentence). For every token
+ID in PyTorch's own top-10 that ALSO appears in OrcEngine's top-5
+(using OrcEngine's own recorded `f32_full_vocab_logsumexp` to convert
+its raw logit to a log-probability) or in llama.cpp's own reported
+top-5 (already log-probabilities), max absolute error and RMSE in
+log-probability space, over that overlapping subset only:
 
 | Prompt | max\|err\| vs Orc | RMSE vs Orc | max\|err\| vs llama | RMSE vs llama |
 |---|---|---|---|---|
@@ -116,20 +139,45 @@ space:
 | holdout_she_walked | 1.1e-05 | 5.9e-06 | N/A (no overlap) | N/A |
 | holdout_quick_fox | 3.4e-05 | 2.1e-05 | 1.618 | 0.835 |
 
-**PyTorch-vs-OrcEngine agreement is at floating-point-precision scale
-(~1e-5 nats) on EVERY prompt, control and divergent alike** -- this is
-essentially the strongest possible confirmation that OrcEngine's F32
-forward pass reproduces the real reference implementation almost
-exactly. **PyTorch-vs-llama.cpp shows large, systematic deviation
-(0.5-2.0 nats) on EVERY prompt where the comparison was possible,
-INCLUDING the control prompts where llama.cpp's greedy selection
-happens to still match** -- meaning llama.cpp's distributional
-disagreement with ground truth is not confined to the 3 divergent
-prompts; it is a broader, consistent pattern that only crosses into a
-different ARGMAX on 3 of the 7 prompts examined here. `holdout_she_walked`
-shows no directly-comparable llama.cpp token (none of PyTorch's own
-top-10 appeared in llama.cpp's reported top-5 for that specific
-prompt) -- reported as `N/A`, not approximated.
+**PyTorch-vs-OrcEngine agreement over the overlapping top-k tokens is
+at floating-point-precision scale (max observed ~3.429e-05 nats, at
+`holdout_quick_fox`) on every prompt examined, control and divergent
+alike.** This is a genuinely strong signal restricted to the tokens
+both authorities actually reported -- it is NOT a full-vocabulary
+equality proof, and "strongest possible confirmation" / "OrcEngine's
+full forward pass matches ground truth" framing is corrected out of
+this document as overreach the evidence does not support (only the
+top-k-overlap subset was measured). **PyTorch-vs-llama.cpp shows large
+deviation (0.5-2.0 nats) on every prompt where the top-k-overlap
+comparison was possible, INCLUDING the control prompts where llama.cpp's
+greedy selection happens to still match** -- but see the confound noted
+directly below: that llama.cpp run used UNCONTROLLED (default F16 K/V
+cache, implicit flash-attention) server settings, so this specific
+number is superseded for causal interpretation, not a clean llama.cpp
+distributional-quality measurement. `holdout_she_walked` shows no
+directly-comparable llama.cpp token (none of PyTorch's own top-10
+appeared in llama.cpp's reported top-5 for that specific prompt) --
+reported as `N/A`, not approximated.
+
+## Confounded by uncontrolled llama.cpp cache/flash-attention settings (superseded)
+
+**The llama.cpp F32/Q8_0 results in this document's table and error
+metrics were produced by a server invocation that did NOT explicitly
+control KV-cache precision or flash-attention mode.** The pinned
+b10436 `llama-server.exe` defaults `--cache-type-k`/`--cache-type-v` to
+`f16` and `--flash-attn` to `auto` (confirmed via `llama-server.exe
+--help`). OrcEngine and PyTorch both ran at true F32 throughout; the
+llama.cpp leg's KV cache did NOT, meaning the "F32 vs F32 vs F32"
+framing this document used was not actually equal-precision across all
+three authorities. **This does not mean llama.cpp is wrong** -- it
+means the Outcome P2 classification and the specific numeric deviations
+recorded here are CONFOUNDED and are superseded by the controlled
+rerun (explicit `--cache-type-k f32 --cache-type-v f32 --flash-attn
+off` on both legs) -- see the newer evidence this correction points to
+once that controlled rerun exists. The selected-token table above is
+left as historical record of the uncontrolled run; treat any causal
+claim built on it as provisional until the controlled rerun confirms or
+revises it.
 
 These are diagnostic numbers, not a pass/fail gate; no new tolerance is
 declared or applied.
