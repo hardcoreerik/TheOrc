@@ -39,7 +39,11 @@ if(NOT DEFINED ORCENGINE_REAL_Q8_0_GGUF AND DEFINED ENV{ORCENGINE_REAL_Q8_0_GGUF
         "Optional locally-quantized Q8_0 GGUF, see fixtures/Q8_0_FIXTURE_PROVENANCE.md (from environment)")
 endif()
 
-add_subdirectory(../OrcEnginePhase2 phase2)
+# Phase 5A pulls in Phase 3 -> Phase 2 -> Phase 1 transitively (needed for
+# Checkpoint 3's cached-decode comparison, forward_cached.hpp) -- do not
+# also add_subdirectory Phase 2 directly, that would double-define its
+# targets (same pattern every later phase in this project uses).
+add_subdirectory(../OrcEnginePhase5A phase5a)
 
 add_executable(test_q8_0_dequant tests/test_q8_0_dequant.cpp)
 target_link_libraries(test_q8_0_dequant PRIVATE orcengine_phase2)
@@ -68,5 +72,26 @@ if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_Q8_0_GGUF)
     set_tests_properties(q8_0_real_fixture PROPERTIES TIMEOUT 300)
 else()
     message(STATUS "Phase 6 Checkpoint 2 real-fixture evidence: SKIPPED -- "
+                   "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
+endif()
+
+# Checkpoint 3: OrcEngine F32-vs-Q8_0 real-model comparison (the OrcEngine
+# leg; the companion Python driver in tools/ handles the pinned llama.cpp
+# Q8_0 oracle leg using this tool's JSON-lines evidence output). Same
+# real-artifact gating as Checkpoint 2.
+if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_Q8_0_GGUF)
+    message(STATUS "Phase 6 Checkpoint 3 F32-vs-Q8_0 comparison: REGISTERED")
+    add_executable(phase6_q8_0_comparison tools/phase6_q8_0_comparison.cpp)
+    target_link_libraries(phase6_q8_0_comparison PRIVATE orcengine_phase5a orcengine_phase2)
+    target_compile_options(phase6_q8_0_comparison PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    add_test(NAME q8_0_f32_comparison COMMAND phase6_q8_0_comparison
+             "${ORCENGINE_REAL_F32_GGUF}" "${ORCENGINE_REAL_Q8_0_GGUF}"
+             "${CMAKE_CURRENT_BINARY_DIR}/phase6_q8_0_evidence.jsonl")
+    set_tests_properties(q8_0_f32_comparison PROPERTIES TIMEOUT 300)
+else()
+    message(STATUS "Phase 6 Checkpoint 3 F32-vs-Q8_0 comparison: SKIPPED -- "
                    "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
 endif()
