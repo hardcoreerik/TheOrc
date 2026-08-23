@@ -102,8 +102,12 @@ Ran successfully: 273/273 tensors processed, quantize time 626.81ms.
 **212 Q8_0**, **61 F32**. Generated via this project's own
 `orcengine_gguf_inspect` tool (`Tools/OrcEnginePhase2/tools/`), full
 per-tensor listing archived alongside this file as
-`smollm2-135m-q8_0-inventory.txt` (also not committed, regenerable via
-`orcengine_gguf_inspect.exe <path-to-fixture>`).
+`smollm2-135m-q8_0-inventory.txt` -- **this listing file IS committed**
+(it is plain text, not gitignored; only the `.gguf` binary itself is
+gitignored -- corrected here, an earlier draft of this document
+incorrectly said "also not committed"). Regenerable via
+`orcengine_gguf_inspect.exe <path-to-fixture>` if it ever needs
+refreshing against a re-quantized fixture.
 
 Grouped by role:
 

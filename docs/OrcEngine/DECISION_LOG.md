@@ -2971,3 +2971,150 @@ triage as its own investigation (likely starting with RoPE/attention/
 RMSNorm-epsilon comparison on the 3 specific prompts) since it
 reproduces independently of, and therefore falls outside, Phase 6
 Stage 1's Q8_0-quantization scope.
+
+## OE-ADR-043 — Correction to OE-ADR-042's localization conclusion, plus round-2 remediation (Gate 1-7)
+
+**This is a correction/follow-up record, not a rewrite of OE-ADR-042.**
+OE-ADR-042 is preserved above exactly as originally written, as
+historical evidence of the reasoning at the time; this entry documents
+what a combined Codex-authority review and independently verified Grok
+review found wrong with it, and what was done in response.
+
+**The controlling finding.** OE-ADR-042 stated the 3 Stage-3 external-
+oracle disagreements "reproduce byte-for-byte... with the identical
+chosen tokens on both sides" at F32, and concluded this "proves" Q8_0
+is not involved. The raw evidence does not support that: for
+`holdout_she_walked`, llama.cpp's own Q8_0 selection (`9612`) differs
+from its own F32 selection (`38734`) -- the llama.cpp side's answer is
+not identical across precisions on this prompt. The corrected,
+defensible statement (established during this remediation and now the
+governing account, see `Tools/OrcEnginePhase6/fixtures/
+PHASE6_GATE4_PAIRED_EVIDENCE.md`): a pre-existing OrcEngine-versus-
+llama.cpp F32 forward-path divergence exists and blocks clean
+attribution of the external Q8 failure; OrcEngine's internal
+F32-versus-Q8_0 behavior is consistent on this seven-prompt corpus, but
+external Q8_0 correctness remains **unproven** (not disproven, not
+cleared).
+
+**Gate 1 -- C++ evidence generator fail-closed ordering (FIXED).**
+`phase6_q8_0_comparison.cpp` previously constructed
+`logits.end() - cfg.vocab` (iterator arithmetic) BEFORE validating that
+`logits` actually contained at least `cfg.vocab` elements -- undefined
+behavior reachable on malformed/short model output, ahead of the
+size/empty checks that ran only on the already-constructed slice. Fixed
+via a new `validate_and_slice_last_position_logits()` free function that
+validates the exact expected shape (`token_count * vocab`, overflow-
+guarded) BEFORE forming any slice, and only slices after that check
+passes. A hostile self-test (`run_logits_bounds_hostile_selftest()`,
+using this file's existing `check()`/`g_failures` idiom, since the tool
+has no separate test binary to inject a malformed `CachedStepResult`
+through) exercises short/empty/oversized logits buffers and non-
+positive `vocab`/`token_count`, all rejected before slicing; a
+well-formed buffer is confirmed to still slice correctly. This is a
+tool-input-validation fix only -- no model execution math changed
+(confirmed: the regenerated v3 evidence's numeric results are identical
+to the prior v2 run).
+
+**Gate 2 -- shared neutral completion payload (FIXED).** The Q8 oracle
+and the (then-separate) F32 localizer previously maintained two
+separate, hand-written request payload dicts that happened to look
+similar. Unified into one canonical `build_completion_payload()` /
+`NEUTRAL_GREEDY_PARAMS` in `phase6_llama_cpp_q8_0_oracle.py`; both legs
+now call the SAME function, proven byte-identical by construction
+(`SharedCompletionPayloadTests.test_q8_oracle_leg_and_f32_localization_
+leg_send_byte_identical_payloads` intercepts the actual JSON bodies sent
+and asserts equality). Every field (`repeat_penalty=1.0`, `top_k=0`,
+`top_p=1.0`, `min_p=0.0`, `presence_penalty=0.0`,
+`frequency_penalty=0.0`, plus `temperature=0`/`cache_prompt=False`) was
+empirically confirmed accepted by the pinned b10436 server (real
+`/completion` requests with this exact payload returned HTTP 200
+against real pinned models) -- not speculatively added.
+
+**Gate 3 -- F32 localization held to the same identity standard
+(FIXED).** `phase6_localize_f32_divergence.py` was rewritten to reuse
+(not duplicate) `phase6_llama_cpp_q8_0_oracle.py`'s identity-
+verification functions: hash-pinned server + impl DLL (missing impl DLL
+now ABORTS, corrected from an earlier warning-only downgrade, since the
+build's documented identity guarantee depends on the impl DLL
+specifically), `--version` banner checked including its return code
+(previously unchecked), and a new shared `_verify_gguf_identity()`
+helper (generalized from the Q8-only version) used for both the
+`EXPECTED_F32_GGUF_SHA256` and `EXPECTED_Q8_GGUF_SHA256` checks. The
+script now requires the exact predeclared 3-prompt target set
+(`EXPECTED_PROMPT_IDS`), aborting on missing/duplicate targets while
+tolerating unrelated extra evidence entries; aborts immediately (not
+merely reports) on any token-ID mismatch; takes explicit
+`--server/--f32-gguf/--evidence/--report` CLI arguments rather than a
+hardcoded machine-specific default path; and detects report-write
+failure via `os.fsync` plus explicit `OSError` handling. 14 new
+regression tests cover: missing/wrong-hash implementation DLL, nonzero
+`--version` return code, wrong/mismatched F32 artifact hash, missing/
+duplicate/extra target prompts, the shared-payload proof, and
+unwritable-report-path rejection.
+
+**Gate 4 -- paired four-way evidence (NEW, authoritative).** Evidence
+schema bumped to v3 (`f32_full_vocab_logsumexp` added alongside the
+existing `q8_full_vocab_logsumexp`; v2's meaning is unchanged, this is
+an additive new version, not a silent redefinition). A new script,
+`phase6_paired_four_way_evidence.py`, runs the pinned server against
+BOTH GGUFs for ALL 7 corpus prompts (not just the 3 that previously
+disagreed) using the identical verified identity chain and shared
+payload, producing the durable table now in
+`PHASE6_GATE4_PAIRED_EVIDENCE.md`. Real run result: OrcEngine internal
+F32/Q8_0 agreement 7/7; external F32 agreement 4/7; external Q8_0
+agreement 4/7; same 3 prompt IDs fail on both external legs, but
+llama.cpp's OWN selected token differs between its F32 and Q8_0 runs on
+one of those three (`holdout_she_walked`: `38734` vs `9612`).
+**Classified as Outcome B** (selected tokens differ after request
+parity was fixed) -- Phase 6 remains blocked because a Q8_0-specific
+contribution is possible and not ruled out. The next smallest
+localization step (comparing llama.cpp's own F32-vs-Q8_0 log-
+probabilities for `holdout_she_walked`'s specific candidate tokens,
+already captured in the paired report) is recommended but NOT performed
+in this pass, per the explicit instruction not to change transformer
+math or continue investigating forward-math causes yet.
+
+**Gate 5 -- documentation record (FIXED).** `STAGE2_STAGE3_STATUS.md`'s
+overclaimed localization conclusion corrected in place (with a visible
+correction banner, not silently rewritten -- the original wording is
+preserved in this file's git history); its fail-closed checklist split
+explicitly by which tool owns each check (C++ evidence generator vs.
+Python oracle/localizer), removing the earlier implication that the
+Python unit tests exercise C++-side config/logits-shape/finite-value/
+stream-close behavior they never touch. `Q8_0_FIXTURE_PROVENANCE.md`'s
+remaining contradiction (the tensor-inventory listing described as "not
+committed" in one place despite being correctly described as committed
+in another) is corrected -- the inventory file IS tracked in git; only
+the `.gguf` binary itself is gitignored. The quantizer provenance
+statement was already appropriately narrow from the first remediation
+pass (explicitly states `llama-quantize.exe` has no `--version` flag
+and frames the shared-DLL argument as corroboration, not sole proof)
+and required no further narrowing.
+
+**Gate 6 -- test-evidence wording (FIXED).**
+`test_full_vocab_logsumexp_matches_hand_computed_reference` was renamed
+to `test_local_logsumexp_helper_matches_naive_reference` (it validates
+this test file's own `_local_logsumexp()` helper, not production code)
+and a new `test_log_softmax_at_matches_hand_computed_reference` was
+added that DOES directly validate the production
+`oracle._log_softmax_at()` function against a hand-computed reference.
+
+**Gate 7 -- targeted verification.** `phase6_q8_0_comparison` rebuilt
+clean under both the normal Debug lane and the existing strict
+(`/W4 /WX /permissive-`) lane; `test_q8_0_dequant` (22/22) and
+`test_q8_0_real_fixture` (26/26) re-run and still pass; all 35 Python
+regression tests pass; v3 evidence regenerated (numerically identical
+to v2, confirming Gate 1's fix changed no model math); the corrected Q8
+leg, F32 leg, and the new paired four-way run were all executed for
+real against the pinned server and pinned models, with every identity/
+hash/tokenization precondition confirmed before any model result was
+interpreted. The full inherited Phase 1-5C regression matrix and the
+Debug/Release/strict/ASan Phase 6 matrix were explicitly NOT run in
+this pass, per instruction -- Stage 6 remains gated and unstarted.
+
+**Disposition, unchanged from OE-ADR-042.** Stages 4, 5, and 6 remain
+NOT started. `orcengine-phase6-freeze` does not exist and this entry
+does not authorize creating it. No transformer math (RoPE, attention,
+RMSNorm, residuals, position handling) was investigated or modified.
+FL-08 remains not started. Stopping here for Codex review, as
+instructed.

@@ -87,6 +87,10 @@ EXPECTED_SERVER_IMPL_DLL_SHA256 = "77f8cf124d0222993f7e98c16cecc855bc7b0d31f8005
 # hardcoded in phase6_q8_0_comparison.cpp (kQ8ExpectedSha256).
 EXPECTED_Q8_GGUF_SHA256 = "3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398"
 
+# Matches Q8_0_FIXTURE_PROVENANCE.md's "Input" section and the constant
+# hardcoded in phase6_q8_0_comparison.cpp (kF32ExpectedSha256).
+EXPECTED_F32_GGUF_SHA256 = "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac"
+
 MIN_SCHEMA_VERSION = 2
 
 
@@ -111,23 +115,34 @@ def _verify_server_identity(server_path: str) -> None:
                  f"authority {EXPECTED_SERVER_EXE_SHA256} recorded in "
                  f"fixtures/Q8_0_FIXTURE_PROVENANCE.md -- refusing to trust an unverified binary.")
 
+    # Codex remediation Gate 3, item 3: for this pinned build layout, the
+    # implementation DLL is documented (Q8_0_FIXTURE_PROVENANCE.md) as
+    # itself hash-pinned -- its absence must ABORT, not downgrade to a
+    # warning, because a missing impl DLL means the actual request-
+    # handling logic was never verified at all (the .exe is a thin stub).
     impl_dll = os.path.join(os.path.dirname(server_path), "llama-server-impl.dll")
-    if os.path.isfile(impl_dll):
-        impl_hash = _sha256_file(impl_dll)
-        if impl_hash != EXPECTED_SERVER_IMPL_DLL_SHA256:
-            sys.exit(f"ABORT: llama-server-impl.dll SHA-256 {impl_hash} does not match the pinned "
-                     f"authority {EXPECTED_SERVER_IMPL_DLL_SHA256} -- refusing to trust an unverified "
-                     f"implementation library (this is where llama-server's actual request logic lives, "
-                     f"not the .exe stub).")
-    else:
-        print(f"WARNING: llama-server-impl.dll not found alongside {server_path!r} -- "
-              f"this build layout may differ from the pinned archive's; hash-pinning the .exe alone "
-              f"is a weaker guarantee (see Q8_0_FIXTURE_PROVENANCE.md).")
+    if not os.path.isfile(impl_dll):
+        sys.exit(f"ABORT: llama-server-impl.dll not found alongside {server_path!r} -- this pinned "
+                 f"build layout requires it (it is where llama-server's actual request-handling logic "
+                 f"lives, not the .exe stub, and it is itself hash-pinned in "
+                 f"Q8_0_FIXTURE_PROVENANCE.md). Refusing to proceed with only the .exe stub verified.")
+    impl_hash = _sha256_file(impl_dll)
+    if impl_hash != EXPECTED_SERVER_IMPL_DLL_SHA256:
+        sys.exit(f"ABORT: llama-server-impl.dll SHA-256 {impl_hash} does not match the pinned "
+                 f"authority {EXPECTED_SERVER_IMPL_DLL_SHA256} -- refusing to trust an unverified "
+                 f"implementation library.")
 
     try:
         result = subprocess.run([server_path, "--version"], capture_output=True, text=True, timeout=15)
     except subprocess.SubprocessError as ex:
         sys.exit(f"ABORT: could not run 'llama-server.exe --version': {ex}")
+    # Codex remediation Gate 3, item 4: check the return code BEFORE
+    # trusting the banner text -- a nonzero exit could print a partial or
+    # misleading banner on stderr/stdout while still not being the real,
+    # successfully-running pinned binary.
+    if result.returncode != 0:
+        sys.exit(f"ABORT: 'llama-server.exe --version' exited with nonzero code {result.returncode} -- "
+                 f"stdout={result.stdout!r} stderr={result.stderr!r}")
     banner = (result.stdout or "") + (result.stderr or "")
     if EXPECTED_BUILD_MARKER not in banner or EXPECTED_COMMIT_MARKER not in banner:
         sys.exit(f"ABORT: llama-server.exe --version banner does not confirm the pinned build:\n{banner}\n"
@@ -136,21 +151,37 @@ def _verify_server_identity(server_path: str) -> None:
           f"{EXPECTED_COMMIT_MARKER}")
 
 
-def _verify_q8_gguf_identity(q8_path: str, evidence_entries: list[dict]) -> None:
-    if not os.path.isfile(q8_path):
-        sys.exit(f"ABORT: Q8_0 GGUF not found at {q8_path!r}")
-    actual_hash = _sha256_file(q8_path)
-    if actual_hash != EXPECTED_Q8_GGUF_SHA256:
-        sys.exit(f"ABORT: Q8_0 GGUF SHA-256 {actual_hash} does not match the pinned authority "
-                 f"{EXPECTED_Q8_GGUF_SHA256} (Q8_0_FIXTURE_PROVENANCE.md) -- wrong or corrupted fixture.")
+def _verify_gguf_identity(gguf_path: str, expected_hash: str, evidence_field: str,
+                          evidence_entries: list[dict], label: str) -> str:
+    """Shared, precision-independent GGUF identity check: the file's own
+    SHA-256 must match the pinned authority, AND every evidence entry that
+    records a hash for this artifact (via `evidence_field`) must also
+    match -- catching the case where evidence was generated against a
+    DIFFERENT file than the one this run is now comparing against. Used
+    for both the Q8_0 and F32 legs (Gate 3 requires the F32 leg meet the
+    same identity standard the Q8 oracle already did)."""
+    if not os.path.isfile(gguf_path):
+        sys.exit(f"ABORT: {label} GGUF not found at {gguf_path!r}")
+    actual_hash = _sha256_file(gguf_path)
+    if actual_hash != expected_hash:
+        sys.exit(f"ABORT: {label} GGUF SHA-256 {actual_hash} does not match the pinned authority "
+                 f"{expected_hash} -- wrong or corrupted fixture.")
     for entry in evidence_entries:
-        evidence_hash = entry.get("q8_artifact_sha256")
-        if evidence_hash is not None and evidence_hash != EXPECTED_Q8_GGUF_SHA256:
-            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} records q8_artifact_sha256="
-                     f"{evidence_hash!r}, which does not match the pinned authority "
-                     f"{EXPECTED_Q8_GGUF_SHA256} -- evidence was generated against a different file "
-                     f"than the one this oracle run is comparing against.")
-    print(f"Q8_0 GGUF identity verified: {actual_hash} (matches pinned authority and evidence records)")
+        evidence_hash = entry.get(evidence_field)
+        if evidence_hash is not None and evidence_hash != expected_hash:
+            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} records {evidence_field}="
+                     f"{evidence_hash!r}, which does not match the pinned authority {expected_hash} -- "
+                     f"evidence was generated against a different {label} file than this run is using.")
+    print(f"{label} GGUF identity verified: {actual_hash} (matches pinned authority and evidence records)")
+    return actual_hash
+
+
+def _verify_q8_gguf_identity(q8_path: str, evidence_entries: list[dict]) -> None:
+    _verify_gguf_identity(q8_path, EXPECTED_Q8_GGUF_SHA256, "q8_artifact_sha256", evidence_entries, "Q8_0")
+
+
+def _verify_f32_gguf_identity(f32_path: str, evidence_entries: list[dict]) -> None:
+    _verify_gguf_identity(f32_path, EXPECTED_F32_GGUF_SHA256, "f32_artifact_sha256", evidence_entries, "F32")
 
 
 def _free_local_port() -> int:
@@ -186,10 +217,47 @@ def _wait_for_health(proc: subprocess.Popen, port: int, timeout_s: float = 60.0)
              f"{timeout_s}s")
 
 
+# Codex remediation Gate 2: the SINGLE canonical neutral-greedy completion
+# contract, shared by every leg (Q8 oracle, F32 localizer) that requests a
+# one-token completion from the pinned llama-server -- previously the F32
+# localizer maintained its own separate, ad hoc payload dict that happened
+# to be similar but was never proven identical. temperature=0 alone is NOT
+# sufficient to guarantee a pure argmax response: llama-server's /completion
+# endpoint applies repeat_penalty/top_k/top_p/min_p/presence_penalty/
+# frequency_penalty BEFORE sampling, and several of those are non-neutral
+# by default (this build's server-observed default `repeat_penalty` is
+# 1.0-ish but NOT guaranteed to be exactly 1.0 across builds/config, and
+# `top_k` commonly defaults to a small positive value like 40, which
+# would truncate the distribution before argmax selection even at
+# temperature=0). Every field below is explicitly set to its neutral/off
+# value so this is unambiguously a pure argmax-over-full-vocabulary
+# response, not merely "temperature=0 and otherwise whatever the server
+# defaults to." Empirically verified the pinned b10436 server accepts
+# every one of these fields (a real /completion request with this exact
+# payload against a real pinned model returned HTTP 200 with a normal
+# completion body -- not a speculative/unverified field list).
+NEUTRAL_GREEDY_PARAMS = {
+    "temperature": 0,
+    "cache_prompt": False,
+    "repeat_penalty": 1.0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+}
+
+
+def build_completion_payload(prompt: str, n_probs: int) -> dict:
+    """The one canonical request body for a neutral, greedy, one-token
+    completion. Both the Q8 and F32 legs MUST call this (not maintain
+    their own copies) so a test can prove, by construction, that they are
+    identical -- not merely visually similar."""
+    return {"prompt": prompt, "n_predict": 1, "n_probs": n_probs, **NEUTRAL_GREEDY_PARAMS}
+
+
 def _request_completion(port: int, prompt: str, n_probs: int) -> dict:
-    payload = json.dumps({
-        "prompt": prompt, "n_predict": 1, "temperature": 0, "n_probs": n_probs, "cache_prompt": False,
-    }).encode()
+    payload = json.dumps(build_completion_payload(prompt, n_probs)).encode()
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/completion", data=payload,
         headers={"Content-Type": "application/json"},

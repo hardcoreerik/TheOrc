@@ -53,15 +53,16 @@
 // that already-established, separately-verified provenance record
 // rather than re-deriving cryptographic hashes in C++, which would add
 // a numerical/crypto dependency out of proportion to Stage 1's scope).
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <algorithm>
 
 #include "orcengine/context.hpp"
 #include "orcengine/forward_cached.hpp"
@@ -71,7 +72,12 @@ using namespace orcengine;
 
 namespace {
 
-constexpr int kMetricContractVersion = 2;
+// Codex remediation Gate 4: v3 adds f32_full_vocab_logsumexp (v2 only
+// carried the Q8_0 side's) so a downstream paired four-way comparison
+// tool can compute an exact OrcEngine F32 log-probability the same way
+// the Q8_0 side's has been computable since v2 -- a new schema version,
+// not a silent redefinition of what v2 meant.
+constexpr int kMetricContractVersion = 3;
 
 // Expected provenance, asserted (via file size) against
 // fixtures/Q8_0_FIXTURE_PROVENANCE.md's independently recorded values --
@@ -111,6 +117,47 @@ std::string precise(double value) {
     return os.str();
 }
 std::string precise(float value) { return precise(static_cast<double>(value)); }
+
+// Codex remediation Gate 1: the ORIGINAL code built
+// `logits.end() - cfg.vocab` (an iterator/pointer subtraction) BEFORE any
+// check that `logits` actually contained at least `cfg.vocab` elements --
+// on malformed or unexpectedly short output that subtraction is undefined
+// behavior (an iterator computed before `begin()`), reached BEFORE the
+// size/empty checks that used to run only on the already-constructed
+// (potentially UB-tainted) slice. This helper enforces the correct order:
+// validate the FULL logits buffer's exact expected shape first (guarding
+// the `token_count * vocab` multiplication against overflow), and only
+// construct the last-position slice -- via the same `end() - vocab`
+// arithmetic, now proven safe -- after that validation passes. Does not
+// change any model execution math; this is purely an evidence-tool
+// input-validation ordering fix.
+std::vector<float> validate_and_slice_last_position_logits(
+    const std::vector<float>& logits, int64_t token_count, int64_t vocab,
+    const std::string& prompt_id, const char* engine_label) {
+    if (vocab <= 0) {
+        throw std::runtime_error(std::string(engine_label) + " model vocabulary size is not positive");
+    }
+    if (token_count <= 0) {
+        throw std::runtime_error(prompt_id + ": token count is not positive");
+    }
+    if (token_count > std::numeric_limits<int64_t>::max() / vocab) {
+        throw std::runtime_error(prompt_id + ": " + engine_label +
+                                 " expected logits count (token_count * vocab) overflows int64_t");
+    }
+    const int64_t expected_count = token_count * vocab;
+    const int64_t actual_count = static_cast<int64_t>(logits.size());
+    if (actual_count != expected_count) {
+        throw std::runtime_error(prompt_id + ": " + engine_label + " logits size is " +
+                                 std::to_string(actual_count) + ", expected exactly " +
+                                 std::to_string(expected_count) + " (token_count=" +
+                                 std::to_string(token_count) + " * vocab=" + std::to_string(vocab) +
+                                 ") -- malformed/short output rejected before forming any slice into it");
+    }
+    // Only now, with `logits.size() == token_count * vocab` proven, is
+    // `end() - vocab` guaranteed to land at a valid iterator (the start of
+    // the last [vocab]-sized row).
+    return std::vector<float>(logits.end() - vocab, logits.end());
+}
 
 // --- DEV corpus: used to derive the empirical end-to-end tolerance. ---
 const std::vector<PromptCase> kDevCorpus = {
@@ -191,7 +238,78 @@ void check(bool cond, const std::string& name) {
 
 }  // namespace
 
+namespace {
+// Codex remediation Gate 1: hostile self-test for
+// validate_and_slice_last_position_logits(), run at the start of every
+// real invocation of this tool -- since the tool has no separate test
+// binary (this project's "single translation unit, its own main()" tool
+// pattern), and this function is a pure, standalone function over hand-
+// constructible inputs, this is the narrowest meaningful way to prove
+// malformed/short logits are rejected BEFORE any slice is formed into
+// them, using the same check()/g_failures idiom this file (and every
+// other Phase 6 test file) already uses -- not a new abstraction.
+void run_logits_bounds_hostile_selftest() {
+    std::printf("=== Gate 1 self-test: logits bounds-check ordering ===\n");
+    auto expect_throw = [](const std::string& name, const std::function<void()>& action) {
+        try {
+            action();
+            check(false, name + " (unexpectedly accepted malformed input)");
+        } catch (const std::exception&) {
+            check(true, name);
+        }
+    };
+    // Short logits buffer (one full 8-vocab row missing) -- the original
+    // bug would have formed logits.end()-vocab from a buffer shorter than
+    // vocab entirely (UB); here vocab=8 fits within a 16-element buffer
+    // but the buffer is short of the REQUIRED token_count*vocab=24.
+    expect_throw("short logits buffer (16 elements, requires 24) rejected before slicing", [] {
+        std::vector<float> short_logits(16, 1.0f);
+        (void)validate_and_slice_last_position_logits(short_logits, /*token_count=*/3, /*vocab=*/8, "selftest", "TEST");
+    });
+    // Completely empty logits buffer -- the original bug's end()-vocab on
+    // an empty vector is squarely undefined behavior.
+    expect_throw("empty logits buffer rejected before slicing", [] {
+        std::vector<float> empty_logits;
+        (void)validate_and_slice_last_position_logits(empty_logits, /*token_count=*/1, /*vocab=*/8, "selftest", "TEST");
+    });
+    // Oversized logits buffer (extra, unexpected trailing data) -- must be
+    // rejected as firmly as a short one; a silent "just take the last
+    // vocab elements" would mask real corruption/shape drift.
+    expect_throw("oversized logits buffer (40 elements, requires 24) rejected", [] {
+        std::vector<float> oversized_logits(40, 1.0f);
+        (void)validate_and_slice_last_position_logits(oversized_logits, /*token_count=*/3, /*vocab=*/8, "selftest", "TEST");
+    });
+    // Non-positive vocab -- must be rejected before any arithmetic uses it
+    // as a divisor/multiplicand.
+    expect_throw("non-positive vocab (0) rejected", [] {
+        std::vector<float> logits(8, 1.0f);
+        (void)validate_and_slice_last_position_logits(logits, /*token_count=*/1, /*vocab=*/0, "selftest", "TEST");
+    });
+    // Non-positive token_count.
+    expect_throw("non-positive token_count (0) rejected", [] {
+        std::vector<float> logits(8, 1.0f);
+        (void)validate_and_slice_last_position_logits(logits, /*token_count=*/0, /*vocab=*/8, "selftest", "TEST");
+    });
+    // Well-formed input must still be accepted and sliced correctly (the
+    // hostile cases above must not have made the function unusable for
+    // valid input).
+    {
+        std::vector<float> logits(24);
+        for (size_t i = 0; i < logits.size(); ++i) logits[i] = static_cast<float>(i);
+        const auto sliced = validate_and_slice_last_position_logits(logits, 3, 8, "selftest", "TEST");
+        const bool ok = sliced.size() == 8 && sliced[0] == 16.0f && sliced[7] == 23.0f;
+        check(ok, "well-formed logits buffer still slices correctly to the last vocab-sized row");
+    }
+    std::printf("\n");
+}
+}  // namespace
+
 int main(int argc, char** argv) {
+    run_logits_bounds_hostile_selftest();
+    if (g_failures != 0) {
+        std::fprintf(stderr, "Gate 1 self-test FAILED -- aborting before any model I/O\n");
+        return 1;
+    }
     if (argc != 4) {
         std::fprintf(stderr, "usage: phase6_q8_0_comparison F32.gguf Q8_0.gguf evidence_out.jsonl\n");
         return 2;
@@ -257,18 +375,22 @@ int main(int argc, char** argv) {
                 ContiguousAttentionKVStore q8_cache(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
                 const CachedStepResult f32_result = forward_cached_step(f32_model, f32_cache, pc.token_ids, 0);
                 const CachedStepResult q8_result = forward_cached_step(q8_model, q8_cache, pc.token_ids, 0);
-                const std::vector<float> f32_last(f32_result.logits.end() - cfg.vocab, f32_result.logits.end());
-                const std::vector<float> q8_last(q8_result.logits.end() - cfg.vocab, q8_result.logits.end());
+                const int64_t token_count = static_cast<int64_t>(pc.token_ids.size());
+                // Validates the FULL logits buffer's exact expected shape
+                // (token_count * vocab) BEFORE forming any slice into it --
+                // see validate_and_slice_last_position_logits()'s comment
+                // for why the original end()-vocab-before-checking order was
+                // unsafe on malformed/short output.
+                const std::vector<float> f32_last =
+                    validate_and_slice_last_position_logits(f32_result.logits, token_count, cfg.vocab, pc.id, "F32");
+                const std::vector<float> q8_last =
+                    validate_and_slice_last_position_logits(q8_result.logits, token_count, cfg.vocab, pc.id, "Q8_0");
 
-                // Fail closed: empty logits, and non-finite values in EITHER
-                // engine's output (previously only Q8_0 was checked).
-                if (f32_last.empty() || q8_last.empty()) {
-                    throw std::runtime_error(pc.id + ": empty logits vector");
-                }
-                if (f32_last.size() != static_cast<size_t>(cfg.vocab) ||
-                    q8_last.size() != static_cast<size_t>(cfg.vocab)) {
-                    throw std::runtime_error(pc.id + ": logits size does not match vocabulary size");
-                }
+                // Fail closed: non-finite values in EITHER engine's output
+                // (previously only Q8_0 was checked). Emptiness/shape are
+                // already guaranteed by validate_and_slice_last_position_
+                // logits() above (it throws rather than returning a short
+                // or empty slice), so this is finiteness-only now.
                 bool f32_finite = true, q8_finite = true;
                 for (float v : f32_last) { if (!std::isfinite(v)) { f32_finite = false; break; } }
                 for (float v : q8_last) { if (!std::isfinite(v)) { q8_finite = false; break; } }
@@ -289,6 +411,7 @@ int main(int argc, char** argv) {
                 const TopK q8_top5 = top_k(q8_last, 5);
                 const TopK f32_top5 = top_k(f32_last, 5);
                 const double q8_logsumexp = full_vocab_logsumexp(q8_last);
+                const double f32_logsumexp = full_vocab_logsumexp(f32_last);
                 const int64_t position = static_cast<int64_t>(pc.token_ids.size()) - 1;  // last-position comparison only
 
                 evidence << "{\"schema_version\":" << kMetricContractVersion
@@ -308,6 +431,7 @@ int main(int argc, char** argv) {
                         << ",\"top1_agree\":" << (s.top1_agree ? "true" : "false")
                         << ",\"top5_overlap\":" << s.top5_overlap
                         << ",\"q8_full_vocab_logsumexp\":" << precise(q8_logsumexp)
+                        << ",\"f32_full_vocab_logsumexp\":" << precise(f32_logsumexp)
                         << ",\"q8_top5_ids\":[";
                 for (size_t i = 0; i < q8_top5.ids.size(); ++i) {
                     evidence << q8_top5.ids[i] << (i + 1 < q8_top5.ids.size() ? "," : "");

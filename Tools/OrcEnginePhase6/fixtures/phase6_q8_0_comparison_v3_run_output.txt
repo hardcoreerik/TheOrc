@@ -1,0 +1,51 @@
+=== Gate 1 self-test: logits bounds-check ordering ===
+[PASS] short logits buffer (16 elements, requires 24) rejected before slicing
+[PASS] empty logits buffer rejected before slicing
+[PASS] oversized logits buffer (40 elements, requires 24) rejected
+[PASS] non-positive vocab (0) rejected
+[PASS] non-positive token_count (0) rejected
+[PASS] well-formed logits buffer still slices correctly to the last vocab-sized row
+
+=== Checkpoint 3: OrcEngine F32 vs Q8_0 real-model comparison ===
+model: vocab=49152 hidden=576 n_layers=30
+F32 artifact: F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf (653091040 bytes, expected sha256 fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac)
+Q8_0 artifact: F:/Ai/OrchestratorIDE-phase6-quantization/Tools/OrcEnginePhase6/fixtures/smollm2-135m-q8_0.gguf (174891296 bytes, expected sha256 3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398)
+
+--- DEV corpus ---
+[PASS] dev_capital_of_france: all F32 logits finite
+[PASS] dev_capital_of_france: all Q8_0 logits finite
+  dev_capital_of_france    max_abs=0.474636 max_rel=206.306824 rmse=0.090158 top1_agree=1 top5_overlap=4/5 (F32 selected=260, Q8_0 selected=260)
+[PASS] dev_once_upon_a_time: all F32 logits finite
+[PASS] dev_once_upon_a_time: all Q8_0 logits finite
+  dev_once_upon_a_time     max_abs=0.451204 max_rel=352.687927 rmse=0.098564 top1_agree=1 top5_overlap=5/5 (F32 selected=28, Q8_0 selected=28)
+[PASS] dev_code_snippet: all F32 logits finite
+[PASS] dev_code_snippet: all Q8_0 logits finite
+  dev_code_snippet         max_abs=0.486752 max_rel=269.942871 rmse=0.136269 top1_agree=1 top5_overlap=5/5 (F32 selected=253, Q8_0 selected=253)
+[PASS] dev_year_weather: all F32 logits finite
+[PASS] dev_year_weather: all Q8_0 logits finite
+  dev_year_weather         max_abs=0.404769 max_rel=4.202665 rmse=0.082194 top1_agree=1 top5_overlap=5/5 (F32 selected=523, Q8_0 selected=523)
+
+--- HOLDOUT corpus ---
+[PASS] holdout_hello_world: all F32 logits finite
+[PASS] holdout_hello_world: all Q8_0 logits finite
+  holdout_hello_world      max_abs=0.487471 max_rel=355.605469 rmse=0.162800 top1_agree=1 top5_overlap=5/5 (F32 selected=253, Q8_0 selected=253)
+[PASS] holdout_she_walked: all F32 logits finite
+[PASS] holdout_she_walked: all Q8_0 logits finite
+  holdout_she_walked       max_abs=0.485661 max_rel=168.417236 rmse=0.107477 top1_agree=1 top5_overlap=5/5 (F32 selected=3589, Q8_0 selected=3589)
+[PASS] holdout_quick_fox: all F32 logits finite
+[PASS] holdout_quick_fox: all Q8_0 logits finite
+  holdout_quick_fox        max_abs=1.079983 max_rel=413.943665 rmse=0.382465 top1_agree=1 top5_overlap=5/5 (F32 selected=27003, Q8_0 selected=27003)
+
+--- Tolerance derivation ---
+dev max_abs_error observed = 0.486752
+derived end-to-end tolerance (dev_max * 2.0x safety margin) = 0.973504
+holdout max_abs_error observed = 1.079983
+[FAIL] holdout set stays within the DEV-derived frozen tolerance (not re-derived, not widened)
+[PASS] top-1 (greedy) agreement between F32 and Q8_0 holds across every dev+holdout prompt
+
+--- Adversarial: multi-step cached decode through Q8_0 weights ---
+[PASS] 5-step cached decode through Q8_0 weights: committed cache LENGTH advances correctly at every step (same invariant this project already proves for F32; this does not independently verify cache content correctness)
+  final F32 continuation last token=198, Q8_0 continuation last token=198
+
+=== Summary ===
+1 FAILURES
