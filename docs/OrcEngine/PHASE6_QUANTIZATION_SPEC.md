@@ -88,7 +88,7 @@ In scope:
      end-to-end gate is established empirically, on a fixed development
      corpus and confirmed on a separate holdout corpus. See Section 3.3
      for the full corrected derivation and why the analytical-only
-     approach is insufficient by itself.).
+     approach is insufficient by itself.
   2. **The pinned external oracle** (`llama-tokenize.exe`'s sibling
      `llama.cpp` build, `b10436`, already version-pinned by SHA-256 in
      Phase 5B's `three_way_tokenizer_comparison.py` -- Phase 6 should
@@ -136,9 +136,11 @@ In scope:
      Q8×F32 (or Q8×Q8) compute path that never fully materializes an
      F32 copy, or (b) tightly-bounded on-demand block/layer
      dequantization with the transient F32 scratch honestly accounted
-     as scratch, not as reduced residency. BOTH are larger-scope,
-     genuinely open decisions this spec does NOT make -- see the new
-     Section 6 item 3.
+     as scratch, not as reduced residency. Both are larger-scope than
+     Stage 1 and deferred to an explicitly authorized future Stage 2;
+     WHICH of the two this project eventually pursues remains a
+     genuinely open decision this spec does not make -- see Section 6
+     item 3 for the resolved Stage 1/Stage 2 boundary itself.
   3. **Transient dequantization scratch** (if any -- Stage 1's
      block-by-block dequantization may or may not need scratch beyond
      the destination `std::vector<float>` itself; state explicitly
@@ -331,7 +333,12 @@ freeze-tag discipline every prior OrcEngine phase in this project has
 used (annotated tag, verified peeled target, verified prior freeze tags
 unchanged, push branch+tag only, no merge).
 
-## 6. Open questions for the maintainer (not resolved by this spec)
+## 6. Resolved implementation decisions and remaining Stage 2 deferrals
+
+Originally drafted as open questions; items 1-3 below are now resolved
+(hardening-consolidation pass, 2026-08-22) and recorded here for
+traceability rather than removed, since Stage 1 implementation must
+follow exactly what was decided, not re-derive it.
 
 1. **RESOLVED (hardening-consolidation pass, 2026-08-22): fixture
    provenance.** The canonical Q8_0 build of SmolLM2-135M will be

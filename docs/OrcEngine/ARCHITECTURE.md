@@ -177,7 +177,7 @@ timing. They describe actual engine activity, not interpretability claims.
 ## Memory model: a model is a logical address space, not a VRAM resident
 
 **Added 2026-08-15 and reconciled after Phase-2 freeze on 2026-08-16**
-(`Infinite_Model_Runtime_Claude_Handoff.md` steering review; see [Decision Log](DECISION_LOG.md) OE-ADR-019). This contract was originally assigned to Phase 6B. Phase 1/2 implemented its three storage identities earlier than planned, and proposed Phase 3 now tests temporary CPU residency. Multi-tier/device placement remains Phase 6B work. The contract is motivated by real evidence gathered in Phase 0's ablation-diagnostic tooling (`Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py`): Meta-Llama-3.1-8B, which failed to load under every full-residency approach tried in the same research session, completed a full forward-pass sweep using **3.17GB peak VRAM** by loading one transformer layer from disk, using it, and discarding it before loading the next. That is proof, not speculation, that "the model lives in VRAM" cannot be a foundational assumption OrcEngine's types bake in.
+(`Infinite_Model_Runtime_Claude_Handoff.md` steering review; see [Decision Log](DECISION_LOG.md) OE-ADR-019). This contract was originally assigned to Phase 6B (a name later reassigned -- Phase 6 now covers initial quantization, and this multi-tier/device-placement work is renumbered to Phase 7B in the reconciled roadmap). Phase 1/2 implemented its three storage identities earlier than planned, and proposed Phase 3 now tests temporary CPU residency. Multi-tier/device placement remains Phase 7B work. The contract is motivated by real evidence gathered in Phase 0's ablation-diagnostic tooling (`Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py`): Meta-Llama-3.1-8B, which failed to load under every full-residency approach tried in the same research session, completed a full forward-pass sweep using **3.17GB peak VRAM** by loading one transformer layer from disk, using it, and discarding it before loading the next. That is proof, not speculation, that "the model lives in VRAM" cannot be a foundational assumption OrcEngine's types bake in.
 
 **Thesis:** VRAM is a cache/execution tier, not synonymous with "the loaded model." RAM and NVMe are additional storage tiers. A logical tensor is not the same thing as its backing bytes, and is not the same thing as a currently-resident allocation.
 
@@ -199,8 +199,10 @@ proving that one large logical tensor can execute without a complete resident
 view. The engine requests contiguous logical rows; the source decides what
 bytes or decoding satisfy them. This contract does not imply columns, tiles,
 arbitrary multidimensional slices, quantization blocks, channels, or expert
-subspaces. No generic planner or cache is required for these proofs. Phase 6B remains the
-later point for multi-tier/device placement policy.
+subspaces. No generic planner or cache is required for these proofs. Multi-tier/
+device placement policy remains later work -- renumbered from Phase 6B to
+**Phase 7B** in the reconciled roadmap (Phase 6 itself was reassigned to initial
+quantization; see `ENGINEERING_ROADMAP.md`).
 
 Phase 3 also freezes a format boundary: streaming consumes a neutral
 `ModelSource` inventory and a `TensorMaterializer(LogicalTensor,
@@ -229,7 +231,7 @@ TheOrc already has `OrcScheduler` (`OrchestratorIDE/Core/Runtime/OrcScheduler.cs
 
 ### Four independent precision concepts
 
-Do not assume **source format == transport format == resident format == compute format.** Keep them as four independent choices from the start of Phase 6B's design, even though Phase 1-6A may set all four to the same value in practice:
+Do not assume **source format == transport format == resident format == compute format.** Keep them as four independent choices from the start of Phase 7B's design (multi-tier/device placement -- renumbered from Phase 6B in the reconciled roadmap), even though earlier phases may set all four to the same value in practice:
 
 - **Source format** — what the canonical GGUF actually stores (e.g. Q5_K).
 - **Transport format** — what moves over PCIe/disk I/O (may equal source format, avoiding an early decompress-then-recompress round trip).
