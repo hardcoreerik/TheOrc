@@ -166,9 +166,20 @@ def _verify_gguf_identity(gguf_path: str, expected_hash: str, evidence_field: st
     if actual_hash != expected_hash:
         sys.exit(f"ABORT: {label} GGUF SHA-256 {actual_hash} does not match the pinned authority "
                  f"{expected_hash} -- wrong or corrupted fixture.")
+    # Codex remediation round 3, Gate 3: EVERY evidence entry must carry
+    # its required artifact hash -- a MISSING field (or a present but
+    # null/empty one) was previously silently accepted, which defeats the
+    # purpose of cross-checking evidence against a pinned artifact for
+    # entries that simply omit the field.
     for entry in evidence_entries:
-        evidence_hash = entry.get(evidence_field)
-        if evidence_hash is not None and evidence_hash != expected_hash:
+        if evidence_field not in entry:
+            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} is missing required field "
+                     f"{evidence_field!r} -- cannot verify it was generated against the pinned "
+                     f"{label} artifact.")
+        evidence_hash = entry[evidence_field]
+        if not evidence_hash:
+            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} has a null/empty {evidence_field}.")
+        if evidence_hash != expected_hash:
             sys.exit(f"ABORT: evidence entry {entry.get('id')!r} records {evidence_field}="
                      f"{evidence_hash!r}, which does not match the pinned authority {expected_hash} -- "
                      f"evidence was generated against a different {label} file than this run is using.")

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -45,6 +46,28 @@ sys.path.insert(0, os.path.dirname(__file__))
 import phase6_llama_cpp_q8_0_oracle as oracle  # noqa: E402
 
 MIN_SCHEMA_VERSION_FOR_PAIRED_EVIDENCE = 3  # requires f32_full_vocab_logsumexp
+
+# Codex remediation round 3, Gate 4: the exact, fixed 7-prompt corpus this
+# paired tool requires -- matches the C++ evidence generator's kDevCorpus +
+# kHoldoutCorpus (phase6_q8_0_comparison.cpp) exactly. Not a general-
+# purpose "whatever's in the evidence file" tool: launching two real
+# server legs is expensive, so a malformed/duplicate/unexpected corpus
+# must be caught BEFORE either server starts, not discovered mid-run or
+# silently tolerated (duplicate IDs would otherwise overwrite entries in
+# the {id: result} dictionaries this tool builds).
+EXPECTED_PAIRED_CORPUS_IDS = (
+    "dev_capital_of_france", "dev_once_upon_a_time", "dev_code_snippet", "dev_year_weather",
+    "holdout_hello_world", "holdout_she_walked", "holdout_quick_fox",
+)
+
+# Fields this tool actually reads out of each evidence entry -- validated
+# present (Gate 4) so a malformed entry fails closed with a clear message
+# instead of a bare KeyError deep inside a multi-minute server run.
+_REQUIRED_ENTRY_FIELDS = (
+    "id", "text", "token_ids", "compared_position", "f32_artifact_sha256", "q8_artifact_sha256",
+    "f32_selected", "q8_selected", "f32_full_vocab_logsumexp", "q8_full_vocab_logsumexp",
+    "f32_top5_ids", "f32_top5_logits", "q8_top5_ids", "q8_top5_logits",
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -60,17 +83,68 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
-def _validate_v3_evidence(entries: list[dict]) -> None:
-    oracle._validate_evidence_schema(entries)
+def _validate_paired_corpus(entries: list[dict]) -> None:
+    """Codex remediation round 3, Gate 4: fails closed BEFORE either server
+    leg launches on: missing/duplicate/unexpected/empty prompt IDs, a
+    wrong total entry count, missing required fields, structurally
+    inconsistent top-5 id/logit lists, and non-finite required numerical
+    fields. Deliberately narrow -- validates only the specific facts this
+    tool actually depends on, not a general-purpose JSON schema."""
+    ids = [e.get("id") for e in entries]
+    empty_ids = [i for i, pid in enumerate(ids) if not pid]
+    if empty_ids:
+        sys.exit(f"ABORT: evidence contains {len(empty_ids)} entr(y/ies) with a missing/empty 'id' field "
+                 f"at index/indices {empty_ids}.")
+
+    if len(entries) != len(EXPECTED_PAIRED_CORPUS_IDS):
+        sys.exit(f"ABORT: evidence contains {len(entries)} entries, expected exactly "
+                 f"{len(EXPECTED_PAIRED_CORPUS_IDS)} (the fixed paired corpus).")
+
+    id_set = set(ids)
+    expected_set = set(EXPECTED_PAIRED_CORPUS_IDS)
+    missing = expected_set - id_set
+    if missing:
+        sys.exit(f"ABORT: evidence is missing expected corpus prompt ID(s): {sorted(missing)}")
+    unexpected = id_set - expected_set
+    if unexpected:
+        sys.exit(f"ABORT: evidence contains unexpected prompt ID(s) not in the fixed paired corpus: "
+                 f"{sorted(unexpected)}")
+    if len(ids) != len(id_set):
+        seen, duplicated = set(), set()
+        for pid in ids:
+            (duplicated if pid in seen else seen).add(pid)
+        sys.exit(f"ABORT: evidence contains duplicate prompt ID(s): {sorted(duplicated)}")
+
     for entry in entries:
+        pid = entry.get("id")
         if entry.get("schema_version", 0) < MIN_SCHEMA_VERSION_FOR_PAIRED_EVIDENCE:
-            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} has schema_version="
-                     f"{entry.get('schema_version')!r}, required >= "
-                     f"{MIN_SCHEMA_VERSION_FOR_PAIRED_EVIDENCE} (f32_full_vocab_logsumexp). "
+            sys.exit(f"ABORT: evidence entry {pid!r} has schema_version={entry.get('schema_version')!r}, "
+                     f"required >= {MIN_SCHEMA_VERSION_FOR_PAIRED_EVIDENCE} (f32_full_vocab_logsumexp). "
                      f"Regenerate evidence with the current phase6_q8_0_comparison.exe.")
-        if "f32_full_vocab_logsumexp" not in entry:
-            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} is missing "
-                     f"f32_full_vocab_logsumexp -- malformed v3 evidence.")
+
+        missing_fields = [f for f in _REQUIRED_ENTRY_FIELDS if f not in entry]
+        if missing_fields:
+            sys.exit(f"ABORT: evidence entry {pid!r} is missing required field(s): {missing_fields}")
+
+        if not entry["token_ids"]:
+            sys.exit(f"ABORT: evidence entry {pid!r} has an empty token_ids list.")
+
+        for precision in ("f32", "q8"):
+            ids_key, logits_key = f"{precision}_top5_ids", f"{precision}_top5_logits"
+            if len(entry[ids_key]) != len(entry[logits_key]):
+                sys.exit(f"ABORT: evidence entry {pid!r} has mismatched {ids_key}/{logits_key} lengths "
+                         f"({len(entry[ids_key])} vs {len(entry[logits_key])}).")
+            for v in entry[logits_key]:
+                if not math.isfinite(v):
+                    sys.exit(f"ABORT: evidence entry {pid!r} has a non-finite value in {logits_key}: {v!r}")
+
+        for logsumexp_key in ("f32_full_vocab_logsumexp", "q8_full_vocab_logsumexp"):
+            if not math.isfinite(entry[logsumexp_key]):
+                sys.exit(f"ABORT: evidence entry {pid!r} has a non-finite {logsumexp_key}: "
+                         f"{entry[logsumexp_key]!r}")
+
+    print(f"Paired corpus validated: exactly {len(EXPECTED_PAIRED_CORPUS_IDS)} unique expected prompt "
+          f"IDs present, all required fields structurally sound.")
 
 
 def _run_external_leg(server_path: str, gguf_path: str, entries: list[dict], label: str) -> dict[str, dict]:
@@ -121,7 +195,7 @@ def run(server_path: str, f32_gguf: str, q8_gguf: str, evidence_path: str, repor
         sys.exit(f"ABORT: evidence file not found at {evidence_path!r}")
     with open(evidence_path, encoding="utf-8") as f:
         entries = [json.loads(line) for line in f if line.strip()]
-    _validate_v3_evidence(entries)
+    _validate_paired_corpus(entries)
 
     oracle._verify_server_identity(server_path)
     oracle._verify_f32_gguf_identity(f32_gguf, entries)

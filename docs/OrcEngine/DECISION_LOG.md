@@ -3118,3 +3118,110 @@ does not authorize creating it. No transformer math (RoPE, attention,
 RMSNorm, residuals, position handling) was investigated or modified.
 FL-08 remains not started. Stopping here for Codex review, as
 instructed.
+
+## OE-ADR-044 — Evidence-harness and documentation closure (combined Codex-authority/Grok remediation, Commit A)
+
+**Stale precision-swapped token (FIXED).** `STAGE2_STAGE3_STATUS.md`'s
+Stage 3 Q8-vs-Q8 table recorded `holdout_she_walked`'s llama.cpp result
+as `38734` -- that is the F32 value; the raw committed Q8-vs-Q8 report
+(`phase6_llama_cpp_q8_0_oracle_report.jsonl`) records `llama_argmax:
+9612` for that run. Corrected to `9612`. A full search of Phase 6
+documentation for other `38734`/`9612` occurrences found no other
+precision-swap errors -- the other two instances of this pair (in
+`PHASE6_GATE4_PAIRED_EVIDENCE.md` and this document's own OE-ADR-043)
+already correctly labeled each value by precision.
+
+**Dead internal references (FIXED).** Multiple "see the round-2
+remediation section below" references in `STAGE2_STAGE3_STATUS.md`
+pointed at a section that does not exist in that file. Corrected to
+explicit pointers at this document's OE-ADR-043 and
+`PHASE6_GATE4_PAIRED_EVIDENCE.md`, without duplicating the full Gate
+1-7 narrative into the status document.
+
+**Missing-evidence-hash silent acceptance (FIXED).**
+`_verify_gguf_identity()` in `phase6_llama_cpp_q8_0_oracle.py`
+previously only checked an evidence entry's artifact-hash field WHEN
+PRESENT (`entry.get(field)` with `is not None`) -- an entry that simply
+omitted the field passed silently. Now requires the field to be present
+and non-empty on every entry, aborting otherwise. 4 new regression
+tests (missing/null F32 hash, missing/null Q8 hash) added; existing
+wrong-hash and matching-hash tests preserved unchanged.
+
+**Exact seven-prompt paired corpus not enforced (FIXED).**
+`phase6_paired_four_way_evidence.py` previously validated schema
+version and `f32_full_vocab_logsumexp` presence but not the exact
+expected 7-prompt corpus -- a duplicate ID could silently overwrite
+entries in its `{id: result}` dictionaries. A new
+`_validate_paired_corpus()` (with a fixed `EXPECTED_PAIRED_CORPUS_IDS`
+tuple matching the C++ generator's own corpus exactly) fails closed,
+BEFORE either server leg launches, on: missing/duplicate/unexpected/
+empty prompt IDs, wrong total entry count, missing required fields (the
+14 fields this tool actually reads), mismatched top-5 id/logit list
+lengths, and non-finite required numerical fields. 12 new regression
+tests cover this.
+
+**Overstated shared-payload test name (FIXED).** The test named
+`test_q8_oracle_leg_and_f32_localization_leg_send_byte_identical_
+payloads` called `oracle._request_completion()` twice directly -- it
+proved that one function is deterministic, not that the two consuming
+MODULES were independently executed and compared. Renamed to
+`test_request_completion_emits_the_same_payload_on_every_call`. Added a
+separate `test_localizer_and_paired_tool_call_the_shared_request_
+completion_helper` that inspects both modules' SOURCE for the literal
+call `oracle._request_completion(` and asserts neither hand-constructs
+its own `"repeat_penalty"` payload -- the actual claim ("both legs use
+the one canonical helper") proven architecturally, without building a
+dependency-injection abstraction merely to preserve an overstated name.
+
+**Log-probability documentation overclaim (FIXED).**
+`PHASE6_GATE4_PAIRED_EVIDENCE.md` said log-probability comparisons "are
+reported... as diagnostic-only data" -- the structured report actually
+records the INGREDIENTS for such a comparison (llama.cpp's own top-5
+log-probabilities, OrcEngine's own top-5 raw logits, the matching
+full-vocabulary logsumexp) but does not itself emit a precomputed
+cross-engine comparison record. Corrected in place.
+
+**Incomplete `3589` follow-up recommendation (FIXED).** The prior
+recommendation proposed comparing llama.cpp's F32-vs-Q8_0 probability
+for OrcEngine's own selected token `3589` alongside `38734`/`9612` --
+`3589` does not appear in llama.cpp's own top-5 at either precision, so
+that comparison was never actually available from the existing
+evidence. Corrected to state precisely what IS available (`38734` vs
+`9612`, both present in llama.cpp's own top-5 at both precisions:
+F32 margin `38734` leads by ~0.208 nats; Q8_0 margin flips, `9612`
+leads by ~0.840 nats) and what obtaining `3589`'s value would actually
+require (a larger `n_probs`, a targeted single-token mechanism, or
+another run) -- described as quantization changing a near-tied
+llama.cpp ranking, explicitly neither an OrcEngine-Q8-defect claim nor
+an "ordinary harmless quantization" claim.
+
+**Both Phase 6 blockers made prominent (FIXED).** Added a "Two
+independent Phase 6 blockers" section to `STAGE2_STAGE3_STATUS.md` and
+a cross-reference at the top of `PHASE6_GATE4_PAIRED_EVIDENCE.md`,
+distinguishing the EXTERNAL blocker (Outcome B, this document's earlier
+entries) from the INTERNAL NUMERICAL blocker (the original Checkpoint 3
+finding, `CHECKPOINT3_STATUS.md`: DEV-derived tolerance `0.973504`
+failed on holdout, `holdout_quick_fox` observed `1.079983`, the
+comparison tool's own committed run output ends `1 FAILURES` --
+reconfirmed unchanged by the regenerated v3 evidence run, so this is
+not an artifact of any bug fixed since). Neither blocker is resolved by
+the other or by any positive result (7/7 internal top-token agreement,
+top-5 overlap, passing dequantization/layout tests) reported elsewhere.
+Tolerance was NOT widened; the holdout prompt was NOT moved or removed;
+the metric was NOT redefined.
+
+**Verification.** Full Python regression suite: 52 tests (35 from the
+prior remediation round + 4 missing/null-hash tests + 12 paired-corpus
+validation tests + 1 shared-helper architectural test), all PASS.
+Direct parse audit confirms the committed schema-v3 evidence file
+contains exactly 7 unique entries matching the expected corpus exactly.
+`git diff --check` clean. Per instruction, `test_q8_0_dequant`,
+`test_q8_0_real_fixture`, the real llama.cpp four-way server
+comparison, and the full Debug/Release/strict/ASan lanes were
+deliberately NOT rerun for this commit (Python/docs only, no C++ or
+model-execution behavior changed).
+
+**Disposition.** This is documentation/evidence-harness hardening only.
+No transformer math changed. Stages 4-6 remain not started.
+`orcengine-phase6-freeze` does not exist and this entry does not
+authorize creating it. FL-08 remains not started.

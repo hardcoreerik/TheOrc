@@ -179,6 +179,36 @@ class Q8GgufIdentityTests(unittest.TestCase):
         finally:
             os.remove(path)
 
+    def test_missing_q8_hash_field_aborts(self):
+        # Codex remediation round 3, Gate 3: a MISSING q8_artifact_sha256
+        # field must abort, not be silently accepted.
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".gguf", delete=False) as f:
+            f.write(b"fixture content")
+            path = f.name
+        try:
+            real_hash = hashlib.sha256(_read_bytes(path)).hexdigest()
+            with mock.patch.object(oracle, "EXPECTED_Q8_GGUF_SHA256", real_hash):
+                with self.assertRaises(SystemExit):
+                    oracle._verify_q8_gguf_identity(path, [{"id": "x"}])  # no q8_artifact_sha256 at all
+        finally:
+            os.remove(path)
+
+    def test_null_q8_hash_field_aborts(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".gguf", delete=False) as f:
+            f.write(b"fixture content")
+            path = f.name
+        try:
+            real_hash = hashlib.sha256(_read_bytes(path)).hexdigest()
+            with mock.patch.object(oracle, "EXPECTED_Q8_GGUF_SHA256", real_hash):
+                with self.assertRaises(SystemExit):
+                    oracle._verify_q8_gguf_identity(path, [{"id": "x", "q8_artifact_sha256": None}])
+                with self.assertRaises(SystemExit):
+                    oracle._verify_q8_gguf_identity(path, [{"id": "x", "q8_artifact_sha256": ""}])
+        finally:
+            os.remove(path)
+
 
 class PortIsolationTests(unittest.TestCase):
     """Covers: port/server isolation."""
@@ -391,6 +421,36 @@ class F32GgufIdentityTests(unittest.TestCase):
         finally:
             os.remove(path)
 
+    def test_missing_f32_hash_field_aborts(self):
+        # Codex remediation round 3, Gate 3: a MISSING f32_artifact_sha256
+        # field must abort, not be silently accepted.
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".gguf", delete=False) as f:
+            f.write(b"F32 fixture content")
+            path = f.name
+        try:
+            real_hash = hashlib.sha256(_read_bytes(path)).hexdigest()
+            with mock.patch.object(oracle, "EXPECTED_F32_GGUF_SHA256", real_hash):
+                with self.assertRaises(SystemExit):
+                    oracle._verify_f32_gguf_identity(path, [{"id": "x"}])  # no f32_artifact_sha256 at all
+        finally:
+            os.remove(path)
+
+    def test_null_f32_hash_field_aborts(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".gguf", delete=False) as f:
+            f.write(b"F32 fixture content")
+            path = f.name
+        try:
+            real_hash = hashlib.sha256(_read_bytes(path)).hexdigest()
+            with mock.patch.object(oracle, "EXPECTED_F32_GGUF_SHA256", real_hash):
+                with self.assertRaises(SystemExit):
+                    oracle._verify_f32_gguf_identity(path, [{"id": "x", "f32_artifact_sha256": None}])
+                with self.assertRaises(SystemExit):
+                    oracle._verify_f32_gguf_identity(path, [{"id": "x", "f32_artifact_sha256": ""}])
+        finally:
+            os.remove(path)
+
 
 class SharedCompletionPayloadTests(unittest.TestCase):
     """Codex remediation Gate 2: proves the Q8 and F32 legs use the exact
@@ -411,12 +471,22 @@ class SharedCompletionPayloadTests(unittest.TestCase):
         self.assertEqual(payload["presence_penalty"], 0.0)
         self.assertEqual(payload["frequency_penalty"], 0.0)
 
-    def test_q8_oracle_leg_and_f32_localization_leg_send_byte_identical_payloads(self):
-        # Both _request_completion (used by the Q8 oracle's run()) and the
-        # F32 localizer's run() call the SAME oracle._request_completion,
-        # which calls the SAME build_completion_payload(). Prove this by
-        # intercepting the actual HTTP request each makes and comparing
-        # the JSON bodies byte-for-byte, for the same prompt/n_probs.
+    def test_request_completion_emits_the_same_payload_on_every_call(self):
+        # Codex remediation round 3, Gate 5: the ORIGINAL test name
+        # ("test_q8_oracle_leg_and_f32_localization_leg_send_byte_
+        # identical_payloads") overclaimed what this test proves -- it
+        # calls oracle._request_completion() twice directly, which proves
+        # that ONE function is deterministic given the same inputs, not
+        # that the Q8 oracle module and the F32 localizer module were
+        # independently executed and compared. Renamed to say exactly
+        # what it demonstrates. The actual "both legs use the one
+        # canonical helper" claim is architectural (both modules call
+        # oracle._request_completion() by name, not a hand-copied
+        # payload) and is checked separately below by
+        # test_localizer_and_paired_tool_call_the_shared_request_
+        # completion_helper, which inspects their SOURCE for that call
+        # rather than re-deriving a dependency-injection abstraction just
+        # to preserve an overstated test name.
         captured = []
 
         class _FakeResponse:
@@ -444,6 +514,24 @@ class SharedCompletionPayloadTests(unittest.TestCase):
 
         self.assertEqual(len(captured), 2)
         self.assertEqual(captured[0], captured[1])  # byte-identical request bodies
+
+    def test_localizer_and_paired_tool_call_the_shared_request_completion_helper(self):
+        # The actual "single canonical completion helper" architectural
+        # claim: both consuming modules call oracle._request_completion()
+        # by name (which itself calls build_completion_payload()) rather
+        # than maintaining their own separate request-construction code.
+        # Source-level evidence, not a dependency-injection abstraction
+        # built solely to make a test name true.
+        tools_dir = os.path.join(os.path.dirname(__file__), "..", "tools")
+        for module_file in ("phase6_localize_f32_divergence.py", "phase6_paired_four_way_evidence.py"):
+            with open(os.path.join(tools_dir, module_file), encoding="utf-8") as f:
+                source = f.read()
+            self.assertIn("oracle._request_completion(", source,
+                          f"{module_file} must call the shared oracle._request_completion() helper, "
+                          f"not a separately hand-written request payload")
+            self.assertNotIn('"repeat_penalty"', source,
+                             f"{module_file} must not hand-construct its own neutral-payload dict -- "
+                             f"that construction belongs solely in build_completion_payload()")
 
 
 class ExpectedPromptSetTests(unittest.TestCase):
@@ -485,6 +573,104 @@ class ExpectedPromptSetTests(unittest.TestCase):
         entries.append(self._entry("some_other_prompt_not_targeted"))
         result = localizer._select_expected_entries(entries)
         self.assertEqual(set(result.keys()), set(localizer.EXPECTED_PROMPT_IDS))
+
+
+class PairedCorpusValidationTests(unittest.TestCase):
+    """Codex remediation round 3, Gate 4: phase6_paired_four_way_evidence's
+    _validate_paired_corpus() must fail closed on a malformed/wrong-sized
+    corpus BEFORE either server leg launches."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+        import phase6_paired_four_way_evidence as paired  # noqa: E402
+        self.paired = paired
+
+    def _entry(self, prompt_id: str, **overrides) -> dict:
+        e = {
+            "schema_version": 3, "id": prompt_id, "text": "x", "token_ids": [1, 2],
+            "compared_position": 1, "f32_artifact_sha256": "a" * 64, "q8_artifact_sha256": "b" * 64,
+            "f32_selected": 5, "q8_selected": 5,
+            "f32_full_vocab_logsumexp": 10.0, "q8_full_vocab_logsumexp": 10.0,
+            "f32_top5_ids": [5, 6], "f32_top5_logits": [3.0, 2.0],
+            "q8_top5_ids": [5, 6], "q8_top5_logits": [3.0, 2.0],
+        }
+        e.update(overrides)
+        return e
+
+    def _valid_corpus(self) -> list[dict]:
+        return [self._entry(pid) for pid in self.paired.EXPECTED_PAIRED_CORPUS_IDS]
+
+    def test_valid_exact_seven_prompt_corpus_passes(self):
+        self.paired._validate_paired_corpus(self._valid_corpus())  # must not raise
+
+    def test_schema_version_below_3_aborts(self):
+        entries = self._valid_corpus()
+        entries[0]["schema_version"] = 2
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_missing_f32_full_vocab_logsumexp_aborts(self):
+        entries = self._valid_corpus()
+        del entries[0]["f32_full_vocab_logsumexp"]
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_missing_prompt_aborts(self):
+        entries = self._valid_corpus()[:-1]  # drop one, now only 6 entries
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_duplicate_prompt_aborts(self):
+        entries = self._valid_corpus()[:-1]  # 6 entries
+        entries.append(self._entry(self.paired.EXPECTED_PAIRED_CORPUS_IDS[0]))  # duplicate, still 7 total
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_unexpected_prompt_aborts(self):
+        entries = self._valid_corpus()[:-1]  # 6 entries
+        entries.append(self._entry("some_prompt_not_in_the_fixed_corpus"))  # still 7 total, but wrong ID
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_missing_f32_hash_field_aborts(self):
+        entries = self._valid_corpus()
+        del entries[0]["f32_artifact_sha256"]
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_missing_q8_hash_field_aborts(self):
+        entries = self._valid_corpus()
+        del entries[0]["q8_artifact_sha256"]
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_mismatched_top5_id_logit_lengths_aborts(self):
+        entries = self._valid_corpus()
+        entries[0]["f32_top5_ids"] = [5, 6, 7]  # 3 ids but only 2 logits
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_non_finite_logsumexp_aborts(self):
+        entries = self._valid_corpus()
+        entries[0]["q8_full_vocab_logsumexp"] = float("nan")
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+        entries2 = self._valid_corpus()
+        entries2[0]["f32_full_vocab_logsumexp"] = float("inf")
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries2)
+
+    def test_empty_id_aborts(self):
+        entries = self._valid_corpus()
+        entries[0]["id"] = ""
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
+
+    def test_wrong_total_entry_count_aborts(self):
+        entries = self._valid_corpus()
+        entries.append(self._entry("an_eighth_prompt"))  # 8 entries, wrong count
+        with self.assertRaises(SystemExit):
+            self.paired._validate_paired_corpus(entries)
 
 
 class ReportWriteFailureTests(unittest.TestCase):

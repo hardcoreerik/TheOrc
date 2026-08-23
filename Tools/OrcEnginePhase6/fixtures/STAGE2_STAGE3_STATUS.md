@@ -30,6 +30,41 @@ tolerance-adjusted, not corpus-expanded to dilute it. Stages 4, 5, and
 validation matrix) are NOT started, per instruction, because Stage 3
 did not pass.
 
+## Two independent Phase 6 blockers (kept prominent; neither is fixed by the other)
+
+Phase 6 Stage 1 is currently blocked by TWO separate, independent
+findings. Recent work has concentrated on the first; the second (found
+first, in the original Checkpoint 3 run) remains equally unresolved and
+must not be allowed to fade from view just because attention moved on.
+
+1. **External blocker**: OrcEngine F32 and llama.cpp F32 disagree on 3
+   of 7 prompts (see above and `PHASE6_GATE4_PAIRED_EVIDENCE.md`), so
+   external Q8_0 correctness cannot yet be cleanly attributed or judged
+   -- Outcome B.
+2. **Internal numerical blocker** (original Checkpoint 3 finding,
+   `CHECKPOINT3_STATUS.md`, still standing, never resolved): the frozen
+   DEV-derived F32-vs-Q8_0 error tolerance **failed on holdout**:
+   - DEV-derived tolerance: `0.973504`
+   - `holdout_quick_fox` observed `max_abs_error`: `1.079983`
+   - `phase6_q8_0_comparison.exe`'s own committed run output ends with
+     `1 FAILURES` (see
+     `phase6_q8_0_comparison_v3_run_output.txt`, regenerated after the
+     round-2/round-3 remediation fixes and STILL showing this exact
+     same failure -- confirming it is not an artifact of the fixed
+     bugs).
+
+**These two blockers are independent of each other and neither is
+resolved by the other.** Positive results elsewhere in this project
+remain valid but do NOT override either blocker:
+- 7/7 OrcEngine internal F32-vs-Q8_0 TOP-TOKEN agreement (a narrower
+  claim than "the logits match within tolerance").
+- 5/5 (or 4/5) top-5 overlap on most prompts.
+- Checkpoints 1-2's passing dequantization/layout/mixed-format tests.
+
+Per instruction: do not widen the `0.973504` tolerance, move
+`holdout_quick_fox` between DEV/HOLDOUT, remove it from the corpus, or
+redefine the error metric to make this blocker disappear.
+
 ## Stage 2: oracle correctness -- COMPLETE and VALIDATED
 
 The original `phase6_llama_cpp_q8_0_oracle.py` had a mathematically
@@ -73,22 +108,23 @@ corrected:
      (`phase6_q8_0_comparison.cpp`, `Tools/OrcEnginePhase2/src/gguf.cpp`):
      F32/Q8 model config mismatch, vocab/logits size mismatch, empty
      logits, non-finite logits (both engines), evidence file
-     open/write/close failure, and (added in the round-2 remediation
-     below) the logits-bounds-check ordering fix. These are verified by
-     C++ self-tests compiled into the tool itself and by running the
-     real tool against real models -- there is no separate C++ test
-     BINARY for this specific tool; see the round-2 remediation section
-     for how the bounds-check fix's own hostile self-test is exercised.
+     open/write/close failure, and (added in the Codex remediation
+     round documented in `docs/OrcEngine/DECISION_LOG.md` OE-ADR-043)
+     the logits-bounds-check ordering fix. These are verified by C++
+     self-tests compiled into the tool itself and by running the real
+     tool against real models -- there is no separate C++ test BINARY
+     for this specific tool; see OE-ADR-043 for how the bounds-check
+     fix's own hostile self-test is exercised.
    - **Owned and enforced by the Python oracle/localizer**
      (`phase6_llama_cpp_q8_0_oracle.py`,
      `phase6_localize_f32_divergence.py`): server executable/impl-DLL
      hash and version verification, Q8_0/F32 GGUF hash verification,
      evidence schema_version/required-field validation, port isolation,
      process-liveness-before-health checking, token-ID identity
-     verification against the live server, and (round-2) the shared
+     verification against the live server, and (OE-ADR-043) the shared
      neutral completion payload and expected-prompt-set validation.
-     These, and ONLY these, are what the 35 Python regression tests
-     below actually exercise.
+     These, and ONLY these, are what the Python regression tests below
+     actually exercise.
 6. **No arbitrary tolerance was fabricated.** No prior empirically-
    derived Q8-vs-Q8 log-probability floor exists anywhere in this
    project; the only prior cross-engine tolerance
@@ -100,14 +136,17 @@ corrected:
    greedy (argmax) agreement. Log-probability diffs are reported as
    diagnostic evidence only.
 
-35 targeted Python regression tests
-(`tests/test_phase6_llama_cpp_q8_0_oracle.py`; 21 from the first
-remediation pass, 14 added in round 2) cover exactly the Python-owned
-checks listed above -- **not** the C++ evidence generator's own
-config/logits-shape/finite-value/stream-close behavior, which has no
-separate Python or C++ test binary and is instead verified by the C++
-tool's own compiled-in self-test (round 2) plus running the real tool
-against real models. All 35 PASS.
+Targeted Python regression tests
+(`tests/test_phase6_llama_cpp_q8_0_oracle.py`) cover exactly the
+Python-owned checks listed above -- **not** the C++ evidence
+generator's own config/logits-shape/finite-value/stream-close behavior,
+which has no separate Python or C++ test binary and is instead verified
+by the C++ tool's own compiled-in self-test (see OE-ADR-043) plus
+running the real tool against real models. Exact current test count and
+pass/fail result: see the latest OE-ADR entry in
+`docs/OrcEngine/DECISION_LOG.md` (test counts are recorded per
+remediation commit there rather than duplicated and re-edited in this
+file every time a test is added).
 
 ## Stage 3: corrected Q8-vs-Q8 oracle run -- RAN, FAILED its own gate
 
@@ -124,7 +163,7 @@ Structured per-prompt report: `phase6_llama_cpp_q8_0_oracle_report.jsonl`.
 | dev_code_snippet | yes | yes |
 | dev_year_weather | yes | **NO** (orc=523, llama=436) |
 | holdout_hello_world | yes | yes |
-| holdout_she_walked | yes | **NO** (orc=3589, llama=38734) |
+| holdout_she_walked | yes | **NO** (orc=3589, llama=9612) |
 | holdout_quick_fox | yes | **NO** (orc=27003, llama=28) |
 
 Token-ID identity: **7/7 exact match** -- both engines definitely
@@ -137,7 +176,7 @@ corpus to dilute the failure rate.
 ## Localization: a pre-existing F32 divergence exists, but it does not clear Q8_0 (corrected)
 
 `tools/phase6_localize_f32_divergence.py` (committed, since further
-hardened -- see the round-2 remediation section below): re-requests
+hardened -- see `docs/OrcEngine/DECISION_LOG.md` OE-ADR-043): re-requests
 each of the 3 disagreeing prompts from the SAME pinned
 `llama-server.exe`, but against the pinned **F32** GGUF (no
 quantization involved at all), with every optional sampling bias
@@ -178,7 +217,7 @@ validation because those used a different, narrower prompt corpus;
 Phase 6 Checkpoint 3's corpus is the first to exercise these specific
 prompts against an independent oracle.
 
-See the round-2 remediation section below and
+See `docs/OrcEngine/DECISION_LOG.md` OE-ADR-043 and
 `PHASE6_GATE4_PAIRED_EVIDENCE.md` for the corrected, controlled,
 full-corpus four-way comparison that supersedes the informal 3-prompt
 localization above as the authoritative account.

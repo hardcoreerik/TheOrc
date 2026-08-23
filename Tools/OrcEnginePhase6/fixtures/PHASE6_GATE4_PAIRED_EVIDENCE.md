@@ -7,6 +7,14 @@ account of the relationship between OrcEngine's F32/Q8_0 internal
 consistency and its external agreement with the pinned llama.cpp
 oracle.
 
+**This document covers the EXTERNAL blocker only.** Phase 6 Stage 1 has
+a SECOND, independent, still-unresolved blocker -- the DEV-derived
+internal F32-vs-Q8_0 error tolerance (`0.973504`) failing on holdout
+(`holdout_quick_fox` observed `1.079983`; see
+`STAGE2_STAGE3_STATUS.md`'s "Two independent Phase 6 blockers" section
+and `CHECKPOINT3_STATUS.md`). Neither blocker resolves the other; both
+must clear before Phase 6 Stage 1 can proceed.
+
 ## How this was produced
 
 `tools/phase6_paired_four_way_evidence.py`, run against:
@@ -81,33 +89,67 @@ prompts are both real, but `holdout_she_walked`'s differing llama.cpp
 selections across precision is a genuine differential that a pure
 "pre-existing F32 bug, Q8_0 innocent" story does not fully explain.
 
-## Recommended next smallest localization experiment
+## Recommended next smallest localization experiment (corrected)
 
-Per Outcome B's instruction to recommend the next smallest step without
-changing transformer math in this pass: isolate `holdout_she_walked`
-specifically (prompt "She walked into the", token IDs
-`[8113, 13197, 618, 260]`) and compare llama.cpp's own reported
-per-position log-probabilities/logits at F32 vs Q8_0 for the SAME small
-set of candidate tokens (e.g. `38734`, `9612`, and OrcEngine's own
-`3589`) to see whether the F32-vs-Q8_0 shift on llama.cpp's side is a
-large, qualitative change (suggesting a real Q8_0-side numerical
-sensitivity at this position) or a small, close-call perturbation
-(consistent with ordinary quantization noise nudging an already-close
-decision across a near-tie). This is a read-only, no-transformer-math-
-change diagnostic using already-verified tooling (the paired script's
-`llama_f32_top5`/`llama_q8_top5` fields, already captured in
-`phase6_paired_four_way_report.jsonl`, are sufficient to start this
-without a new run).
+**Corrected scope.** An earlier draft of this recommendation proposed
+comparing llama.cpp's F32-vs-Q8_0 probabilities for `38734`, `9612`,
+AND OrcEngine's own selected token `3589`. That third comparison is not
+actually available from the existing evidence: `3589` does not appear
+in llama.cpp's own top-5 at EITHER precision (see
+`llama_f32_top5`/`llama_q8_top5` in `phase6_paired_four_way_report.jsonl`
+for `holdout_she_walked`), so llama.cpp's log-probability for `3589` was
+never captured and cannot be read off from what was already run.
+Obtaining it would require a larger `n_probs` (to widen the reported
+top-k until `3589` is included), a targeted single-token-logit request
+mechanism, or another server run -- not something this pass's existing
+data supports.
+
+**What the existing evidence DOES support**: comparing llama.cpp's own
+`38734` vs `9612` margin across precisions, since both tokens appear in
+llama.cpp's own top-5 at BOTH F32 and Q8_0. Read directly from
+`phase6_paired_four_way_report.jsonl` (`holdout_she_walked`):
+
+- **llama.cpp F32**: `38734` at `-3.8839` nats, `9612` at `-4.0915`
+  nats -- `38734` leads by **~0.208 nats**.
+- **llama.cpp Q8_0**: `9612` at `-3.5354` nats, `38734` at `-4.3757`
+  nats -- the ranking FLIPS, with `9612` now leading by **~0.840
+  nats**.
+
+**How to describe this, precisely**: Q8_0 quantization changes a
+near-tied llama.cpp ranking between two candidate tokens (a ~0.208-nat
+F32 margin, well within plausible quantization-noise range) into a
+larger, ~0.840-nat Q8_0 margin favoring the OTHER candidate. This is
+**not** described as proof of an OrcEngine Q8_0 defect (llama.cpp's own
+Q8_0 leg is what shifted here, not OrcEngine's), and it is **not**
+described as ordinary/harmless quantization either (a rank flip on a
+near-tie is exactly the kind of behavior that would need further
+localization before being dismissed as harmless). It is reported as an
+open, unresolved observation.
+
+**Recommended next smallest step**: if `3589` needs to be included in
+future localization, rerun the paired script's F32/Q8_0 completion
+requests for `holdout_she_walked` specifically with a larger `n_probs`
+(e.g. 20-50) so `3589`'s log-probability is actually captured on the
+llama.cpp side, rather than assuming it would follow the same pattern
+as `38734`/`9612`. This is a read-only, no-transformer-math-change
+diagnostic; it is explicitly NOT performed in this pass.
 
 ## What this does NOT claim
 
 - Does not describe the top-5 evidence as full-distribution
-  equivalence -- log-probability comparisons are reported (where
-  computable) as diagnostic-only data with the correct full-vocabulary
-  logsumexp for the matching precision (`f32_full_vocab_logsumexp`/
-  `q8_full_vocab_logsumexp`, both present in the v3 evidence and
-  referenced in the structured report), never approximated for a token
-  outside the relevant top-5 slice.
+  equivalence. **Corrected wording** (an earlier draft overstated this):
+  the report records the required INGREDIENTS for a diagnostic log-
+  probability comparison -- llama.cpp's own top-5 log-probabilities
+  (`llama_f32_top5`/`llama_q8_top5`), OrcEngine's own top-5 raw logits
+  (`orc_f32_top5_ids`/`orc_f32_top5_logits`/`orc_q8_top5_ids`/
+  `orc_q8_top5_logits`), and the correct full-vocabulary logsumexp for
+  the matching precision (`f32_full_vocab_logsumexp`/
+  `q8_full_vocab_logsumexp`) -- it does NOT itself emit a precomputed
+  cross-engine comparison record. A diagnostic comparison CAN be
+  computed from these ingredients (exactly as `oracle._log_softmax_at`
+  already does elsewhere in this codebase), and only where the
+  candidate token appears in OrcEngine's own top-5 slice for that
+  precision -- never approximated for a token outside it.
 - Does not invent or apply an external log-probability tolerance.
 - Does not conclude Q8_0 is defect-free, and does not conclude Q8_0 is
   the sole cause either -- both would be overclaims this evidence does
