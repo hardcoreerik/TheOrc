@@ -208,6 +208,21 @@ int main(int argc, char** argv) {
             }
             check(rejected, "new_len exceeding workspace.max_tokens_per_step() rejected");
         }
+        {
+            // Independent-review follow-up (Gemini/PR#103 finding 1.1, applied
+            // here too since forward_cached_step_workspace has its own
+            // embedding_lookup call site): out-of-vocab token IDs must be
+            // rejected cleanly, not reach embedding_lookup's raw indexing.
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            ActivationWorkspace ws3(cfg.hidden, cfg.intermediate, q_dim, kv_dim, cfg.vocab, max_tokens_per_step);
+            bool rejected = false;
+            try {
+                forward_cached_step_workspace(fx.model, c, {cfg.vocab}, 0, ws3);  // off-by-one at vocab
+            } catch (const std::exception&) {
+                rejected = true;
+            }
+            check(rejected, "workspace path: token ID == vocab (off-by-one) rejected");
+        }
 
         std::printf("\n=== Summary ===\n");
         if (g_failures == 0) {

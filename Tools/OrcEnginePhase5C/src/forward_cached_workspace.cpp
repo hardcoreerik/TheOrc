@@ -55,6 +55,19 @@ CachedStepResult forward_cached_step_workspace_unsafe_explicit_position(
         workspace.vocab() != cfg.vocab) {
         throw std::runtime_error("forward_cached_step_workspace: workspace dimensions do not match model config");
     }
+    // Same fail-closed-before-mutation vocab bounds check Phase 5A's own
+    // forward_cached_step_unsafe_explicit_position added (independent-review
+    // follow-up, Gemini/PR#103 finding 1.1) -- this driver calls
+    // ops::embedding_lookup too, which is now also hardened as the last
+    // line of defense, but checking here gives a clearer
+    // "forward_cached_step_workspace"-attributed error before any per-layer
+    // work or cache write.
+    for (int64_t token : new_token_ids) {
+        if (token < 0 || token >= cfg.vocab) {
+            throw std::invalid_argument("forward_cached_step_workspace: token ID " + std::to_string(token) +
+                                        " is outside vocabulary [0, " + std::to_string(cfg.vocab) + ")");
+        }
+    }
 
     const int64_t hidden = cfg.hidden;
 

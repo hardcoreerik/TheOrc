@@ -241,6 +241,24 @@ CachedStepResult forward_cached_step_unsafe_explicit_position(
         cache.head_dim() != cfg.head_dim) {
         throw std::runtime_error("forward_cached_step_unsafe_explicit_position: cache shape does not match model config");
     }
+    // Explicit, clearly-attributed vocab bounds check before any work happens
+    // (independent-review follow-up, Gemini/PR#103 finding 1.1). The frozen
+    // non-cached forward() path validates this via validate_forward_inputs();
+    // this cached-decode path never called that or an equivalent, so an
+    // out-of-vocab token ID would previously reach ops::embedding_lookup's
+    // raw table[token*hidden+h] indexing unchecked -- an out-of-bounds heap
+    // read. ops::embedding_lookup itself was ALSO hardened with the same
+    // check as the last line of defense for every OTHER caller; this check
+    // is kept here too, both for a clearer "forward_cached_step"-attributed
+    // error message and because checking before any per-layer work begins
+    // is this project's established fail-closed-before-mutation discipline.
+    for (int64_t token : new_token_ids) {
+        if (token < 0 || token >= cfg.vocab) {
+            throw std::invalid_argument("forward_cached_step_unsafe_explicit_position: token ID " +
+                                        std::to_string(token) + " is outside vocabulary [0, " +
+                                        std::to_string(cfg.vocab) + ")");
+        }
+    }
 
     const int64_t hidden = cfg.hidden;
 
