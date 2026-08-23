@@ -92,18 +92,58 @@ In scope:
      run directly against the Q8_0 GGUF, to confirm this project's own
      Q8_0 dequantization+forward path agrees with an independent,
      battle-tested implementation -- not just with itself.
-- Honest memory-reduction measurement: report actual resident bytes for
-  the F32 weights vs. actual resident bytes for the Q8_0 weights (via
-  the existing `ResidencyLedger`, extended to account a quantized
-  tensor's RESIDENT byte count as its quantized (compressed) size, not
-  its dequantized-on-the-fly F32 footprint -- the two are different
-  numbers and must not be conflated). No claimed compute-speed
-  improvement is in scope this phase; Phase 6 is a correctness and
-  memory-accounting milestone, not a performance one. If a dequantize-
-  then-compute path happens to be measured, report it the same way
-  Phase 5C's benchmark did -- isolated window, warm-up, repetitions,
-  median+spread, no promised outcome -- but do not make memory-
-  reduction claims depend on a performance number.
+- **Honest memory-reduction measurement, corrected 2026-08-22 after
+  independent review (Codex) caught a self-contradiction in an earlier
+  draft of this section.** The earlier draft proposed BOTH dequantizing
+  Q8_0 fully into the existing F32 `ResidentView`/`std::vector<float>`
+  (Section 4's implementation shape) AND reporting the Q8_0 tensor's
+  RESIDENT byte count as its compressed size via `ResidencyLedger`.
+  Those two claims cannot both be true: `ResidentView` owns exactly one
+  `std::vector<float>` (`Tools/OrcEnginePhase1/include/orcengine/
+  resident_view.hpp`) -- if a Q8_0 tensor is fully dequantized into
+  that buffer, its ACTUAL resident bytes are the F32-sized buffer, full
+  stop, regardless of what the ORIGINAL backing encoding was. Reporting
+  the compressed size as "resident" would be reporting a number nothing
+  in the actual running process reflects.
+  **Corrected model, three genuinely distinct quantities, none allowed
+  to stand in for another:**
+  1. **Backing bytes** (the GGUF file's on-disk footprint for that
+     tensor, and the bytes actually read from it during
+     materialization) -- Q8_0's backing IS smaller than F32's for the
+     same tensor (roughly 1/4, per Q8_0's 34-bytes-per-32-elements vs.
+     F32's 128-bytes-per-32-elements), and this reduction is REAL and
+     independent of what materialization does with those bytes
+     afterward. This is the only reduction Stage 1, as scoped below
+     (dequantize-to-F32 into the existing `ResidentView`), actually
+     achieves -- and it should be reported honestly as exactly that: a
+     smaller on-disk/backing footprint and less I/O during
+     materialization, NOT a smaller running-process memory footprint.
+  2. **Resident bytes** (what `ResidencyLedger` already tracks for the
+     F32 path) -- for a dequantize-to-F32 Stage 1, a Q8_0 tensor's
+     resident bytes after materialization are IDENTICAL to what an F32
+     tensor of the same shape would occupy. `ResidencyLedger` must
+     report this truthfully (no special-casing a quantized tensor's
+     resident accounting to look smaller than the buffer that actually
+     exists), and Stage 1's evidence must state plainly: **this Stage
+     does not reduce resident weight memory**, only backing/storage
+     footprint and file size. A genuine resident-memory reduction
+     requires either (a) a true Q8-resident representation with a
+     Q8×F32 (or Q8×Q8) compute path that never fully materializes an
+     F32 copy, or (b) tightly-bounded on-demand block/layer
+     dequantization with the transient F32 scratch honestly accounted
+     as scratch, not as reduced residency. BOTH are larger-scope,
+     genuinely open decisions this spec does NOT make -- see the new
+     Section 6 item 3.
+  3. **Transient dequantization scratch** (if any -- Stage 1's
+     block-by-block dequantization may or may not need scratch beyond
+     the destination `std::vector<float>` itself; state explicitly
+     whether it does, and if so, account it separately from both of the
+     above).
+  No claimed compute-speed improvement is in scope this phase; Phase 6
+  is a correctness and honest-accounting milestone, not a performance
+  one. If a dequantize-then-compute path happens to be measured, report
+  it the same way Phase 5C's benchmark did -- isolated window, warm-up,
+  repetitions, median+spread, no promised outcome.
 
 Explicitly out of scope, restated from the authorizing instruction:
 
@@ -151,30 +191,75 @@ blended pass/fail:
    alongside it, not invent a separate mechanism).
 2. **Dequantization correctness**: for a KNOWN input (a small, hand-
    computable or independently-cross-checked set of Q8_0 blocks with
-   known scale and quantized values), the dequantized F32 output matches
-   the expected value exactly (Q8_0 dequantization is `qi * scale`, a
-   deterministic, exactly-reproducible floating-point computation for a
-   given input -- "exactly" here means bit-for-bit against a
+   known STORED scale and quantized values), the dequantized F32 output
+   matches the expected value exactly (Q8_0 dequantization is
+   `qi * d_f16` -- the F16 scale as actually STORED in the block, not a
+   recomputed F32 scale; see Section 3.3's correction for why this
+   distinction matters -- a deterministic, exactly-reproducible
+   floating-point computation for a given input -- "exactly" here means
+   bit-for-bit against a
    hand-computed or Python-reference-computed expectation, not a
    tolerance-bounded approximation, since there is no rounding
    ambiguity in the dequantization formula itself).
-3. **End-to-end forward-pass correctness**: running the SAME model's
-   Q8_0-quantized weights through the existing (unmodified, frozen)
-   Phase 1/5A forward/cached-decode path produces logits within a
-   justified tolerance of the F32 reference's logits for the same
-   input, AND within a justified tolerance of the pinned llama.cpp
-   oracle's own Q8_0 forward pass for the same input. The tolerance
-   must be derived, not guessed: Q8_0's per-block quantization error is
-   bounded by half the block's scale value (`scale/2`, since int8
-   symmetric quantization rounds to the nearest representable level);
-   propagate that bound through the same matmul/rmsnorm error-
-   accumulation reasoning Phase 1's own differential-gate tolerances
-   already use as precedent (`Tools/OrcEnginePhase1/tests/
-   test_gates.cpp`'s existing tolerance-justification discipline), and
-   state the derived number explicitly in the implementation evidence
-   rather than reusing Phase 1/5A's F32-vs-F32 tolerances unmodified
-   (those were calibrated for a fundamentally different, near-lossless
-   comparison).
+3. **End-to-end forward-pass correctness**, tolerance derivation
+   corrected 2026-08-22 after independent review (Codex) found the
+   original `scale/2` premise incomplete for the pinned llama.cpp
+   `b10436` Q8_0 implementation specifically: that build computes an
+   F32 scale during quantization, quantizes the int8 values against
+   that F32 scale, but then STORES the scale as F16 -- dequantization
+   reads back the F16-rounded scale, not the original F32 one. A
+   per-weight error envelope that ignores this second rounding step
+   understates the true bound. The corrected envelope, for one
+   dequantized weight `w` with true block scale `d_f32` and stored
+   scale `d_f16`, quantized level `q`:
+
+   ```
+   |w - q*d_f16| <= d_f32/2 + |q|*|d_f32 - d_f16|
+   ```
+
+   the first term is the original int8-rounding bound, the second is
+   the additional error from the scale itself being F16-rounded. For
+   ONE matmul with fixed input activations `x`, the output error
+   propagates linearly: `|Δy_j| <= Σ_i |x_i| * |Δw_ji|`. That bound is
+   usable as a per-operation sanity check, but it does NOT extend
+   cleanly to a whole-model logit bound: after the first transformer
+   operation, the activations feeding every SUBSEQUENT layer are
+   themselves already perturbed by upstream quantization error, and
+   RMSNorm/SiLU/softmax/attention/residual paths are all nonlinear or
+   accumulate across positions -- a fully analytical end-to-end bound
+   through 30 layers of that is either intractable to derive honestly
+   or so conservative it stops being a meaningful gate. Given that,
+   Stage 1's tolerance strategy is:
+   - Use the per-operation analytical envelope above as a documented
+     SANITY bound (evidence that the dequantization+first-matmul error
+     is in the right ballpark, not a mystery number), NOT as the
+     end-to-end gate itself.
+   - **Require empirical validation as the actual end-to-end gate**:
+     run a fixed development corpus, measure the ACTUAL observed
+     max-absolute-error, relative error, RMSE, and selected-token
+     agreement between the Q8_0 forward pass and the F32 reference;
+     derive the gate's tolerance from that observed distribution (with
+     a documented safety margin), not from the analytical bound alone.
+     Confirm the gate holds on a SEPARATE holdout corpus not used to
+     derive it, so the tolerance isn't just curve-fit to the
+     development set.
+   - Report top-k logit stability (not just top-1/selected-token
+     agreement) where feasible -- a model can select the right token
+     while its broader logit distribution has already drifted more
+     than top-1 agreement alone would reveal.
+   - **Use a separately-justified, tighter tolerance for OrcEngine-Q8_0
+     vs. llama.cpp-Q8_0 than for OrcEngine-Q8_0 vs. F32.** The F32
+     comparison is inherently lossy (quantization vs. an unquantized
+     reference); the llama.cpp comparison is two implementations
+     applying the SAME lossy quantization scheme to the SAME weights,
+     which should agree far more tightly if both are dequantizing
+     correctly -- reusing the F32-vs-Q8 tolerance for this second
+     comparison would hide a real divergence between the two
+     implementations behind quantization noise's own margin.
+   Exact dequantization correctness (claim 2 above, `qi * d_f16` for a
+   known input) stays a SEPARATE, bit-exact claim -- it is never
+   weakened by, or conflated with, this lossy end-to-end agreement
+   claim.
 
 ## 4. Implementation shape (for the eventual Stage 1 commit -- not built this pass)
 
@@ -206,15 +291,24 @@ Phase 5C's OE-ADR-039/040 established as reusable precedent:
   every prior phase has used (`include/orcengine/`, `src/`, `tests/`,
   `tools/`), depending on Phase 1/Phase 2 the same way Phase 5A/5C
   already do, with its own `CMakeLists.txt`.
-- **`ResidencyLedger` extension**: a quantized tensor's resident-byte
-  accounting must report its actual quantized (compressed) resident
-  size, distinct from any dequantized-scratch footprint incurred during
-  a forward pass -- these are two different quantities and Phase 6's
-  evidence must report both separately, never blended into one number,
-  matching every prior phase's "never collapse distinct accounted
-  quantities" discipline (weight vs. KV-cache vs., now, Phase 5C's
-  activation-workspace bytes, vs. this phase's quantized-vs-dequantized
-  distinction).
+- **`ResidencyLedger` extension, corrected to match Section 2's fixed
+  memory model**: for Stage 1's dequantize-to-F32-into-`ResidentView`
+  approach, `ResidencyLedger` must report a materialized Q8_0 tensor's
+  RESIDENT bytes as its actual F32 buffer size -- the same as an F32
+  tensor of that shape -- NOT its compressed backing size (the earlier
+  draft's proposal to report compressed size as "resident" was the
+  self-contradiction Section 2 now documents and corrects). What the
+  ledger SHOULD newly report, honestly and separately, is the
+  BACKING/materialization-read byte count for that tensor (real,
+  smaller for Q8_0 than F32), clearly labeled as backing bytes, never
+  presented as or blended with resident bytes. If Stage 1's
+  dequantization needs any transient scratch beyond the destination
+  buffer, that is a third, separately-reported quantity. This keeps the
+  established "never collapse distinct accounted quantities" discipline
+  intact (weight residency vs. KV-cache residency vs. Phase 5C's
+  activation-workspace bytes vs., now, this phase's backing-vs-resident
+  distinction) rather than introducing a new number that looks like
+  residency but isn't.
 
 ## 5. Validation matrix (for the eventual Stage 1 commit)
 
@@ -236,17 +330,51 @@ unchanged, push branch+tag only, no merge).
 
 1. Which GGUF source produces the Q8_0 build of SmolLM2-135M to use as
    the canonical fixture -- re-quantize the existing pinned F32 GGUF
-   locally with a documented, reproducible tool invocation (preferred,
-   keeps full provenance under this project's control), or download a
-   pre-quantized artifact from a named, hash-pinned source (faster, but
-   inherits someone else's quantization tool's exact rounding
-   behavior, which then becomes part of what "correct" means for this
-   fixture)? This spec does not decide it -- Stage 1 implementation
-   should record whichever choice is made, with the same SHA-256-
-   pinning discipline every other fixture in this project already uses.
-2. Whether the end-to-end tolerance derivation in Section 3.3 should be
-   validated empirically (run many random inputs, observe the actual
-   error distribution, confirm it stays under the derived bound) before
-   being trusted as a gate, or whether the analytical bound alone is
-   sufficient evidence -- Phase 1's own differential-gate precedent used
-   both; Stage 1 should state which approach it took and why.
+   locally with the pinned `b10436` build's `llama-quantize` binary
+   (preferred, keeps full provenance under this project's control and
+   uses the exact same pinned implementation the oracle comparison
+   already relies on), or download a pre-quantized artifact from a
+   named, hash-pinned source (faster, but inherits someone else's
+   quantization tool's exact rounding behavior, which then becomes part
+   of what "correct" means for this fixture)? This spec does not decide
+   it -- Stage 1 implementation should record whichever choice is made,
+   with the same SHA-256-pinning discipline every other fixture in this
+   project already uses. **Addendum (Codex, 2026-08-22): llama.cpp's
+   own quantization tooling typically produces a MIXED-format model --
+   commonly leaving embeddings, norms, and sometimes the LM head as F32
+   or F16 while the transformer's matmul weights become Q8_0 -- not a
+   uniformly all-Q8_0 file.** Stage 1's fixture-provenance record and
+   `ResidencyLedger` memory report must describe the tensor-by-tensor
+   encoding actually present (a per-tensor manifest, not an assumption
+   that every tensor is Q8_0), and `materialize()`'s dispatch must
+   correctly route each tensor through its OWN actual encoding's path
+   (F32 tensors through the existing unmodified path, Q8_0 tensors
+   through the new one) rather than assuming a single encoding for the
+   whole model.
+2. **RESOLVED by Section 3.3's correction**, recorded here for
+   traceability: the end-to-end tolerance is NOT derived from the
+   analytical bound alone -- empirical validation (fixed development
+   corpus, held-out corpus, observed error distribution) is now the
+   required gate, with the analytical per-operation bound retained only
+   as a documented sanity check, not the gate itself.
+3. **New, raised by Codex's review: which resident-memory strategy does
+   Phase 6 target?** This spec's Stage 1, as corrected, deliberately
+   does NOT reduce resident weight memory -- it only reduces backing
+   (on-disk/materialization-read) bytes, by dequantizing fully into the
+   existing F32 `ResidentView` for format compatibility and correctness
+   proof. That keeps Stage 1 narrow, matching the "no generalized
+   framework, no speculative formats" constraint, and lets correctness
+   be established before any harder resident-memory work. But it means
+   Phase 6 Stage 1 alone does NOT close the "actual resident-memory
+   reduction" gap this phase's motivation (Section 1) implicitly
+   gestures at. Two paths exist for that gap, NEITHER decided here: (a)
+   a genuinely Q8-resident representation with a Q8×F32 (or Q8×Q8)
+   compute path that never fully materializes an F32 copy of the
+   weights, or (b) tightly-bounded on-demand block/layer dequantization
+   with transient F32 scratch honestly accounted as scratch. Both are
+   materially larger in scope than Stage 1 (a new compute path, or a
+   new streaming/caching discipline) and should be their own explicitly
+   authorized Stage 2, not something Stage 1 backs into implicitly.
+   Stage 1's evidence must state this limitation plainly rather than
+   let a smaller GGUF file size be read as "the model now uses less
+   memory to run."
