@@ -95,3 +95,22 @@ else()
     message(STATUS "Phase 6 Checkpoint 3 F32-vs-Q8_0 comparison: SKIPPED -- "
                    "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
 endif()
+
+# Gate 6 (Codex/Grok remediation round 4): bounded per-layer localization
+# of the internal DEV-derived F32-vs-Q8_0 tolerance failure on
+# holdout_quick_fox. A Phase-6-only diagnostic calling the existing
+# public execute_cached_transformer_layer() seam one layer at a time --
+# does not modify any frozen Phase 1-5C file. Same real-artifact gating
+# as Checkpoint 2/3.
+if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_Q8_0_GGUF)
+    message(STATUS "Phase 6 Gate 6 holdout_quick_fox layer localization: REGISTERED")
+    add_executable(phase6_holdout_quick_fox_layer_localization tools/phase6_holdout_quick_fox_layer_localization.cpp)
+    target_link_libraries(phase6_holdout_quick_fox_layer_localization PRIVATE orcengine_phase5a orcengine_phase2)
+    target_compile_options(phase6_holdout_quick_fox_layer_localization PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+else()
+    message(STATUS "Phase 6 Gate 6 holdout_quick_fox layer localization: SKIPPED -- "
+                   "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
+endif()

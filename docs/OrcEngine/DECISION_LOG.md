@@ -3438,3 +3438,64 @@ the external-comparison question. Stages 4-6 remain not started;
 `orcengine-phase6-freeze` does not exist and this entry does not
 authorize creating it; FL-08 remains not started. The internal Q8_0
 tolerance investigation (Gate 6) is a separate, subsequent step.
+
+## OE-ADR-048 — Internal Q8_0 tolerance failure localized: no implementation defect found, tolerance-derivation methodology confirmed inadequate (Commit 3)
+
+**Separate from the external llama.cpp question (OE-ADR-046/047).**
+The internal DEV-derived F32-vs-Q8_0 tolerance failure
+(`0.973504` vs. `holdout_quick_fox`'s observed `1.079983`) was
+reconfirmed unchanged with the corrected harness (v3 evidence,
+generated after this remediation's Gate 1 fix, still ends
+`1 FAILURES`). Not widened, not removed, not relabeled.
+
+**Localization.** A new Phase-6-only diagnostic,
+`tools/phase6_holdout_quick_fox_layer_localization.cpp`, calls the
+EXISTING public per-layer seam `execute_cached_transformer_layer()`
+(the shared math `forward_cached.hpp` documents as used identically by
+both the resident and virtualized decode paths) one layer at a time for
+both the F32 and Q8_0 models on `holdout_quick_fox`, reconstructing the
+same preamble/epilogue via existing public `ops::` functions. **No
+frozen Phase 1-5C file was modified.** Found: layers 0-10 show smooth,
+expected quantization-noise accumulation (RMSE `0.018 -> 0.112`); layer
+11 shows an isolated ~15x/~13x discontinuity (max abs diff, RMSE) far
+outside that trend; layers 12-26 plateau at the elevated level without
+further sharp compounding; layer 28 shows a second, larger isolated
+discontinuity; layer 29's error partially shrinks. The final
+output-projection `max_abs_error` (`1.079983`) reproduces the already-
+committed value EXACTLY via this completely independent code path.
+Both models still select the identical top-1 token (`27003`) despite
+the intermediate divergence. A weight-magnitude cross-check (same
+diagnostic, no extra I/O) found no clean correlation between a layer's
+own max-|weight| and whether it shows a discontinuity (layers 0-2 have
+comparable or higher weight magnitude than layer 11 with no
+discontinuity; layer 29 has unremarkable weight magnitude despite
+following the trace's largest jump) -- ruling out "this layer's weights
+are globally huge" as the sole explanation, though a per-block (not
+per-tensor) analysis was not attempted in this bounded pass.
+
+**Classification: no Q8_0 layout/dequantization/dispatch defect found.**
+The dispatch/dequantization code path is identical for every layer
+(already proven correct on synthetic and real fixtures, Checkpoints
+1-2); a defect there would be expected to manifest on every layer, not
+isolated to layers 11 and 28. Not classified as a comparison/evidence
+defect either -- the independent per-layer diagnostic reproduces the
+exact same committed number via a different code path. **The DEV-
+derived tolerance-DERIVATION METHODOLOGY (a flat `2.0x` multiplier of a
+4-prompt DEV maximum) is confirmed inadequate** for a per-block
+quantization-sensitivity tail this narrow and prompt-specific -- this
+is the same hypothesis the original Checkpoint 3 investigation raised
+without per-layer evidence; this pass supplies that evidence.
+
+**Disposition.** Per instruction, no new tolerance is derived from the
+already-exposed `holdout_quick_fox` result, no new DEV/HOLDOUT corpus
+is defined, and the acceptance gate is NOT changed -- the internal
+failure remains `FAILED` at `0.973504` vs `1.079983`, exactly as
+before this investigation. Revising the tolerance-derivation
+methodology (a larger DEV corpus, a statistically grounded derivation,
+a fresh previously-unused holdout) is explicitly out of scope for this
+pass and requires separate Codex-reviewed authorization before any
+acceptance-gate change. Full record:
+`Tools/OrcEnginePhase6/fixtures/PHASE6_GATE6_INTERNAL_TOLERANCE_LOCALIZATION.md`.
+Stages 4-6 remain not started; `orcengine-phase6-freeze` does not
+exist and this entry does not authorize creating it; FL-08 remains not
+started. Stopping here for Codex review, as instructed.
