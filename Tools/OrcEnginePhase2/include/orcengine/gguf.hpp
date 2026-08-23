@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -168,5 +169,32 @@ std::string metadata_string(const GgufArtifact& artifact, const std::string& key
 std::string gguf_encoding_name(GgufTensorEncoding encoding);
 std::string semantic_tensor_name(const SemanticTensorId& semantic);
 bool gguf_encoding_materializable(GgufTensorEncoding encoding);
+
+// Phase 6 Stage 1 addition (backward-compatible: does not modify any
+// existing F32/F16 declaration or behavior). Q8_0 block layout, per the
+// GGML/GGUF convention this project's own block_layout_for_encoding()
+// already recognizes for metadata purposes: kQ8_0BlockElements logical
+// float elements per block, kQ8_0BlockBytes stored bytes per block (a
+// 2-byte F16 scale followed by kQ8_0BlockElements signed int8 quantized
+// values -- no zero-point, no sub-block nesting).
+inline constexpr int64_t kQ8_0BlockElements = 32;
+inline constexpr int64_t kQ8_0BlockBytes = 34;
+
+// Scalar, reference-first Q8_0 dequantization -- separately named from any
+// future optimized path (none exists yet) so an optimized implementation
+// can later be differentially compared against this one, never silently
+// replace it as the correctness authority. Dequantizes `backing_bytes`
+// (exactly (element_count / kQ8_0BlockElements) * kQ8_0BlockBytes bytes,
+// no partial blocks -- GGML's Q8_0 requires element counts to be an exact
+// multiple of the block size) into `element_count` F32 values, using the
+// STORED F16-rounded scale actually present in each block
+// (`float(qi) * float(decoded_f16_scale)`) -- never a reconstructed or
+// assumed F32 scale. Fails closed (GgufError) before any read past the
+// declared backing on: element_count <= 0, element_count not a multiple
+// of kQ8_0BlockElements, block-count/byte-count arithmetic overflow, or
+// backing_bytes.size() not exactly equal to the required byte count
+// (catches truncated, oversized, and otherwise malformed extents).
+std::vector<float> dequantize_q8_0_scalar_reference(std::span<const uint8_t> backing_bytes,
+                                                     int64_t element_count);
 
 }  // namespace orcengine

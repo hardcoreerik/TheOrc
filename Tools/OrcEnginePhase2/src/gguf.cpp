@@ -561,7 +561,8 @@ std::string gguf_encoding_name(GgufTensorEncoding encoding) {
 }
 
 bool gguf_encoding_materializable(GgufTensorEncoding encoding) {
-    return encoding == GgufTensorEncoding::F32 || encoding == GgufTensorEncoding::F16;
+    return encoding == GgufTensorEncoding::F32 || encoding == GgufTensorEncoding::F16 ||
+           encoding == GgufTensorEncoding::Q8_0;
 }
 
 std::string semantic_tensor_name(const SemanticTensorId& semantic) {
@@ -707,19 +708,90 @@ ModelArtifactManifest map_llama_model(const GgufArtifact& artifact) {
     return manifest;
 }
 
+namespace {
+// Phase 6 Stage 1 addition (backward-compatible): the byte-length contract
+// used to be a single `elements * bytes_per_element` formula because only
+// per-element (F32/F16) encodings existed. Q8_0 is block-based (34 stored
+// bytes cover 32 elements), so this helper returns the CORRECT required
+// backing-byte count per encoding, without changing what F32/F16 compute
+// (still `elements * {4,2}` exactly as before).
+uint64_t required_backing_bytes_for_encoding(GgufTensorEncoding encoding, int64_t elements,
+                                             const std::string& tensor_name) {
+    if (encoding == GgufTensorEncoding::Q8_0) {
+        if (elements <= 0) {
+            throw GgufError("Q8_0 tensor '" + tensor_name + "' has a non-positive element count");
+        }
+        if (elements % kQ8_0BlockElements != 0) {
+            throw GgufError("Q8_0 tensor '" + tensor_name + "' element count " + std::to_string(elements) +
+                            " is not a multiple of the block size (" + std::to_string(kQ8_0BlockElements) +
+                            "); partial Q8_0 blocks are not supported");
+        }
+        const uint64_t block_count = static_cast<uint64_t>(elements) / static_cast<uint64_t>(kQ8_0BlockElements);
+        return checked_mul(block_count, static_cast<uint64_t>(kQ8_0BlockBytes),
+                           "Q8_0 required backing bytes for '" + tensor_name + "'");
+    }
+    const int64_t bytes_per_element = encoding == GgufTensorEncoding::F32 ? 4 : 2;
+    if (elements > std::numeric_limits<int64_t>::max() / bytes_per_element) {
+        throw GgufError("backing byte count overflow for tensor '" + tensor_name + "'");
+    }
+    return static_cast<uint64_t>(elements * bytes_per_element);
+}
+}  // namespace
+
+std::vector<float> dequantize_q8_0_scalar_reference(std::span<const uint8_t> backing_bytes,
+                                                     int64_t element_count) {
+    if (element_count <= 0) {
+        throw GgufError("Q8_0 dequantization requires a positive element_count");
+    }
+    if (element_count % kQ8_0BlockElements != 0) {
+        throw GgufError("Q8_0 dequantization requires element_count (" + std::to_string(element_count) +
+                        ") to be a multiple of " + std::to_string(kQ8_0BlockElements) +
+                        " (partial blocks are not supported by this encoding)");
+    }
+    const uint64_t block_count = static_cast<uint64_t>(element_count) / static_cast<uint64_t>(kQ8_0BlockElements);
+    const uint64_t required_bytes = checked_mul(block_count, static_cast<uint64_t>(kQ8_0BlockBytes),
+                                                "Q8_0 required backing bytes");
+    if (static_cast<uint64_t>(backing_bytes.size()) != required_bytes) {
+        throw GgufError("Q8_0 backing extent is " + std::to_string(backing_bytes.size()) +
+                        " bytes, expected exactly " + std::to_string(required_bytes) + " bytes for " +
+                        std::to_string(block_count) + " block(s) of " + std::to_string(kQ8_0BlockElements) +
+                        " elements each");
+    }
+
+    std::vector<float> values(static_cast<size_t>(element_count));
+    for (uint64_t b = 0; b < block_count; ++b) {
+        const size_t block_offset = static_cast<size_t>(b) * static_cast<size_t>(kQ8_0BlockBytes);
+        // Bytes 0-1: the STORED F16 scale, decoded via the same half_to_float
+        // this file already uses for F16Raw tensors -- reused, not
+        // reimplemented, since this is the same translation unit. Decoding
+        // the stored F16 bits (not reconstructing an assumed F32 scale) is
+        // the whole point of this function's contract.
+        const uint16_t scale_bits = static_cast<uint16_t>(backing_bytes[block_offset]) |
+                                    static_cast<uint16_t>(static_cast<uint16_t>(backing_bytes[block_offset + 1]) << 8);
+        const float scale = half_to_float(scale_bits);
+        // Bytes 2-33: 32 signed int8 quantized values.
+        for (int64_t i = 0; i < kQ8_0BlockElements; ++i) {
+            const int8_t qi = static_cast<int8_t>(backing_bytes[block_offset + 2 + static_cast<size_t>(i)]);
+            values[static_cast<size_t>(b * static_cast<uint64_t>(kQ8_0BlockElements)) + static_cast<size_t>(i)] =
+                static_cast<float>(qi) * scale;
+        }
+    }
+    return values;
+}
+
 ResidentView materialize_gguf_tensor(const MappedGgufTensor& tensor) {
     if (!gguf_encoding_materializable(tensor.encoding)) {
         throw GgufError("unsupported GGUF tensor encoding " + gguf_encoding_name(tensor.encoding) +
                         " for tensor '" + tensor.source_name +
-                        "'; indexing succeeded, Phase-2 CPU materialization supports F32/F16 only");
+                        "'; indexing succeeded, Phase-2/6 CPU materialization supports F32/F16/Q8_0 only");
     }
     if (tensor.backing.byte_offset() < 0 || tensor.backing.byte_length() <= 0) {
         throw GgufError("invalid backing extent for tensor '" + tensor.source_name + "'");
     }
     const int64_t elements = tensor.logical.shape().element_count();
-    const int64_t bytes_per_element = tensor.encoding == GgufTensorEncoding::F32 ? 4 : 2;
-    if (elements > std::numeric_limits<int64_t>::max() / bytes_per_element ||
-        tensor.backing.byte_length() != elements * bytes_per_element) {
+    const uint64_t required_bytes =
+        required_backing_bytes_for_encoding(tensor.encoding, elements, tensor.logical.name());
+    if (static_cast<uint64_t>(tensor.backing.byte_length()) != required_bytes) {
         throw GgufError("backing length does not match logical tensor '" + tensor.logical.name() + "'");
     }
 
@@ -730,6 +802,16 @@ ResidentView materialize_gguf_tensor(const MappedGgufTensor& tensor) {
     std::vector<uint8_t> bytes(static_cast<size_t>(tensor.backing.byte_length()));
     stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     if (!stream) throw GgufError("short read materializing tensor '" + tensor.source_name + "'");
+
+    if (tensor.encoding == GgufTensorEncoding::Q8_0) {
+        // Q8_0 backing bytes (required_bytes, block-compressed) are DISTINCT
+        // from the resident F32 buffer this returns (elements * 4 bytes) --
+        // the caller's ResidencyLedger accounting must never conflate the
+        // two; this function itself only ever produces the resident F32
+        // buffer, exactly like the F32/F16 branches below.
+        return ResidentView(tensor.logical.shape(),
+                            dequantize_q8_0_scalar_reference(bytes, elements));
+    }
 
     std::vector<float> values(static_cast<size_t>(elements));
     if (tensor.encoding == GgufTensorEncoding::F32) {
@@ -758,6 +840,20 @@ ResidentView materialize_gguf_tensor_rows(const MappedGgufTensor& tensor,
     if (!gguf_encoding_materializable(tensor.encoding)) {
         throw GgufError("unsupported GGUF tensor encoding " + gguf_encoding_name(tensor.encoding) +
                         " for row materialization of tensor '" + tensor.source_name + "'");
+    }
+    // Phase 6 Stage 1 scope note: gguf_encoding_materializable() now also
+    // accepts Q8_0 (for the new full-tensor materialize_gguf_tensor() path
+    // above), but ROW-region materialization assumes a fixed per-element
+    // byte stride (bytes_per_element below), which block-quantized formats
+    // do not have -- a Q8_0 row does not start at a byte-aligned offset in
+    // general (32-element blocks straddle row boundaries whenever a row's
+    // column count isn't itself a multiple of 32). Row-region access for
+    // Q8_0 is explicitly OUT OF SCOPE for Stage 1 (not implemented, not
+    // approximated) -- fail closed here rather than silently computing a
+    // wrong offset with the F32/F16 stride formula.
+    if (tensor.encoding == GgufTensorEncoding::Q8_0) {
+        throw GgufError("Q8_0 row-region materialization is not supported (Phase 6 Stage 1 scope: "
+                        "full-tensor materialization only) for tensor '" + tensor.source_name + "'");
     }
     if (tensor.logical.shape().ndim() != 2 || row_count == 0) {
         throw GgufError("row materialization requires a non-empty rank-2 tensor region");
