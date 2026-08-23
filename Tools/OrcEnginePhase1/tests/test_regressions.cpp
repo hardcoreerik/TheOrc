@@ -12,6 +12,7 @@
 #include "orcengine/fixture_loader.hpp"
 #include "orcengine/forward.hpp"
 #include "orcengine/materialization.hpp"
+#include "orcengine/ops.hpp"
 #include "orcengine/validation.hpp"
 
 using namespace orcengine;
@@ -172,8 +173,40 @@ int main(int argc, char** argv) {
             (void)materialize(logical, backing);
         });
 
+        // Hostile-input coverage for ops::embedding_lookup's now-added bounds
+        // check (independent-review follow-up, Gemini/PR#103 finding 1.2 --
+        // this function previously had NO validation at all: a negative or
+        // out-of-vocab token ID indexed table[token*hidden + h] straight past
+        // the end of the backing vector, an out-of-bounds heap read).
+        {
+            const std::vector<float> table(4 * 3, 0.0f);  // vocab=4, hidden=3
+            expect_clean_failure("embedding_lookup rejects negative token ID", [&] {
+                (void)ops::embedding_lookup(table, 3, {-1});
+            });
+            expect_clean_failure("embedding_lookup rejects token ID == vocab (off-by-one)", [&] {
+                (void)ops::embedding_lookup(table, 3, {4});
+            });
+            expect_clean_failure("embedding_lookup rejects token ID far past vocab", [&] {
+                (void)ops::embedding_lookup(table, 3, {1000000});
+            });
+            expect_clean_failure("embedding_lookup rejects non-positive hidden", [&] {
+                (void)ops::embedding_lookup(table, 0, {0});
+            });
+            const std::string name = "embedding_lookup still accepts valid boundary token IDs (0 and vocab-1)";
+            try {
+                std::vector<float> out = ops::embedding_lookup(table, 3, {0, 3});  // valid: first and last row
+                if (out.size() == 6) {
+                    pass(name);
+                } else {
+                    fail(name, "unexpected output size");
+                }
+            } catch (const std::exception& ex) {
+                fail(name, std::string("unexpectedly rejected valid input: ") + ex.what());
+            }
+        }
+
         if (failures == 0) {
-            std::printf("ALL 18 HARDENING REGRESSIONS PASSED\n");
+            std::printf("ALL HARDENING REGRESSIONS PASSED\n");
             return 0;
         }
         std::printf("%d HARDENING REGRESSION FAILURES\n", failures);

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace orcengine::ops {
 
@@ -131,6 +132,28 @@ std::vector<float> linear_no_bias(const std::vector<float>& x, int64_t rows, int
 
 std::vector<float> embedding_lookup(const std::vector<float>& table, int64_t hidden,
                                      const std::vector<int64_t>& token_ids) {
+    if (hidden <= 0) {
+        throw std::invalid_argument("orcengine::ops::embedding_lookup: hidden must be positive");
+    }
+    if (table.size() % static_cast<size_t>(hidden) != 0) {
+        throw std::invalid_argument("orcengine::ops::embedding_lookup: table.size() is not a multiple of hidden");
+    }
+    // Defensive bounds check: an out-of-range token ID (negative, or >=
+    // the vocab this table was sized for) would otherwise index past the
+    // end of `table` -- an out-of-bounds heap read, not merely a wrong
+    // answer. This is the only place that check can live for every
+    // caller of this function; upstream validation (e.g.
+    // validate_forward_inputs for the non-cached forward() path) is not
+    // guaranteed to run before every call site (the cached-decode path
+    // does not currently call it -- see forward_cached.cpp's own added
+    // check for that gap specifically).
+    const int64_t vocab = static_cast<int64_t>(table.size() / static_cast<size_t>(hidden));
+    for (int64_t token : token_ids) {
+        if (token < 0 || token >= vocab) {
+            throw std::invalid_argument("orcengine::ops::embedding_lookup: token ID " + std::to_string(token) +
+                                        " is outside [0, " + std::to_string(vocab) + ")");
+        }
+    }
     std::vector<float> out(token_ids.size() * static_cast<size_t>(hidden));
     for (size_t s = 0; s < token_ids.size(); ++s) {
         int64_t token = token_ids[s];
