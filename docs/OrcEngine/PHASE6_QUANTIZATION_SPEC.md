@@ -268,32 +268,70 @@ blended pass/fail:
    weakened by, or conflated with, this lossy end-to-end agreement
    claim.
 
-## 4. Implementation shape (for the eventual Stage 1 commit -- not built this pass)
+## 4. Implementation shape
+
+**Reconciliation note (added after Stage 1 implementation, per Codex
+review):** this section originally proposed extending Phase 1's
+`materialize()` (`Tools/OrcEnginePhase1/src/materialization.cpp`) and
+claimed Phase 2's `gguf.cpp` would need "no changes." The actual Stage
+1 implementation instead extends Phase 2's `gguf.cpp` --
+`materialize_gguf_tensor()` and `materialize_gguf_tensor_rows()` --
+directly. That is a correction of this section's original assumption,
+not an undocumented deviation from it:
+
+- Phase 1's `materialize(const LogicalTensor&, const BackingExtent&)`
+  is a synthetic, in-memory-only function: it hard-requires
+  `BackingEncoding::F32Raw` and reads from an already-in-RAM
+  `BackingExtent::bytes_` buffer (see `BackingExtent::FromF32`). It is
+  used by Phase 1's own metamorphic/regression tests to materialize
+  hand-built tensors; it has never been the code path that reads a real
+  GGUF FILE off disk.
+- The actual GGUF-file-backed materialization boundary -- the one
+  `materialize_gguf_model()` calls, and the one every real-model test
+  since Phase 2 has exercised -- has always been Phase 2's
+  `materialize_gguf_tensor()` in `gguf.cpp`. It already dispatches on
+  `GgufTensorEncoding` (F32/F16 before Stage 1) and reads directly from
+  the backing file via `tensor.backing.source_path()`/`byte_offset()`.
+  Adding a Q8_0 branch to an existing encoding-dispatch function, in
+  the file that already owns that dispatch, is the natural extension
+  point -- not a new location chosen to make old prose true.
+- This document's original claim that Phase 2 needed "no changes" was
+  simply incorrect: it conflated Phase 1's synthetic materializer with
+  Phase 2's real GGUF materializer, which are different functions with
+  different contracts (in-memory-only vs. file-backed; F32Raw-only vs.
+  multi-encoding). Corrected here rather than silently ignored.
 
 Following the same "narrow, backward-compatible addition" pattern
-Phase 5C's OE-ADR-039/040 established as reusable precedent:
+Phase 5C's OE-ADR-039/040 established as reusable precedent, as
+actually implemented:
 
-- **Phase 2** (`gguf.cpp`): no changes expected -- Q8_0's block layout
-  and `BackingEncoding::GgufQ8_0` tagging are already correct and
-  already tested via existing metadata/mutation fixtures. Phase 6
-  should ADD Q8_0-specific malformed-fixture cases (truncated block
-  data, wrong byte extent) to the existing mutation-fixture generator
-  rather than building a parallel validation mechanism.
-- **Phase 1** (`materialization.cpp`): extend the `materialize()`
-  dispatch to recognize `BackingEncoding::GgufQ8_0` as a second
-  supported input encoding (alongside the existing, unmodified
-  `F32Raw` path) and produce the same `std::vector<float>` output
-  shape via a new, separately-named dequantization function (e.g.
-  `dequantize_q8_0(...)`) -- not a modification to the existing F32
-  materialization code path, which remains byte-identical and must be
-  proven so by rerunning Phase 1's full existing test suite unchanged,
-  matching the single-implementation-requirement discipline Phase 5C
-  established (there, "single implementation" meant one arithmetic body
-  shared by two call shapes; here, since F32 and Q8_0 materialization
-  are genuinely different operations on different input encodings, the
-  discipline is "the F32 path is untouched," not "shared arithmetic" --
-  the two are not the same claim and Phase 6's evidence must not
-  conflate them).
+- **Phase 2** (`gguf.cpp`, a FROZEN file under `orcengine-phase2-
+  freeze`): `gguf_encoding_materializable()` extended to also accept
+  `Q8_0`; a new `required_backing_bytes_for_encoding()` helper computes
+  the correct block-based byte requirement for Q8_0 (F32/F16 unchanged,
+  still `elements * bytes_per_element`); a new public
+  `dequantize_q8_0_scalar_reference()` function; `materialize_gguf_
+  tensor()` gains a Q8_0 branch. `materialize_gguf_tensor_rows()`
+  explicitly rejects Q8_0 (see Section 4b). This is classified as a
+  **backward-compatible ADDITION to a frozen file**, per the exact
+  precedent OE-ADR-039/040 established for Phase 5C: new functions and
+  a new branch in an existing dispatch function, with the existing
+  F32/F16 call signatures, arguments, and return behavior of every
+  pre-existing public function completely unchanged. The correct,
+  defensible claim is **behavior/signature compatibility for F32/F16,
+  supported by rerunning Phase 2's full pre-existing test suite
+  unmodified** -- NOT that the frozen source file is "byte-identical"
+  to its frozen state. The source text of `gguf.cpp` has changed (new
+  code was added to it); claiming byte-identical source would be false
+  on its face. What Phase 2's freeze tag (`orcengine-phase2-freeze`,
+  unmoved) guarantees is the historical snapshot; what this addition
+  guarantees is that nothing reachable through the pre-existing public
+  surface behaves differently than it did at that snapshot.
+- **Phase 1** (`materialization.cpp`): unchanged. Phase 1's synthetic
+  `materialize()` remains F32Raw-only; Q8_0 support was never added
+  there, because Phase 1's function is not the GGUF-file materialization
+  boundary this project actually uses for real models (see the
+  reconciliation note above).
 - **A new `Tools/OrcEnginePhase6` directory**, mirroring the structure
   every prior phase has used (`include/orcengine/`, `src/`, `tests/`,
   `tools/`), depending on Phase 1/Phase 2 the same way Phase 5A/5C

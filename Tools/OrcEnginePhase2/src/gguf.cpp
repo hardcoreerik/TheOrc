@@ -769,9 +769,13 @@ std::vector<float> dequantize_q8_0_scalar_reference(std::span<const uint8_t> bac
         const uint16_t scale_bits = static_cast<uint16_t>(backing_bytes[block_offset]) |
                                     static_cast<uint16_t>(static_cast<uint16_t>(backing_bytes[block_offset + 1]) << 8);
         const float scale = half_to_float(scale_bits);
-        // Bytes 2-33: 32 signed int8 quantized values.
+        // Bytes 2-33: 32 signed int8 quantized values. static_cast<int8_t> of a
+        // uint8_t > 127 is implementation-defined before C++20's two's-complement
+        // guarantee for the *arithmetic conversion*; std::bit_cast is the
+        // explicitly bit-preserving reinterpretation this needs (same construct
+        // already used for Int8 metadata values elsewhere in this file).
         for (int64_t i = 0; i < kQ8_0BlockElements; ++i) {
-            const int8_t qi = static_cast<int8_t>(backing_bytes[block_offset + 2 + static_cast<size_t>(i)]);
+            const int8_t qi = std::bit_cast<int8_t>(backing_bytes[block_offset + 2 + static_cast<size_t>(i)]);
             values[static_cast<size_t>(b * static_cast<uint64_t>(kQ8_0BlockElements)) + static_cast<size_t>(i)] =
                 static_cast<float>(qi) * scale;
         }
@@ -845,12 +849,24 @@ ResidentView materialize_gguf_tensor_rows(const MappedGgufTensor& tensor,
     // accepts Q8_0 (for the new full-tensor materialize_gguf_tensor() path
     // above), but ROW-region materialization assumes a fixed per-element
     // byte stride (bytes_per_element below), which block-quantized formats
-    // do not have -- a Q8_0 row does not start at a byte-aligned offset in
-    // general (32-element blocks straddle row boundaries whenever a row's
-    // column count isn't itself a multiple of 32). Row-region access for
-    // Q8_0 is explicitly OUT OF SCOPE for Stage 1 (not implemented, not
-    // approximated) -- fail closed here rather than silently computing a
-    // wrong offset with the F32/F16 stride formula.
+    // do not have in general -- a Q8_0 row's start does not fall on a block
+    // boundary unless the tensor's column count happens to be a multiple of
+    // 32 (blocks are laid out contiguously across the flattened tensor, not
+    // per-row, so blocks straddle row boundaries whenever it isn't). This is
+    // a Stage 1 SCOPE LIMITATION, not a fundamental impossibility of Q8_0 row
+    // access in general:
+    //   - Rows whose column count IS a multiple of the Q8_0 block size (32)
+    //     could be handled today with the existing per-block stride
+    //     (block-aligned reads), since every row then begins and ends on a
+    //     block boundary.
+    //   - Arbitrary row shapes (column count not a multiple of 32) could
+    //     still be handled by reading the covering whole blocks and slicing
+    //     the requested row's elements out of the decoded values -- this is
+    //     a real, buildable approach, not a dead end.
+    // Neither is required for Stage 1's contract (full-tensor
+    // dequantize-to-F32 only); implementing Q8_0 row streaming is explicitly
+    // deferred, not attempted here -- fail closed rather than silently
+    // computing a wrong offset with the F32/F16 stride formula.
     if (tensor.encoding == GgufTensorEncoding::Q8_0) {
         throw GgufError("Q8_0 row-region materialization is not supported (Phase 6 Stage 1 scope: "
                         "full-tensor materialization only) for tensor '" + tensor.source_name + "'");

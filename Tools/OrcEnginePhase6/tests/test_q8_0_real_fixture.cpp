@@ -8,8 +8,12 @@
 // inventory matches the independently recorded manifest exactly, that
 // representative Q8_0 tensors dequantize to plausible values (cross-
 // checked against the F32 ground truth for the SAME tensor), that
-// retained F32 tensors are untouched, and that corrupted Q8_0 bytes
-// fail closed. See docs/OrcEngine/PHASE6_QUANTIZATION_SPEC.md.
+// retained F32 tensors are untouched, and that a truncated/extent-
+// short GGUF fails closed rather than reading out-of-bounds/garbage
+// bytes (NOT a general claim that arbitrary in-range bit corruption of
+// Q8_0 payload bytes is detectable -- Q8_0 has no checksum, and
+// in-range corruption is not tested here). See
+// docs/OrcEngine/PHASE6_QUANTIZATION_SPEC.md.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -38,6 +42,31 @@ float max_abs_diff(const std::vector<float>& a, const std::vector<float>& b) {
     float m = 0.0f;
     for (size_t i = 0; i < a.size(); ++i) m = std::max(m, std::fabs(a[i] - b[i]));
     return m;
+}
+
+// Reads the exact raw backing bytes for a named tensor directly off disk,
+// independent of dequantization/decoding. Used to prove genuine byte-for-byte
+// GGUF backing identity for retained-F32 tensors -- decoded-float-vector
+// equality (operator== on std::vector<float>) is NOT sufficient proof of that
+// on its own: distinct bit patterns can decode to values IEEE754 reports as
+// equal (e.g. +0.0f and -0.0f), so it proves materialized-VALUE identity, not
+// backing-BYTE identity. This helper closes that gap by comparing the actual
+// source bytes.
+std::vector<uint8_t> read_tensor_backing_bytes(const std::filesystem::path& path,
+                                               const GgufArtifact& artifact,
+                                               const std::string& tensor_name) {
+    const GgufTensorInfo* found = nullptr;
+    for (const auto& t : artifact.tensors) {
+        if (t.name == tensor_name) { found = &t; break; }
+    }
+    if (found == nullptr) throw std::runtime_error("tensor '" + tensor_name + "' not found for byte-identity check");
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) throw std::runtime_error("cannot reopen '" + path.string() + "' for byte-identity check");
+    stream.seekg(static_cast<std::streamoff>(found->absolute_offset));
+    std::vector<uint8_t> bytes(static_cast<size_t>(found->encoded_length));
+    stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (!stream) throw std::runtime_error("short read for tensor '" + tensor_name + "' byte-identity check");
+    return bytes;
 }
 
 }  // namespace
@@ -138,22 +167,45 @@ int main(int argc, char** argv) {
                   "representative Q8_0 tensor (blk.0.ffn_gate.weight) dequantizes to plausible values");
         }
 
-        // --- 7. Retained F32 tensors are byte-for-byte unchanged (the
-        // unchanged F32 path, not merely "close"). ---
+        // --- 7. Retained F32 tensors are genuinely byte-for-byte unchanged
+        // (the unchanged F32 path, not merely "close"). Compares the actual
+        // SOURCE BACKING BYTES read directly off both GGUF files -- not
+        // decoded-float-vector equality, which proves materialized-value
+        // identity but not backing-byte identity (e.g. it cannot distinguish
+        // +0.0f from -0.0f, which are == but bit-distinct). ---
         {
-            const bool identical =
-                f32_model.layers[0].attn_norm_weight.raw() == q8_model.layers[0].attn_norm_weight.raw();
-            check(identical, "retained F32 tensor (blk.0.attn_norm.weight) is byte-for-byte identical "
-                             "between the F32 and Q8_0 GGUFs (unchanged F32 path)");
+            const auto f32_bytes = read_tensor_backing_bytes(f32_path, f32_artifact, "blk.0.attn_norm.weight");
+            const auto q8_bytes = read_tensor_backing_bytes(q8_path, q8_artifact, "blk.0.attn_norm.weight");
+            check(f32_bytes == q8_bytes, "retained F32 tensor (blk.0.attn_norm.weight): source GGUF backing "
+                                         "bytes are byte-for-byte identical between the F32 and Q8_0 files "
+                                         "(compared as raw bytes, not decoded float values)");
+            check(f32_model.layers[0].attn_norm_weight.raw() == q8_model.layers[0].attn_norm_weight.raw(),
+                  "retained F32 tensor (blk.0.attn_norm.weight): materialized float values also identical "
+                  "(consistent with the byte-identity result above)");
         }
         {
-            const bool identical = f32_model.final_norm_weight.raw() == q8_model.final_norm_weight.raw();
-            check(identical, "retained F32 tensor (output_norm.weight) is byte-for-byte identical "
-                             "between the F32 and Q8_0 GGUFs (unchanged F32 path)");
+            const auto f32_bytes = read_tensor_backing_bytes(f32_path, f32_artifact, "output_norm.weight");
+            const auto q8_bytes = read_tensor_backing_bytes(q8_path, q8_artifact, "output_norm.weight");
+            check(f32_bytes == q8_bytes, "retained F32 tensor (output_norm.weight): source GGUF backing bytes "
+                                         "are byte-for-byte identical between the F32 and Q8_0 files "
+                                         "(compared as raw bytes, not decoded float values)");
+            check(f32_model.final_norm_weight.raw() == q8_model.final_norm_weight.raw(),
+                  "retained F32 tensor (output_norm.weight): materialized float values also identical "
+                  "(consistent with the byte-identity result above)");
         }
 
-        // --- 8. Corrupted Q8_0 bytes fail closed: truncate the file mid-tensor-data
-        // and confirm materialization rejects it rather than reading garbage/OOB. ---
+        // --- 8. Truncation/backing-extent failure fails closed: truncate the
+        // file mid-tensor-data and confirm materialization rejects it rather
+        // than reading past EOF or interpreting a short buffer as complete
+        // blocks. This proves fail-closed behavior for a SHORTENED backing
+        // extent specifically; it does NOT test (and this claim is
+        // deliberately narrow about) whether arbitrary in-range bit
+        // corruption of otherwise-correctly-sized Q8_0 payload bytes would be
+        // detected -- Q8_0 has no per-block checksum, so in-range corruption
+        // of a scale or quantized value is, by design of the format itself,
+        // silently dequantized to a wrong-but-plausible float. No speculative
+        // checksum/integrity system is added here; this is a scope note, not
+        // a gap being closed. ---
         {
             const std::filesystem::path corrupt_path = std::filesystem::temp_directory_path() /
                                                         "orcengine_phase6_q8_0_checkpoint2_truncated.gguf";

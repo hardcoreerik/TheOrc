@@ -25,10 +25,13 @@
 //
 // Additionally runs one multi-step cached-decode sequence (prompt
 // "Hello world, this is") through the Q8_0 model specifically, proving
-// the SAME cached-decode invariants (committed cache length, no state
-// leakage) this project has already proven extensively for F32 weights
-// (Phase 5A/5C) also hold with real Q8_0 weights across several real
-// steps -- a genuinely new combination, not previously exercised.
+// the SPECIFIC invariant it actually checks -- committed cache length
+// advances by exactly one at every step -- also holds with real Q8_0
+// weights across several real steps (a genuinely new combination, not
+// previously exercised). This does NOT independently re-derive or
+// replay cache CONTENTS, so it is not, by itself, a proof of "no state
+// leakage" in the stronger sense (no cross-step content corruption);
+// narrowed from an earlier overstated claim per Codex review.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -223,10 +226,12 @@ int main(int argc, char** argv) {
         check(all_top1_agree, "top-1 (greedy) agreement between F32 and Q8_0 holds across every dev+holdout prompt");
 
         // --- Adversarial case: multi-step cached decode through Q8_0 weights,
-        // proving this project's existing cached-decode invariants (committed
-        // length advances correctly, no cross-step state corruption) also
-        // hold with real Q8_0 weights across several real steps -- not
-        // previously exercised (every prior cached-decode test used F32). ---
+        // proving this project's existing committed-cache-LENGTH invariant
+        // (advances by exactly one per step) also holds with real Q8_0
+        // weights across several real steps -- not previously exercised
+        // (every prior cached-decode test used F32). This specifically does
+        // NOT independently verify cache CONTENT correctness at each step; see
+        // the file-header comment for the narrowed claim. ---
         std::printf("\n--- Adversarial: multi-step cached decode through Q8_0 weights ---\n");
         {
             const PromptCase& pc = kHoldoutCorpus[0];  // "Hello world, this is"
@@ -248,8 +253,9 @@ int main(int argc, char** argv) {
                 f32_next = {f32_r.selected_token.back()};
                 q8_next = {q8_r.selected_token.back()};
             }
-            check(all_steps_ok, "5-step cached decode through Q8_0 weights: committed cache length advances "
-                                "correctly at every step (same invariant this project already proves for F32)");
+            check(all_steps_ok, "5-step cached decode through Q8_0 weights: committed cache LENGTH advances "
+                                "correctly at every step (same invariant this project already proves for F32; "
+                                "this does not independently verify cache content correctness)");
             std::printf("  final F32 continuation last token=%lld, Q8_0 continuation last token=%lld\n",
                         (long long)f32_next[0], (long long)q8_next[0]);
         }

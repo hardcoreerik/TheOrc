@@ -2788,3 +2788,110 @@ optional extra parameter, keep the original public signature calling
 `impl(..., real-value)`, prove equivalence by rerunning every existing
 test for the unchanged signature -- is the reusable template for any
 future phase that needs the same kind of extension, not a one-off.
+
+## OE-ADR-041 — Phase 6 Stage 1 Codex-review remediation, Stage 1 (production/test/spec claim hardening)
+
+**Context.** A full Codex review of Phase 6 Stage 1 Checkpoints 1-3
+(commits `103d47b5`, `1eedced9`, `6d4b7eec`) found a correctness defect
+and several overstated test/documentation claims. This entry records
+the findings and their exact dispositions for the first bounded
+remediation commit; later commits in the same remediation pass record
+their own dispositions under this same ADR as they land.
+
+**Finding 1 (production defect, FIXED): implementation-defined signed
+conversion.** `dequantize_q8_0_scalar_reference()`
+(`Tools/OrcEnginePhase2/src/gguf.cpp`) converted each stored Q8_0
+quantized byte via `static_cast<int8_t>(uint8_t)`. For source values
+above 127, that conversion's result was implementation-defined prior to
+relying on a specific bit-preserving guarantee. Fixed to
+`std::bit_cast<int8_t>`, matching the pattern this same file already
+uses for `Int8`/`Int16`/`Int32` GGUF metadata values. Added targeted
+coverage proving each of the five boundary stored bytes (`0x00`,
+`0x01`, `0x7f`, `0x80`, `0xff`) decodes to its correct signed value and
+dequantized float (`test_q8_0_dequant.cpp`, case 4b).
+
+**Finding 2 (test-commentary correction): unsafe universal claim about
+Q8_0 scales.** A test comment asserted "Q8_0 scales are always
+non-negative in practice." That is true only of the ONE standard
+llama.cpp/GGML reference quantizer (scale = amax/127); nothing in the
+Q8_0 wire format itself forbids a negative stored scale from a
+different conformant producer. The negative-scale test case is KEPT
+(it is a genuine decode-path sign-bit proof), but the comment no longer
+makes the broader universal claim.
+
+**Finding 3 (spec/implementation reconciliation, DOCUMENTED):**
+`PHASE6_QUANTIZATION_SPEC.md` Section 4 originally proposed extending
+Phase 1's `materialize()` and claimed Phase 2's `gguf.cpp` needed "no
+changes." The actual implementation extends Phase 2's `gguf.cpp`
+directly (`materialize_gguf_tensor()`/`materialize_gguf_tensor_rows()`
+dispatch). Investigation showed the spec's original assumption was
+simply incorrect: Phase 1's `materialize()` is a synthetic,
+in-memory-only, F32Raw-only function, never the GGUF-file-backed
+materialization boundary; that boundary has always been Phase 2's
+`materialize_gguf_tensor()`. Section 4 is corrected in place (not
+silently ignored) to reconcile the spec with the actual, correct
+location and to state precisely what "backward-compatible addition to
+a frozen file" means here: unchanged F32/F16 public signatures and
+behavior, proven by rerunning Phase 2's full pre-existing test suite
+unmodified (`gguf_conformance`: 34 malformed + 7 valid + 4 forward
+equivalences + 2 corruption regressions, all still PASS; `gguf_
+mutations`: 512 mutations/72 rejected/440 valid, still PASS; `gguf_
+large_sparse`, still PASS) -- explicitly NOT a claim that the frozen
+source file `gguf.cpp` is byte-identical to its `orcengine-phase2-
+freeze` snapshot, which would be false on its face (the source text
+changed). `orcengine-phase2-freeze` itself is confirmed unmoved
+(`b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7`).
+
+**Finding 4 (overstated Checkpoint 1/2 test claims, NARROWED, no new
+machinery added):**
+- The "ledger" language in `test_q8_0_dequant.cpp`'s 34-vs-128-byte
+  check was renamed to "accounting-model check" -- it is a local
+  arithmetic comparison, not a `orcengine::ResidencyLedger` integration
+  proof (no `ResidencyLedger` instance participates in that test).
+- `test_q8_0_real_fixture.cpp`'s retained-F32-tensor comparison was
+  upgraded from decoded-`std::vector<float>` equality (which proves
+  materialized-VALUE identity, not byte identity -- e.g. it cannot
+  distinguish `+0.0f`/`-0.0f`) to a genuine byte-level comparison
+  reading the actual source GGUF backing bytes directly off both files
+  via a new `read_tensor_backing_bytes()` helper, in addition to (not
+  instead of) the existing float-value check.
+- The truncation fail-closed test's claim was narrowed: it proves
+  fail-closed behavior for a SHORTENED backing extent specifically, not
+  that arbitrary in-range bit corruption of otherwise-correctly-sized
+  Q8_0 payload bytes is detectable (Q8_0 has no per-block checksum; no
+  speculative checksum system was added).
+- The 5-step Q8_0 cached-decode adversarial test's claim was narrowed
+  from "no state leakage" to what it actually proves: committed cache
+  LENGTH advances correctly at every step. It does not independently
+  replay or verify cache CONTENT, so the stronger "no state leakage"
+  claim was removed rather than backed by new machinery, per this
+  remediation's stated preference for narrowing over unnecessary
+  machinery when the Stage 1 contract does not require the stronger
+  proof.
+
+**Finding 5 (row-materialization scope, DOCUMENTED, no behavior
+change):** `materialize_gguf_tensor_rows()`'s Q8_0 rejection comment
+was expanded to describe the fail-closed behavior as a genuine Stage 1
+SCOPE LIMITATION rather than an implied fundamental impossibility:
+block-aligned rows (column count a multiple of 32) could be handled
+today with the existing per-block stride; arbitrary row shapes could be
+handled by reading covering blocks and slicing. Neither is implemented
+in this pass -- Q8_0 row streaming remains explicitly deferred, not
+attempted.
+
+**Verification.** All Checkpoint 1/2 targeted Debug tests re-run after
+these changes: `test_q8_0_dequant` (22 checks, all PASS, including the
+new signed-byte boundary case), `test_q8_0_real_fixture` (26 checks
+against the real pinned SmolLM2-135M F32/Q8_0 fixtures, all PASS,
+including the new byte-identity checks). Phase 2's complete
+pre-existing test suite (`test_gguf`, `test_gguf_mutations`, `test_
+gguf_large_sparse`) re-run unmodified, all still PASS -- confirming the
+frozen-file addition did not change any existing F32/F16 behavior.
+
+**Scope note.** This ADR entry covers Stage 1 of the remediation pass
+only (production/test/spec claim hardening). Stages 2-6 of the same
+Codex-driven remediation (oracle correctness/pinning, the corrected
+Q8-vs-Q8 oracle run, the F32-vs-Q8 tolerance-methodology replacement,
+backing/resident accounting, and the final validation matrix) are
+separate, not-yet-landed work; `orcengine-phase6-freeze` does not exist
+and this ADR does not authorize creating it.

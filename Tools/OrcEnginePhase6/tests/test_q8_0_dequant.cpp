@@ -135,10 +135,49 @@ int main() {
             check(close, "smallest nonzero F16 scale (2^-24) dequantizes correctly and finitely");
         }
 
+        // --- 4b. Signed-byte interpretation, all boundary stored-byte patterns.
+        // Codex review finding: the previous implementation used
+        // static_cast<int8_t>(uint8_t) for values above 127, which is
+        // implementation-defined conversion behavior before relying on any
+        // particular bit-preserving guarantee. dequantize_q8_0_scalar_reference()
+        // now uses std::bit_cast<int8_t> instead. Proves each of the five
+        // boundary stored-byte patterns decodes to its correct signed int8
+        // value (and the correct dequantized float at scale=1.0), directly
+        // exercising the bit_cast path rather than the arithmetic-conversion
+        // path it replaced. ---
+        {
+            struct Case { uint8_t stored_byte; int8_t expected_signed; };
+            const Case cases[] = {
+                {0x00, 0},     // zero
+                {0x01, 1},     // smallest positive
+                {0x7f, 127},   // largest positive (int8 max)
+                {0x80, -128},  // smallest negative (int8 min) -- the exact byte
+                               // pattern where static_cast<int8_t> of a uint8_t
+                               // > 127 was implementation-defined before this fix
+                {0xff, -1},    // largest stored byte -> -1
+            };
+            bool ok = true;
+            for (const Case& c : cases) {
+                std::vector<int8_t> q(32, 0);
+                q[0] = c.expected_signed;  // construct the block from the intended signed value...
+                auto bytes = make_block(kHalfOne, q);
+                bytes[2] = c.stored_byte;  // ...then assert the RAW STORED BYTE decodes identically,
+                                           // proving stored-byte -> signed-value is exactly bit_cast,
+                                           // not a re-derivation from the signed value we started with.
+                const auto out = dequantize_q8_0_scalar_reference(bytes, 32);
+                const float expected = static_cast<float>(c.expected_signed);
+                if (out[0] != expected) ok = false;
+            }
+            check(ok, "signed-byte boundary bytes (0x00,0x01,0x7f,0x80,0xff) decode via bit_cast to correct signed int8 and dequantized value");
+        }
+
         // --- 5. Ordinary positive scale (0.0625, exact in half) and a negative-sign-bit
-        // scale (-1.0) proving the sign bit is honored end to end (Q8_0 scales are always
-        // non-negative in practice -- amax/127 -- so this is a plumbing/decode-path proof,
-        // not a claim that llama.cpp ever emits a negative scale). ---
+        // scale (-1.0) proving the sign bit is honored end to end. The standard
+        // llama.cpp/GGML Q8_0 quantization procedure (scale = amax/127) always
+        // produces a non-negative stored scale for that ONE reference quantizer,
+        // but nothing in the Q8_0 FORMAT itself forbids a negative stored scale --
+        // this is a decode-path plumbing proof of the sign bit, not a claim that
+        // no conformant Q8_0 producer can ever emit one. ---
         {
             std::vector<int8_t> q(32, 0);
             q[0] = 50;
@@ -255,9 +294,12 @@ int main() {
 
         // --- 15. materialize_gguf_tensor: real Q8_0 tensor through a temp file,
         // proving end-to-end dispatch (not just the standalone dequant function),
-        // plus the ledger-accounting proof: Q8_0 backing bytes vs. F32 resident
-        // bytes are DIFFERENT numbers, both reported here explicitly, never
-        // conflated. ---
+        // plus a local accounting-model arithmetic check: Q8_0 backing bytes vs.
+        // F32 resident bytes are DIFFERENT numbers, both reported here explicitly,
+        // never conflated. This is NOT a orcengine::ResidencyLedger integration
+        // proof -- no ResidencyLedger instance participates in this test; see
+        // Phase 6 Stage 5 accounting work for whether/how the actual runtime
+        // ledger records Q8_0 backing/resident byte counts. ---
         {
             std::vector<int8_t> q(32, 0);
             for (int i = 0; i < 32; ++i) q[static_cast<size_t>(i)] = static_cast<int8_t>(i - 16);
@@ -286,11 +328,11 @@ int main() {
 
             const uint64_t q8_0_backing_bytes = block.size();
             const uint64_t f32_resident_bytes = static_cast<uint64_t>(view.shape().element_count()) * sizeof(float);
-            std::printf("  ledger proof: Q8_0 backing bytes = %llu, F32 resident bytes = %llu (distinct, not conflated)\n",
+            std::printf("  accounting-model check: Q8_0 backing bytes = %llu, F32 resident bytes = %llu (distinct, not conflated)\n",
                         static_cast<unsigned long long>(q8_0_backing_bytes),
                         static_cast<unsigned long long>(f32_resident_bytes));
             check(q8_0_backing_bytes == 34 && f32_resident_bytes == 128 && q8_0_backing_bytes != f32_resident_bytes,
-                  "ledger proof: Q8_0 backing bytes (34) and F32 resident bytes (128) reported separately and correctly");
+                  "accounting-model check: Q8_0 backing bytes (34) and F32 resident bytes (128) computed separately and correctly (not a ResidencyLedger proof)");
 
             { std::error_code remove_ec; std::filesystem::remove(tmp, remove_ec); }
         }
