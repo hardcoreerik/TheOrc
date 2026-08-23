@@ -3225,3 +3225,72 @@ model-execution behavior changed).
 No transformer math changed. Stages 4-6 remain not started.
 `orcengine-phase6-freeze` does not exist and this entry does not
 authorize creating it. FL-08 remains not started.
+
+## OE-ADR-045 — Three-authority F32 diagnostic: PyTorch agrees with OrcEngine, not llama.cpp (Outcome P2)
+
+**Question.** On the 3 F32-divergent prompts (`dev_year_weather`,
+`holdout_she_walked`, `holdout_quick_fox`), does the pinned PyTorch
+source-model authority (real HuggingFace `transformers`
+`LlamaForCausalLM`, upstream third-party code) agree with OrcEngine or
+with llama.cpp?
+
+**Authority established (Gate 10).** The pinned local HF artifact
+(`Tools/OrcEnginePhase0/artifacts/smollm2-135m/`, revision
+`93efa2f097d58c2a74874c7e644dbc9b0cee75a2` per `oracle/
+download_candidate.py`/OE-ADR-014) was verified, not assumed:
+`model.safetensors` SHA-256
+`80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1`
+matches the already-committed `real_candidate_conversion_manifest.json`'s
+`source_safetensors_sha256`, and that SAME manifest's
+`output_gguf_sha256` (`fffab10c...`) is the EXACT pinned F32 GGUF hash
+used throughout Phase 6 -- proving this HF directory is provably the
+literal source of the F32 GGUF, not a same-named substitute. This
+directory was already used once before as a real ground-truth authority
+(`oracle/hf_reference_check.py`, OE-ADR-017, 2026-08-15: the Phase 0
+NumPy oracle matched it exactly; llama.cpp was the outlier there too).
+No download, package update, or model regeneration occurred; the
+existing pinned artifact and provenance chain were reused as-is.
+
+**Diagnostic (Gate 11-12).** A new, read-only script,
+`tools/phase6_three_authority_f32_diagnostic.py`, loads the HF model
+(`eval()`, `torch.no_grad()`, no sampling), passes the exact committed
+schema-v3 `token_ids` directly as `input_ids` (no tokenizer invoked, no
+BOS/EOS inserted, HF's default 0..N-1 position IDs matching OrcEngine's
+own `start_position=0` convention), and reads the final prompt
+position's full-vocabulary logits -- for all 7 corpus prompts (4
+controls + the 3 divergent), through the identical code path. No
+OrcEngine, Phase 0 oracle, or Phase 1-5C transformer math was
+inspected, instrumented, or modified.
+
+**Result.** PyTorch agrees with OrcEngine's selected token on ALL 7
+prompts (both controls and all 3 divergent prompts) and disagrees with
+llama.cpp on exactly the same 3 prompts OrcEngine already disagreed on.
+PyTorch-vs-OrcEngine log-probability agreement is at floating-point-
+precision scale (~1e-5 nats) on every single prompt; PyTorch-vs-
+llama.cpp shows large, systematic deviation (0.5-2.0 nats) on every
+prompt where directly comparable -- including the 4 CONTROL prompts
+where llama.cpp's greedy argmax still happens to match. Full table and
+error metrics: `PHASE6_THREE_AUTHORITY_STATUS.md`.
+
+**Classified as Outcome P2.** llama.cpp's invocation/model
+interpretation is classified as the LIKELY divergence source -- not
+confirmed, not declared numerically wrong yet. Recommended next check
+(not performed here, since it targets llama.cpp's own invocation, not
+OrcEngine): confirm llama.cpp reads and applies the GGUF's own
+`llama.rope.freq_base`/`rope_theta` metadata rather than a different
+default, and its position/cache handling for a fresh non-cached
+completion request. Token-ID identity was already independently proven
+elsewhere in this remediation (OE-ADR-043/044); this diagnostic adds no
+new doubt there.
+
+**Disposition.** This is a read-only diagnostic. No transformer math
+was changed in OrcEngine, the Phase 0 oracle, or any frozen phase.
+Phase 6's SECOND, independent blocker (the internal DEV-derived
+F32-vs-Q8_0 tolerance failing on holdout, `0.973504` vs `1.079983`) is
+untouched by this finding -- it concerns OrcEngine's own F32-vs-Q8_0
+behavior, not a three-way cross-implementation comparison, and remains
+equally unresolved. Stages 4-6 remain not started.
+`orcengine-phase6-freeze` does not exist and this entry does not
+authorize creating it. No RoPE/attention/RMSNorm/residual/position-
+handling code was investigated or modified. FL-08 remains not started.
+Stopping here for Codex review, as instructed.

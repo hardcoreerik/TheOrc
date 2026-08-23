@@ -1,0 +1,13 @@
+PyTorch authority verified: model.safetensors SHA-256 80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1 matches the pinned authority and the committed real_candidate_conversion_manifest.json's recorded provenance chain (source -> output F32 GGUF fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac).
+Loading weights:   0%|          | 0/272 [00:00<?, ?it/s]Loading weights: 100%|##########| 272/272 [00:00<00:00, 3529.26it/s]
+
+Prompt                   group           PT     Orc   llama  PT==Orc  PT==llama
+dev_capital_of_france    control        260     260     260     True       True
+dev_once_upon_a_time     control         28      28      28     True       True
+dev_code_snippet         control        253     253     253     True       True
+holdout_hello_world      control        253     253     253     True       True
+dev_year_weather         divergent      523     523     436     True      False
+holdout_she_walked       divergent     3589    3589   38734     True      False
+holdout_quick_fox        divergent    27003   27003      28     True      False
+
+DONE: three-authority F32 diagnostic collected for 7 prompts, written to 'Tools/OrcEnginePhase6/fixtures/phase6_three_authority_f32_report.jsonl'
