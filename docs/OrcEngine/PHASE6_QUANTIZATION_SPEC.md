@@ -82,8 +82,13 @@ In scope:
      path Phase 1/5A already validate, once on the F32 weights and once
      on a Q8_0-quantized build of the SAME underlying model, and compare
      logits with a stated, justified tolerance (quantization is lossy
-     by construction; the tolerance must be derived from Q8_0's known
-     per-block quantization error bound, not picked arbitrarily).
+     by construction, so a tolerance is expected -- but it must not be
+     picked arbitrarily or derived from the analytical per-block bound
+     alone: that bound is a documented SANITY envelope only; the actual
+     end-to-end gate is established empirically, on a fixed development
+     corpus and confirmed on a separate holdout corpus. See Section 3.3
+     for the full corrected derivation and why the analytical-only
+     approach is insufficient by itself.).
   2. **The pinned external oracle** (`llama-tokenize.exe`'s sibling
      `llama.cpp` build, `b10436`, already version-pinned by SHA-256 in
      Phase 5B's `three_way_tokenizer_comparison.py` -- Phase 6 should
@@ -328,22 +333,28 @@ unchanged, push branch+tag only, no merge).
 
 ## 6. Open questions for the maintainer (not resolved by this spec)
 
-1. Which GGUF source produces the Q8_0 build of SmolLM2-135M to use as
-   the canonical fixture -- re-quantize the existing pinned F32 GGUF
-   locally with the pinned `b10436` build's `llama-quantize` binary
-   (preferred, keeps full provenance under this project's control and
-   uses the exact same pinned implementation the oracle comparison
-   already relies on), or download a pre-quantized artifact from a
-   named, hash-pinned source (faster, but inherits someone else's
-   quantization tool's exact rounding behavior, which then becomes part
-   of what "correct" means for this fixture)? This spec does not decide
-   it -- Stage 1 implementation should record whichever choice is made,
-   with the same SHA-256-pinning discipline every other fixture in this
-   project already uses. **Addendum (Codex, 2026-08-22): llama.cpp's
-   own quantization tooling typically produces a MIXED-format model --
-   commonly leaving embeddings, norms, and sometimes the LM head as F32
-   or F16 while the transformer's matmul weights become Q8_0 -- not a
-   uniformly all-Q8_0 file.** Stage 1's fixture-provenance record and
+1. **RESOLVED (hardening-consolidation pass, 2026-08-22): fixture
+   provenance.** The canonical Q8_0 build of SmolLM2-135M will be
+   produced by locally quantizing the existing pinned F32 GGUF (SHA-256
+   `fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac`)
+   using the exact pinned `llama.cpp` `b10436` build's `llama-quantize`
+   binary -- not a downloaded pre-quantized artifact, and not a
+   different/unpinned quantizer build. This keeps full provenance under
+   this project's control and uses the exact same pinned implementation
+   the three-way oracle comparison (Phase 5B) already relies on, rather
+   than introducing a second, independently-sourced quantization
+   implementation's rounding behavior as an unstated variable. Stage 1
+   implementation must record: the input F32 GGUF's SHA-256 (already
+   pinned above), the `llama-quantize` executable's SHA-256 and
+   `--version` output (confirming build `10436`/commit `6fed9f6ff`,
+   matching the pinning discipline `three_way_tokenizer_comparison.py`
+   already established), the exact invocation (full command line,
+   arguments, working directory), the resulting output GGUF's SHA-256,
+   and a **tensor-by-tensor encoding inventory** -- because llama.cpp's
+   own quantization tooling typically produces a MIXED-format model
+   (commonly leaving embeddings, norms, and sometimes the LM head as F32
+   or F16 while the transformer's matmul weights become Q8_0, not a
+   uniformly all-Q8_0 file). Stage 1's fixture-provenance record and
    `ResidencyLedger` memory report must describe the tensor-by-tensor
    encoding actually present (a per-tensor manifest, not an assumption
    that every tensor is Q8_0), and `materialize()`'s dispatch must
@@ -357,24 +368,24 @@ unchanged, push branch+tag only, no merge).
    corpus, held-out corpus, observed error distribution) is now the
    required gate, with the analytical per-operation bound retained only
    as a documented sanity check, not the gate itself.
-3. **New, raised by Codex's review: which resident-memory strategy does
-   Phase 6 target?** This spec's Stage 1, as corrected, deliberately
-   does NOT reduce resident weight memory -- it only reduces backing
-   (on-disk/materialization-read) bytes, by dequantizing fully into the
-   existing F32 `ResidentView` for format compatibility and correctness
-   proof. That keeps Stage 1 narrow, matching the "no generalized
-   framework, no speculative formats" constraint, and lets correctness
-   be established before any harder resident-memory work. But it means
-   Phase 6 Stage 1 alone does NOT close the "actual resident-memory
-   reduction" gap this phase's motivation (Section 1) implicitly
-   gestures at. Two paths exist for that gap, NEITHER decided here: (a)
-   a genuinely Q8-resident representation with a Q8×F32 (or Q8×Q8)
-   compute path that never fully materializes an F32 copy of the
-   weights, or (b) tightly-bounded on-demand block/layer dequantization
-   with transient F32 scratch honestly accounted as scratch. Both are
-   materially larger in scope than Stage 1 (a new compute path, or a
-   new streaming/caching discipline) and should be their own explicitly
-   authorized Stage 2, not something Stage 1 backs into implicitly.
-   Stage 1's evidence must state this limitation plainly rather than
-   let a smaller GGUF file size be read as "the model now uses less
-   memory to run."
+3. **RESOLVED (hardening-consolidation pass, 2026-08-22): resident-memory
+   strategy.** Phase 6 Stage 1's scope is fixed as: Q8_0 layout
+   validation, scalar (un-optimized, reference-first) dequantization
+   into the existing F32 `ResidentView`, mixed-format-model loading
+   (routing each tensor through its own actual encoding), exact
+   dequantization evidence (claim 2, Section 3), and end-to-end oracle
+   comparison against both the F32 reference and the pinned llama.cpp
+   oracle (claim 3, Section 3). Stage 1 reduces BACKING/storage/
+   materialization-read bytes only -- it does NOT claim, and must not be
+   read as claiming, any resident-memory reduction; a Q8_0 tensor's
+   actual resident footprint after Stage 1 materialization is identical
+   to an F32 tensor of the same shape, and `ResidencyLedger` must report
+   that truthfully. True Q8-resident compute (a Q8×F32 or Q8×Q8 compute
+   path that never fully materializes an F32 copy) or bounded on-demand
+   block/layer dequantization (transient F32 scratch honestly accounted
+   as scratch, not as reduced residency) are explicitly DEFERRED to a
+   separately, explicitly authorized Phase 6 Stage 2 -- not scaffolded,
+   not speculatively designed, not implicitly promised by Stage 1's
+   existence. Stage 1's evidence must state this limitation plainly
+   rather than let a smaller GGUF file size be read as "the model now
+   uses less memory to run."

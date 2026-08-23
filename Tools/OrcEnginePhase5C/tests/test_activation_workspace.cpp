@@ -208,20 +208,65 @@ int main(int argc, char** argv) {
             }
             check(rejected, "new_len exceeding workspace.max_tokens_per_step() rejected");
         }
+        // Independent-review follow-up (Gemini/PR#103 finding 1.1, applied to
+        // the workspace path too since forward_cached_step_workspace has its
+        // own embedding_lookup call site): out-of-vocab token IDs must be
+        // rejected with the exact exception type/message, before any
+        // per-layer work, workspace preparation, or cache write -- proven by
+        // checking cache.current_length() AND the workspace's own
+        // prepare/reuse counters are unchanged after rejection. (Replaces a
+        // weaker "some exception was thrown" version of this same case that
+        // predates this hardening-consolidation pass -- not duplicated.)
         {
-            // Independent-review follow-up (Gemini/PR#103 finding 1.1, applied
-            // here too since forward_cached_step_workspace has its own
-            // embedding_lookup call site): out-of-vocab token IDs must be
-            // rejected cleanly, not reach embedding_lookup's raw indexing.
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             ActivationWorkspace ws3(cfg.hidden, cfg.intermediate, q_dim, kv_dim, cfg.vocab, max_tokens_per_step);
-            bool rejected = false;
+            const int64_t committed_before = c.current_length();
+            const uint64_t total_calls_before = ws3.total_prepare_calls();
+            const uint64_t reuse_before = ws3.reuse_count();
+            bool right_type = false;
+            std::string message;
             try {
-                forward_cached_step_workspace(fx.model, c, {cfg.vocab}, 0, ws3);  // off-by-one at vocab
+                forward_cached_step_workspace(fx.model, c, {-1}, 0, ws3);  // negative token ID
+            } catch (const std::invalid_argument& ex) {
+                right_type = true;
+                message = ex.what();
             } catch (const std::exception&) {
-                rejected = true;
+                right_type = false;
             }
-            check(rejected, "workspace path: token ID == vocab (off-by-one) rejected");
+            check(right_type && message.find("forward_cached_step_workspace") != std::string::npos &&
+                      message.find("token ID -1 is outside vocabulary") != std::string::npos,
+                  "workspace path: negative token ID rejected with std::invalid_argument, workspace-driver-attributed message");
+            check(c.current_length() == committed_before,
+                  "workspace path: cache.current_length() unchanged after negative-token rejection");
+            check(ws3.total_prepare_calls() == total_calls_before && ws3.reuse_count() == reuse_before,
+                  "workspace path: prepare/reuse counters unchanged after negative-token rejection "
+                  "(rejection happened before any workspace buffer was ever requested)");
+        }
+        {
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            ActivationWorkspace ws4(cfg.hidden, cfg.intermediate, q_dim, kv_dim, cfg.vocab, max_tokens_per_step);
+            const int64_t committed_before = c.current_length();
+            const uint64_t total_calls_before = ws4.total_prepare_calls();
+            const uint64_t reuse_before = ws4.reuse_count();
+            bool right_type = false;
+            std::string message;
+            try {
+                forward_cached_step_workspace(fx.model, c, {cfg.vocab}, 0, ws4);  // off-by-one at vocab
+            } catch (const std::invalid_argument& ex) {
+                right_type = true;
+                message = ex.what();
+            } catch (const std::exception&) {
+                right_type = false;
+            }
+            check(right_type && message.find("forward_cached_step_workspace") != std::string::npos &&
+                      message.find("is outside vocabulary") != std::string::npos,
+                  "workspace path: token ID == vocab (off-by-one) rejected with std::invalid_argument, "
+                  "workspace-driver-attributed message");
+            check(c.current_length() == committed_before,
+                  "workspace path: cache.current_length() unchanged after off-by-one-token rejection");
+            check(ws4.total_prepare_calls() == total_calls_before && ws4.reuse_count() == reuse_before,
+                  "workspace path: prepare/reuse counters unchanged after off-by-one-token rejection "
+                  "(rejection happened before any workspace buffer was ever requested)");
         }
 
         std::printf("\n=== Summary ===\n");

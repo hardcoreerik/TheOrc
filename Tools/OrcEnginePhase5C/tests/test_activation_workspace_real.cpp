@@ -46,6 +46,32 @@ bool all_finite(const std::vector<float>& v) {
     }
     return true;
 }
+// Committed K/V content comparison, mirroring test_activation_workspace.cpp's
+// synthetic-fixture cache_matches() exactly -- added per independent review
+// (Codex, 2026-08-22): the spec claimed both the synthetic and real tests
+// prove committed KV-cache CONTENT is identical, but the real test previously
+// only compared logits/selected-tokens/length, not the actual K/V values.
+// Exact bit-for-bit equality (not a tolerance), since both paths run the
+// identical arithmetic through the identical frozen cache-write code --
+// any divergence at all would be a real defect, not floating-point noise.
+bool cache_matches(const ContiguousAttentionKVStore& a, const ContiguousAttentionKVStore& b, int64_t n_layers,
+                   int64_t n_kv_heads, int64_t head_dim, int64_t len) {
+    for (int64_t layer = 0; layer < n_layers; ++layer) {
+        for (int64_t h = 0; h < n_kv_heads; ++h) {
+            for (int64_t p = 0; p < len; ++p) {
+                const float* ka = a.k_row(layer, h, p);
+                const float* kb = b.k_row(layer, h, p);
+                const float* va = a.v_row(layer, h, p);
+                const float* vb = b.v_row(layer, h, p);
+                for (int64_t d = 0; d < head_dim; ++d) {
+                    if (ka[d] != kb[d]) return false;
+                    if (va[d] != vb[d]) return false;
+                }
+            }
+        }
+    }
+    return true;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -81,6 +107,8 @@ int main(int argc, char** argv) {
         check(ref.selected_token == ws.selected_token, "prefill: selected tokens identical");
         check(all_finite(ws.logits), "prefill: workspace-path logits all finite");
         check(cache_ref.current_length() == cache_ws.current_length(), "prefill: cache length identical");
+        check(cache_matches(cache_ref, cache_ws, cfg.n_layers, cfg.n_kv_heads, cfg.head_dim, cache_ref.current_length()),
+              "prefill: committed KV-cache content identical between reference and workspace paths");
         // test_real_cache_attacks.cpp establishes 28 as the greedy token immediately
         // following prompt {1, 5} (its "next" constant), and 284 as the SECOND
         // selected token after feeding 28 back in -- 28 is the correct value to
@@ -104,6 +132,8 @@ int main(int argc, char** argv) {
             check(r.selected_token == w.selected_token, label + ": selected tokens identical");
             check(all_finite(w.logits), label + ": workspace-path logits all finite");
             check(cache_ref.current_length() == cache_ws.current_length(), label + ": cache length identical");
+            check(cache_matches(cache_ref, cache_ws, cfg.n_layers, cfg.n_kv_heads, cfg.head_dim, cache_ref.current_length()),
+                  label + ": committed KV-cache content identical between reference and workspace paths");
             check(workspace.capacity_bytes() == capacity, label + ": workspace capacity unchanged (no growth)");
             check(workspace.peak_bytes() >= prev_peak, label + ": peak_bytes() non-decreasing");
             prev_peak = workspace.peak_bytes();

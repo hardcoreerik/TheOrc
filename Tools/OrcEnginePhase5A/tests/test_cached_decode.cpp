@@ -283,6 +283,51 @@ int main(int argc, char** argv) {
             }
             check(rejected, "empty new_token_ids rejected");
         }
+        // Independent-review follow-up (Gemini/PR#103 finding 1.1): before
+        // this fix, an out-of-vocab token ID reached ops::embedding_lookup's
+        // raw table[token*hidden+h] indexing completely unchecked -- an
+        // out-of-bounds heap read, not a clean rejection. Now checked
+        // explicitly, before any per-layer work or cache write, with the
+        // exact exception type/message required and proof that a rejected
+        // call leaves cache.current_length() unchanged (no partial mutation).
+        {
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            const int64_t committed_before = c.current_length();
+            bool right_type = false;
+            std::string message;
+            try {
+                forward_cached_step(fx.model, c, {-1}, 0);  // negative token ID
+            } catch (const std::invalid_argument& ex) {
+                right_type = true;
+                message = ex.what();
+            } catch (const std::exception&) {
+                right_type = false;
+            }
+            check(right_type && message.find("forward_cached_step_unsafe_explicit_position") != std::string::npos &&
+                      message.find("token ID -1 is outside vocabulary") != std::string::npos,
+                  "negative token ID rejected with std::invalid_argument, cached-driver-attributed message");
+            check(c.current_length() == committed_before,
+                  "cache.current_length() unchanged after negative-token rejection");
+        }
+        {
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            const int64_t committed_before = c.current_length();
+            bool right_type = false;
+            std::string message;
+            try {
+                forward_cached_step(fx.model, c, {cfg.vocab}, 0);  // exactly at vocab (off-by-one)
+            } catch (const std::invalid_argument& ex) {
+                right_type = true;
+                message = ex.what();
+            } catch (const std::exception&) {
+                right_type = false;
+            }
+            check(right_type && message.find("forward_cached_step_unsafe_explicit_position") != std::string::npos &&
+                      message.find("is outside vocabulary") != std::string::npos,
+                  "token ID == vocab (off-by-one) rejected with std::invalid_argument, cached-driver-attributed message");
+            check(c.current_length() == committed_before,
+                  "cache.current_length() unchanged after off-by-one-token rejection");
+        }
 
         std::printf("\n=== Summary ===\n");
         if (g_failures == 0) {
