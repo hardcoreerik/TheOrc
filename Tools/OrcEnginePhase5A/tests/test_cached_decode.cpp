@@ -283,6 +283,41 @@ int main(int argc, char** argv) {
             }
             check(rejected, "empty new_token_ids rejected");
         }
+        // Independent-review follow-up (Gemini/PR#103 finding 1.1): before this
+        // fix, an out-of-vocab token ID reached ops::embedding_lookup's raw
+        // table[token*hidden+h] indexing completely unchecked -- an
+        // out-of-bounds heap read, not a clean rejection. Now checked
+        // explicitly, before any per-layer work, with a clear error.
+        {
+            bool rejected = false;
+            try {
+                ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+                forward_cached_step(fx.model, c, {-1}, 0);  // negative token ID
+            } catch (const std::exception&) {
+                rejected = true;
+            }
+            check(rejected, "negative token ID rejected before any per-layer work");
+        }
+        {
+            bool rejected = false;
+            try {
+                ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+                forward_cached_step(fx.model, c, {cfg.vocab}, 0);  // exactly at vocab (off-by-one)
+            } catch (const std::exception&) {
+                rejected = true;
+            }
+            check(rejected, "token ID == vocab (off-by-one) rejected");
+        }
+        {
+            bool rejected = false;
+            try {
+                ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+                forward_cached_step(fx.model, c, {1000000000}, 0);  // far past vocab
+            } catch (const std::exception&) {
+                rejected = true;
+            }
+            check(rejected, "token ID far past vocab rejected");
+        }
 
         std::printf("\n=== Summary ===\n");
         if (g_failures == 0) {
