@@ -1,0 +1,9 @@
+dev_year_weather         tok_match=True orc_F32_selected=   523 llama_F32_argmax=   436 agree=False
+    llama F32 top5 (id, logprob): [(436, -1.8941), (282, -2.8135), (1483, -3.3427), (29, -3.3961), (4065, -3.5718)]
+    orc   F32 top5 (id, raw logit): [(523, 29.4167), (9656, 28.9485), (281, 28.6908), (436, 28.4801), (314, 27.9524)]
+holdout_she_walked       tok_match=True orc_F32_selected=  3589 llama_F32_argmax= 38734 agree=False
+    llama F32 top5 (id, logprob): [(38734, -3.8839), (9612, -4.0915), (29566, -4.1789), (36420, -4.2231), (44220, -4.5424)]
+    orc   F32 top5 (id, raw logit): [(3589, 13.7891), (9902, 12.8482), (2291, 12.5647), (4608, 12.2895), (9516, 11.8425)]
+holdout_quick_fox        tok_match=True orc_F32_selected= 27003 llama_F32_argmax=    28 agree=False
+    llama F32 top5 (id, logprob): [(28, -2.4725), (198, -2.7129), (314, -3.2975), (27003, -3.3167), (553, -3.5339)]
+    orc   F32 top5 (id, raw logit): [(27003, 14.3737), (25437, 13.9464), (198, 13.0294), (28, 12.8484), (553, 12.8086)]

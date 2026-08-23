@@ -2895,3 +2895,79 @@ Q8-vs-Q8 oracle run, the F32-vs-Q8 tolerance-methodology replacement,
 backing/resident accounting, and the final validation matrix) are
 separate, not-yet-landed work; `orcengine-phase6-freeze` does not exist
 and this ADR does not authorize creating it.
+
+## OE-ADR-042 — Phase 6 Stage 1 Codex-review remediation, Stages 2-3: oracle corrected and validated; STOPPED on a genuine correctness blocker
+
+**Stage 2 (oracle correctness): COMPLETE.** The original
+`phase6_llama_cpp_q8_0_oracle.py` had a mathematically invalid
+comparison -- it renormalized only OrcEngine's own top-5 Q8_0 logits
+into a top-5-only softmax and compared THAT to llama.cpp's
+FULL-VOCABULARY log-probability, a category error. Fixed by having
+`phase6_q8_0_comparison.cpp` compute and emit the actual full-vocabulary
+logsumexp per compared position (evidence `schema_version: 2`, values
+serialized at `max_digits10` precision), so the Python driver now
+computes `orc_logprob = raw_logit - full_vocab_logsumexp` exactly. A
+constructed synthetic example
+(`LogSoftmaxMathTests.test_top5_only_renormalization_would_have_been_
+wrong`) proves the old approach's answer would have differed from the
+correct one by >0.5 nats -- not a rounding-scale concern.
+
+Also fixed: `llama-server.exe` and `llama-server-impl.dll` are now
+hash-pinned (first-time authority records, since no prior pin existed
+for these specific files -- see `Q8_0_FIXTURE_PROVENANCE.md`'s new
+"Independent proof" section) and version-banner-verified before use;
+the Q8_0 GGUF's hash is verified against both the provenance record and
+the evidence file's own recorded hash; the server binds a dynamically
+chosen free port with process-liveness polling during health-wait
+(replacing a fixed port that could have silently talked to an unrelated
+stale server); each prompt's tokenization is independently re-verified
+against llama-server's own `/tokenize` endpoint and asserted exactly
+equal to OrcEngine's recorded token IDs (a matching prompt STRING is
+not proof of identical model INPUT); evidence validation fails closed
+on missing/old schema, missing fields, empty/non-finite logits (both
+engines, not just Q8_0 as before), and config mismatches. No arbitrary
+external-oracle tolerance was invented: no applicable prior Q8-vs-Q8
+numerical floor exists in this project, so the pass/fail gate is
+restricted to token-ID identity and greedy-argmax agreement (neither
+needs a numeric tolerance to justify); log-probability diffs are
+reported as diagnostic evidence only, not gated. 21 new targeted
+regression tests (`tests/test_phase6_llama_cpp_q8_0_oracle.py`) cover
+every failure path Codex asked for; all 21 PASS.
+
+**Stage 3 (corrected Q8-vs-Q8 oracle run): RAN, FAILED its own gate --
+mandatory stop triggered.** Real run against the pinned, hash-verified
+`llama-server.exe` and the pinned, hash-verified Q8_0 fixture: token-ID
+identity matched exactly on all 7 corpus prompts, but greedy (argmax)
+agreement held on only 4 of 7 (`dev_year_weather`, `holdout_she_walked`,
+`holdout_quick_fox` disagree). Per the remediation's own explicit
+instruction, this is NOT hidden, NOT tolerance-adjusted (there was no
+tolerance on this gate to adjust), and NOT diluted by expanding the
+corpus -- reported exactly as observed in
+`fixtures/STAGE2_STAGE3_STATUS.md`.
+
+**Localization (one bounded step, per instruction, before stopping):**
+a new script (`tools/phase6_localize_f32_divergence.py`) re-requested
+the 3 disagreeing prompts against the SAME pinned server but the
+pinned **F32** GGUF (zero Q8_0 quantization involved), with every
+optional sampling bias explicitly neutralized. **The identical 3
+disagreements reproduce byte-for-byte, with the identical chosen
+tokens, at full F32 precision.** This proves the divergence is NOT a
+defect in Phase 6's Q8_0 work -- it is a pre-existing OrcEngine-vs-
+llama.cpp F32 forward-path divergence this corpus is the first to
+expose (earlier Phase 5A/5B/5C real-model validation used a different,
+narrower prompt set). OrcEngine's own F32-vs-Q8_0 internal comparison
+remains 7/7 top-1-consistent (both OrcEngine paths agree with EACH
+OTHER on all 7 prompts) -- a real but narrower positive signal: Q8_0
+does not introduce ADDITIONAL divergence beyond whatever the
+pre-existing F32 gap already is.
+
+**Disposition.** Per the remediation's mandatory stop condition ("the
+corrected pinned Q8-vs-Q8 oracle fails"), Stage 4 (F32-vs-Q8 tolerance
+methodology replacement), Stage 5 (backing/resident accounting), and
+Stage 6 (final validation matrix) are explicitly NOT started.
+`orcengine-phase6-freeze` does not exist and this ADR does not
+authorize creating it. The underlying F32 divergence is recommended for
+triage as its own investigation (likely starting with RoPE/attention/
+RMSNorm-epsilon comparison on the 3 specific prompts) since it
+reproduces independently of, and therefore falls outside, Phase 6
+Stage 1's Q8_0-quantization scope.

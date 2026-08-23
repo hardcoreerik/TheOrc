@@ -1,64 +1,189 @@
 # Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """
-Phase 6 Stage 1, Checkpoint 3: OrcEngine-Q8_0-vs-pinned-llama.cpp-Q8_0
-oracle leg.
+Phase 6 Stage 1, Checkpoint 3 (Codex remediation, Stage 2): OrcEngine-
+Q8_0-vs-pinned-llama.cpp-Q8_0 oracle leg.
 
-Reuses this project's established pattern from
-Tools/OrcEnginePhase0/oracle/llama_cpp_deployment_oracle.py (start
-llama-server against a GGUF, request a completion with n_probs logprobs,
-compare) -- extended to the real, locally-quantized Q8_0 SmolLM2-135M
-fixture instead of the synthetic Profile-A model, and consuming the
-JSON-lines evidence phase6_q8_0_comparison.exe already produced for the
-OrcEngine-F32-vs-OrcEngine-Q8_0 leg (same predeclared dev/holdout
-corpus, same prompt IDs -- so both legs are directly comparable per
-prompt).
+This is a REWRITE of the original driver, which had a mathematically
+invalid comparison (see Finding 1 below) and several unverified-
+identity gaps a Codex review found. This version:
+
+  1. Uses the FULL-VOCABULARY logsumexp phase6_q8_0_comparison.exe now
+     emits per prompt (evidence schema_version >= 2) to compute an
+     EXACT orc_logprob = raw_orc_logit - full_vocab_logsumexp, instead
+     of the earlier code's invalid approach of renormalizing only
+     OrcEngine's own top-5 logits (a different, smaller-domain softmax)
+     and comparing that to llama.cpp's full-vocabulary log-probability.
+     Still only computable for tokens llama.cpp's server itself reports
+     that ALSO appear in OrcEngine's own top-5 slice (the raw logit for
+     an arbitrary vocabulary token is not otherwise in the evidence) --
+     reported as "N/A" rather than approximated for anything else.
+  2. Verifies llama-server.exe's pinned build/commit via --version,
+     records and checks its SHA-256 (and llama-server-impl.dll's, where
+     the actual request logic lives) against the authority now recorded
+     in fixtures/Q8_0_FIXTURE_PROVENANCE.md -- this is the FIRST time
+     this specific executable was hash-pinned; earlier proof relied only
+     on llama-tokenize.exe's --version and a shared llama.dll hash.
+  3. Verifies the Q8_0 GGUF's SHA-256 against the value BOTH this
+     project's provenance record AND the evidence file itself carry.
+  4. Binds a dynamically-chosen free local port (not a fixed constant),
+     confirms the launched subprocess is still alive before treating a
+     health response as authoritative, and only ever terminates the
+     specific subprocess handle this script started.
+  5. Requests tokenization of each prompt from llama-server's own
+     /tokenize endpoint and asserts the resulting token ID sequence is
+     EXACTLY equal to the token IDs OrcEngine's evidence recorded for
+     that same prompt -- a matching text string is not proof of
+     identical model input; only matching token IDs are.
+  6. Does NOT assert an unjustified external-oracle log-probability
+     tolerance. No prior empirically-derived Q8-vs-Q8 numerical floor
+     exists anywhere in this project (the only prior cross-engine
+     tolerance, LOGPROB_ATOL=0.1 in llama_cpp_deployment_oracle.py, was
+     derived for a completely different, synthetic 2-layer/16-hidden
+     toy model and an F32-vs-F32 comparison -- not an applicable floor
+     for a real 30-layer/576-hidden Q8_0-vs-Q8_0 comparison). Per this
+     remediation's explicit instruction not to pick a threshold after
+     seeing results, this script reports log-probability agreement as
+     DIAGNOSTIC evidence only. The PASS/FAIL gate is restricted to two
+     claims that need no numeric tolerance to justify: (a) identical
+     input token IDs, and (b) identical greedy (argmax) token. Deriving
+     a legitimate log-probability tolerance is explicitly deferred, not
+     fabricated here.
 
 Requires (fails closed, does not silently skip):
     - ORC_LLAMA_SERVER_PATH set, pointing at llama-server.exe from the
-      pinned b10436/commit 6fed9f6ff build (same executable already
-      used by llama_cpp_deployment_oracle.py and confirmed via
-      --version elsewhere in this project)
+      pinned b10436/commit 6fed9f6ff build
     - the locally-quantized Q8_0 GGUF (see fixtures/Q8_0_FIXTURE_PROVENANCE.md)
-    - phase6_q8_0_comparison.exe's JSON-lines evidence file, already
-      generated (this script does not regenerate it)
+    - phase6_q8_0_comparison.exe's schema_version>=2 JSON-lines evidence
+      file, already generated (this script does not regenerate it)
 
 Usage:
     python phase6_llama_cpp_q8_0_oracle.py <q8_0.gguf> <evidence.jsonl> <output_report.jsonl>
 """
 from __future__ import annotations
 
+import hashlib
 import json
-import math
 import os
+import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
-PORT = 8735
 LLAMA_SERVER_PATH = os.environ.get("ORC_LLAMA_SERVER_PATH", "")
 
-# Separately-justified, substantially TIGHTER tolerance for
-# OrcEngine-Q8_0-vs-llama.cpp-Q8_0 than for OrcEngine-Q8_0-vs-F32: both
-# engines are dequantizing and computing on the IDENTICAL Q8_0 weights, so
-# a real disagreement here means an actual bug in one implementation, not
-# quantization noise. Applied to log-probability space (natural log),
-# which is the space llama.cpp's server API reports in.
-LLAMA_CPP_Q8_LOGPROB_ATOL = 0.05
+EXPECTED_BUILD_MARKER = "build 10436"
+EXPECTED_COMMIT_MARKER = "6fed9f6ff"
+
+# First pinned during this remediation pass (see Q8_0_FIXTURE_PROVENANCE.md
+# "Independent proof" section) -- no prior authority record existed for
+# llama-server.exe/llama-server-impl.dll before this.
+EXPECTED_SERVER_EXE_SHA256 = "ae159e001d959e7a773af61e24d8e7d5d4de565865ec12a0dfd9974dc8ab7ca1"
+EXPECTED_SERVER_IMPL_DLL_SHA256 = "77f8cf124d0222993f7e98c16cecc855bc7b0d31f8005155d75f141944846793"
+
+# Matches Q8_0_FIXTURE_PROVENANCE.md's "Output" section and the constant
+# hardcoded in phase6_q8_0_comparison.cpp (kQ8ExpectedSha256).
+EXPECTED_Q8_GGUF_SHA256 = "3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398"
+
+MIN_SCHEMA_VERSION = 2
 
 
-def _wait_for_health(port: int, timeout_s: float = 30.0) -> bool:
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _verify_server_identity(server_path: str) -> None:
+    """Fails closed (sys.exit) unless llama-server.exe is the pinned
+    b10436/6fed9f6ff build, by hash AND by its own --version banner."""
+    if not os.path.isfile(server_path):
+        sys.exit(f"ABORT: llama-server not found at {server_path!r}. "
+                 f"Set ORC_LLAMA_SERVER_PATH to the pinned b10436 build's llama-server.exe.")
+
+    actual_hash = _sha256_file(server_path)
+    if actual_hash != EXPECTED_SERVER_EXE_SHA256:
+        sys.exit(f"ABORT: llama-server.exe SHA-256 {actual_hash} does not match the pinned "
+                 f"authority {EXPECTED_SERVER_EXE_SHA256} recorded in "
+                 f"fixtures/Q8_0_FIXTURE_PROVENANCE.md -- refusing to trust an unverified binary.")
+
+    impl_dll = os.path.join(os.path.dirname(server_path), "llama-server-impl.dll")
+    if os.path.isfile(impl_dll):
+        impl_hash = _sha256_file(impl_dll)
+        if impl_hash != EXPECTED_SERVER_IMPL_DLL_SHA256:
+            sys.exit(f"ABORT: llama-server-impl.dll SHA-256 {impl_hash} does not match the pinned "
+                     f"authority {EXPECTED_SERVER_IMPL_DLL_SHA256} -- refusing to trust an unverified "
+                     f"implementation library (this is where llama-server's actual request logic lives, "
+                     f"not the .exe stub).")
+    else:
+        print(f"WARNING: llama-server-impl.dll not found alongside {server_path!r} -- "
+              f"this build layout may differ from the pinned archive's; hash-pinning the .exe alone "
+              f"is a weaker guarantee (see Q8_0_FIXTURE_PROVENANCE.md).")
+
+    try:
+        result = subprocess.run([server_path, "--version"], capture_output=True, text=True, timeout=15)
+    except subprocess.SubprocessError as ex:
+        sys.exit(f"ABORT: could not run 'llama-server.exe --version': {ex}")
+    banner = (result.stdout or "") + (result.stderr or "")
+    if EXPECTED_BUILD_MARKER not in banner or EXPECTED_COMMIT_MARKER not in banner:
+        sys.exit(f"ABORT: llama-server.exe --version banner does not confirm the pinned build:\n{banner}\n"
+                 f"expected markers {EXPECTED_BUILD_MARKER!r} and {EXPECTED_COMMIT_MARKER!r}")
+    print(f"Server identity verified: hash-pinned AND --version confirms {EXPECTED_BUILD_MARKER}/"
+          f"{EXPECTED_COMMIT_MARKER}")
+
+
+def _verify_q8_gguf_identity(q8_path: str, evidence_entries: list[dict]) -> None:
+    if not os.path.isfile(q8_path):
+        sys.exit(f"ABORT: Q8_0 GGUF not found at {q8_path!r}")
+    actual_hash = _sha256_file(q8_path)
+    if actual_hash != EXPECTED_Q8_GGUF_SHA256:
+        sys.exit(f"ABORT: Q8_0 GGUF SHA-256 {actual_hash} does not match the pinned authority "
+                 f"{EXPECTED_Q8_GGUF_SHA256} (Q8_0_FIXTURE_PROVENANCE.md) -- wrong or corrupted fixture.")
+    for entry in evidence_entries:
+        evidence_hash = entry.get("q8_artifact_sha256")
+        if evidence_hash is not None and evidence_hash != EXPECTED_Q8_GGUF_SHA256:
+            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} records q8_artifact_sha256="
+                     f"{evidence_hash!r}, which does not match the pinned authority "
+                     f"{EXPECTED_Q8_GGUF_SHA256} -- evidence was generated against a different file "
+                     f"than the one this oracle run is comparing against.")
+    print(f"Q8_0 GGUF identity verified: {actual_hash} (matches pinned authority and evidence records)")
+
+
+def _free_local_port() -> int:
+    """Binds an ephemeral port and immediately releases it, so the server
+    process picks it up cleanly -- avoids a hardcoded fixed port silently
+    connecting to a stale/unrelated pre-existing server on that port."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _wait_for_health(proc: subprocess.Popen, port: int, timeout_s: float = 60.0) -> None:
+    """Fails closed (sys.exit) if the launched process exits before
+    becoming healthy, or times out -- never silently falls through to
+    treating an unrelated already-healthy server as this run's server."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
+        exit_code = proc.poll()
+        if exit_code is not None:
+            sys.exit(f"ABORT: llama-server process (pid {proc.pid}) exited with code {exit_code} "
+                     f"before becoming healthy -- this run's server process specifically, not some "
+                     f"other server, is what failed.")
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1) as resp:
                 if json.loads(resp.read())["status"] == "ok":
-                    return True
-        except Exception:
+                    return
+        except (urllib.error.URLError, ConnectionError, OSError):
             pass
         time.sleep(0.3)
-    return False
+    sys.exit(f"ABORT: llama-server (pid {proc.pid}) did not become healthy on port {port} within "
+             f"{timeout_s}s")
 
 
 def _request_completion(port: int, prompt: str, n_probs: int) -> dict:
@@ -73,44 +198,100 @@ def _request_completion(port: int, prompt: str, n_probs: int) -> dict:
         return json.loads(resp.read())
 
 
-def _log_softmax_at(logits: list[float], ids: list[int], target_id: int) -> float | None:
-    """Log-softmax of `target_id` given only a top-K logits slice: exact only
-    if target_id is one of the K ids; otherwise returns None (cannot be
-    computed honestly from a truncated slice -- never approximated as if it
-    were the full-vocab softmax denominator)."""
+def _request_tokenize(port: int, prompt: str) -> list[int]:
+    """Uses llama-server's own /tokenize endpoint so BOTH engines'
+    tokenization of the SAME prompt text is proven identical for THIS
+    run, not merely assumed from an earlier, separate proof elsewhere in
+    this project. add_special=False: OrcEngine's evidence token_ids do
+    not include a BOS token for any of this corpus's prompts (verified
+    by inspection -- none of the recorded IDs is llama's BOS id), so the
+    comparison must use the same (no-special-token) tokenization mode on
+    the llama.cpp side or it would be comparing different input by
+    construction."""
+    payload = json.dumps({"content": prompt, "add_special": False}).encode()
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/tokenize", data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        body = json.loads(resp.read())
+    return body["tokens"]
+
+
+def _log_softmax_at(full_vocab_logsumexp: float, ids: list[int], logits: list[float],
+                    target_id: int) -> float | None:
+    """Exact log-probability of `target_id`, using the FULL-VOCABULARY
+    logsumexp the C++ tool already computed (evidence schema_version>=2)
+    -- NOT a re-derived top-k-only normalization, which would be a
+    smaller, different softmax and mathematically invalid to compare
+    against llama.cpp's full-vocabulary log-probability. Only computable
+    when `target_id`'s raw OrcEngine logit is present in the evidence
+    (i.e. it is one of OrcEngine's own top-5); otherwise returns None,
+    reported honestly as not comparable, never approximated."""
     if target_id not in ids:
         return None
-    m = max(logits)
-    denom = math.log(sum(math.exp(v - m) for v in logits)) + m
     idx = ids.index(target_id)
-    return logits[idx] - denom
+    return logits[idx] - full_vocab_logsumexp
+
+
+def _validate_evidence_schema(entries: list[dict]) -> None:
+    """Fails closed (sys.exit) on malformed/incomplete evidence: missing
+    schema_version, a schema_version too old to carry full-vocabulary
+    normalization data, or any required field absent from an entry.
+    Extracted as its own function so it is independently testable
+    without needing a live server or real evidence file."""
+    if not entries:
+        sys.exit("ABORT: evidence is empty")
+    for entry in entries:
+        schema_version = entry.get("schema_version")
+        if schema_version is None or schema_version < MIN_SCHEMA_VERSION:
+            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} has schema_version={schema_version!r}, "
+                     f"required >= {MIN_SCHEMA_VERSION} (full-vocabulary logsumexp normalization data). "
+                     f"Regenerate evidence with the corrected phase6_q8_0_comparison.exe.")
+        for required_field in ("q8_full_vocab_logsumexp", "token_ids", "q8_top5_ids", "q8_top5_logits",
+                               "compared_position", "q8_selected"):
+            if required_field not in entry:
+                sys.exit(f"ABORT: evidence entry {entry.get('id')!r} is missing required field "
+                         f"{required_field!r} -- malformed or incomplete evidence, refusing to proceed.")
 
 
 def run(q8_path: str, evidence_path: str, report_path: str) -> bool:
-    if not LLAMA_SERVER_PATH or not os.path.isfile(LLAMA_SERVER_PATH):
-        sys.exit(f"ABORT: llama-server not found at {LLAMA_SERVER_PATH!r}. "
-                 f"Set ORC_LLAMA_SERVER_PATH to the pinned b10436 build's llama-server.exe.")
-    if not os.path.isfile(q8_path):
-        sys.exit(f"ABORT: Q8_0 GGUF not found at {q8_path!r}")
     if not os.path.isfile(evidence_path):
         sys.exit(f"ABORT: OrcEngine evidence file not found at {evidence_path!r} -- "
                  f"run phase6_q8_0_comparison.exe first")
 
     with open(evidence_path, encoding="utf-8") as f:
         orcengine_evidence = [json.loads(line) for line in f if line.strip()]
+    _validate_evidence_schema(orcengine_evidence)
 
+    _verify_server_identity(LLAMA_SERVER_PATH)
+    _verify_q8_gguf_identity(q8_path, orcengine_evidence)
+
+    port = _free_local_port()
     proc = subprocess.Popen(
-        [LLAMA_SERVER_PATH, "-m", q8_path, "--port", str(PORT), "--no-warmup"],
+        [LLAMA_SERVER_PATH, "-m", q8_path, "--port", str(port), "--no-warmup"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     all_ok = True
     results = []
     try:
-        if not _wait_for_health(PORT):
-            sys.exit("ABORT: llama-server did not become healthy in time")
+        _wait_for_health(proc, port)
+        print(f"llama-server healthy on dynamically-chosen port {port} (pid {proc.pid})")
 
         for entry in orcengine_evidence:
-            response = _request_completion(PORT, entry["text"], n_probs=5)
+            # --- Token-ID identity proof: a matching text string is not
+            # sufficient proof of identical model input. ---
+            llama_token_ids = _request_tokenize(port, entry["text"])
+            orc_token_ids = entry["token_ids"]
+            token_ids_match = llama_token_ids == orc_token_ids
+            if not token_ids_match:
+                all_ok = False
+                print(f"{entry['id']:24s} TOKEN-ID MISMATCH: orc={orc_token_ids} llama.cpp={llama_token_ids}")
+                results.append({"id": entry["id"], "token_ids_match": False,
+                                "orc_token_ids": orc_token_ids, "llama_token_ids": llama_token_ids})
+                continue  # comparing logits under a proven input mismatch would be meaningless
+
+            response = _request_completion(port, entry["text"], n_probs=5)
             top = response["completion_probabilities"][0]["top_logprobs"]
             llama_ids = [t["id"] for t in top]
             llama_logprobs = [t["logprob"] for t in top]
@@ -118,50 +299,47 @@ def run(q8_path: str, evidence_path: str, report_path: str) -> bool:
 
             orc_argmax = entry["q8_selected"]
             argmax_agree = orc_argmax == llama_argmax
-
-            # Reconstruct OrcEngine's own log-softmax for the tokens llama.cpp
-            # reported, from OrcEngine's own top-5 (id, logit) slice -- exact
-            # only where both top-5 sets overlap; entries outside OrcEngine's
-            # own top-5 are honestly reported as "not comparable from this
-            # slice" rather than silently skipped or approximated.
-            orc_ids = entry["q8_top5_ids"]
-            orc_logits = entry["q8_top5_logits"]
-            comparisons = []
-            for lid, llp in zip(llama_ids, llama_logprobs):
-                orc_lp = _log_softmax_at(orc_logits, orc_ids, lid)
-                if orc_lp is None:
-                    comparisons.append({"token_id": lid, "llama_logprob": llp, "orc_logprob": None,
-                                        "diff": None, "within_tol": None})
-                    continue
-                diff = abs(orc_lp - llp)
-                within = diff <= LLAMA_CPP_Q8_LOGPROB_ATOL
-                comparisons.append({"token_id": lid, "llama_logprob": llp, "orc_logprob": orc_lp,
-                                    "diff": diff, "within_tol": within})
-                if not within:
-                    all_ok = False
-
             if not argmax_agree:
                 all_ok = False
 
-            print(f"{entry['id']:24s} orc_argmax={orc_argmax:6d} llama_argmax={llama_argmax:6d} "
-                  f"agree={argmax_agree}")
+            orc_ids = entry["q8_top5_ids"]
+            orc_logits = entry["q8_top5_logits"]
+            full_vocab_logsumexp = entry["q8_full_vocab_logsumexp"]
+            comparisons = []
+            for lid, llp in zip(llama_ids, llama_logprobs):
+                orc_lp = _log_softmax_at(full_vocab_logsumexp, orc_ids, orc_logits, lid)
+                if orc_lp is None:
+                    comparisons.append({"token_id": lid, "llama_logprob": llp, "orc_logprob": None,
+                                        "diff": None, "comparable": False})
+                    continue
+                diff = abs(orc_lp - llp)
+                # Diagnostic only -- see module docstring point 6: no
+                # justified tolerance exists yet, so this does NOT feed
+                # into all_ok/PASS-FAIL.
+                comparisons.append({"token_id": lid, "llama_logprob": llp, "orc_logprob": orc_lp,
+                                    "diff": diff, "comparable": True})
+
+            print(f"{entry['id']:24s} tokens_match=True orc_argmax={orc_argmax:6d} "
+                  f"llama_argmax={llama_argmax:6d} argmax_agree={argmax_agree}")
             for c in comparisons:
-                if c["orc_logprob"] is None:
+                if not c["comparable"]:
                     print(f"    token {c['token_id']:6d}: llama_logprob={c['llama_logprob']:.6f}  "
                           f"orc_logprob=N/A (outside OrcEngine's own top-5 slice)")
                 else:
                     print(f"    token {c['token_id']:6d}: llama_logprob={c['llama_logprob']:.6f}  "
-                          f"orc_logprob={c['orc_logprob']:.6f}  diff={c['diff']:.6f}  "
-                          f"within_tol={c['within_tol']}")
+                          f"orc_logprob={c['orc_logprob']:.6f}  diff={c['diff']:.6f}  (diagnostic only, "
+                          f"no justified tolerance -- see module docstring)")
 
-            results.append({"id": entry["id"], "orc_argmax": orc_argmax, "llama_argmax": llama_argmax,
-                            "argmax_agree": argmax_agree, "comparisons": comparisons})
+            results.append({"id": entry["id"], "token_ids_match": True, "orc_argmax": orc_argmax,
+                            "llama_argmax": llama_argmax, "argmax_agree": argmax_agree,
+                            "comparisons": comparisons})
     finally:
         proc.terminate()
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait(timeout=5)
 
     with open(report_path, "w", encoding="utf-8") as f:
         for r in results:
@@ -175,5 +353,7 @@ if __name__ == "__main__":
         sys.exit(f"usage: {sys.argv[0]} <q8_0.gguf> <evidence.jsonl> <output_report.jsonl>")
     ok = run(sys.argv[1], sys.argv[2], sys.argv[3])
     print(f"\n{'PASS' if ok else 'FAIL'}: OrcEngine-Q8_0 vs pinned llama.cpp-Q8_0 oracle agreement "
-          f"(argmax match + logprob within {LLAMA_CPP_Q8_LOGPROB_ATOL} where comparable)")
+          f"(token-ID identity + argmax match ONLY -- log-probability diffs are reported as diagnostic "
+          f"evidence, not gated, because no justified external-oracle log-probability tolerance exists "
+          f"yet; deriving one is explicitly deferred, not fabricated after seeing results)")
     raise SystemExit(0 if ok else 1)

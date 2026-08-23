@@ -10,7 +10,24 @@ independently verifiable, not merely asserted.
 The generated `smollm2-135m-q8_0.gguf` itself is NOT committed (this
 project's `.gitignore` excludes `*.gguf` globally; the file is fully
 regenerable from this record). Regenerate it with the exact command in
-"Invocation" below.
+"Invocation" below. **What IS committed**: this provenance file, the
+tensor inventory dump (`smollm2-135m-q8_0-inventory.txt`), and the
+comparison evidence JSONL files -- corrected here after an earlier
+draft of this document incorrectly described the inventory file as
+also not committed.
+
+## Quantizer archive (source of `llama-quantize.exe`)
+
+- Archive: `llama-cpu.zip`, downloaded from the pinned
+  `b10436` release: https://github.com/ggml-org/llama.cpp/releases/tag/b10436
+  (`llama-b10436-bin-win-cpu-x64.zip` on that release page; renamed
+  locally to `llama-cpu.zip`), same pinning this project already uses
+  for `llama_cpp_deployment_oracle.py`.
+- Local path: `C:\Users\hardc\AppData\Local\Temp\llamacpp_test\llama-cpu.zip`
+- Archive SHA-256: `eebe233f29bd89a6c3c03a1e92c8b97a216a67977f4742aef28005c784b1f02c`
+  (recorded here as the archive-level authority; if this project later
+  needs to re-download the release, this hash is what to verify against
+  the GitHub release asset, not merely trust the filename/tag match).
 
 ## Input
 
@@ -33,13 +50,31 @@ regenerable from this record). Regenerate it with the exact command in
   version: 0.1.0-dev (build 10436, commit 6fed9f6ff)
   built with Clang 20.1.8 for Windows x86_64
   ```
-  Independently corroborated: `llama.dll` (the shared library both
-  executables link against, extracted from the SAME `llama-cpu.zip`
-  archive) has SHA-256 `0089c0b354d0da3d262466c04ee58c52e23add486d3a0338194b1fc00cee413b`
-  in both the already-version-verified live directory and a fresh
-  extraction from the zip -- byte-identical, confirming `llama-
-  quantize.exe` shares the exact same pinned build's core library, not
-  merely a same-named binary from an unpinned source.
+  This shared-`llama.dll`-identity argument is CORROBORATION, not sole
+  proof, of `llama-quantize.exe`'s build identity -- a shared DLL
+  hash alone cannot rule out a mismatched or tampered `.exe` stub built
+  against that same DLL. See the independent, stronger proof below.
+- Independent proof (added during Codex remediation): `llama-server.exe`,
+  extracted from the SAME `llama-cpu.zip` archive, DOES support
+  `--version` directly and prints the identical banner:
+  ```
+  version: 0.1.0-dev (build 10436, commit 6fed9f6ff)
+  built with Clang 20.1.8 for Windows x86_64
+  ```
+  `llama-server.exe` SHA-256: `ae159e001d959e7a773af61e24d8e7d5d4de565865ec12a0dfd9974dc8ab7ca1`
+  (first pinned here -- no prior authority record existed for this
+  executable before the Q8-vs-Q8 external-oracle remediation work).
+  `llama-server-impl.dll` (where llama-server's actual request-handling
+  logic lives; the `.exe` itself is a thin stub) SHA-256:
+  `77f8cf124d0222993f7e98c16cecc855bc7b0d31f8005155d75f141944846793`,
+  also first pinned here. Both were extracted from the same
+  archive-verified `llama-cpu.zip` (see "Quantizer archive" above) as
+  `llama-quantize.exe`, `llama-tokenize.exe`, and `llama.dll` -- so all
+  four executables and their shared/impl DLLs are proven, by common
+  archive provenance plus this direct `--version` confirmation on TWO
+  of the four executables (`llama-tokenize.exe` and `llama-server.exe`),
+  to be the same pinned `b10436`/`6fed9f6ff` build, not merely
+  same-named binaries from an unpinned source.
 - Working directory: `C:\Users\hardc\AppData\Local\Temp\llamacpp_test`
 
 ## Invocation
