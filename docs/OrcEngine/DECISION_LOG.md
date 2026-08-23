@@ -3395,3 +3395,46 @@ controlled external-oracle rerun and the internal Q8_0 tolerance
 investigation are separate, subsequent steps. Stages 4-6 remain not
 started. `orcengine-phase6-freeze` does not exist and this entry does
 not authorize creating it. FL-08 remains not started.
+
+## OE-ADR-047 — Controlled external-oracle rerun: Outcome P2 reproduces exactly; KV-cache/flash-attention confound ruled out (Commit 2)
+
+**Rerun.** Following OE-ADR-046's fix (explicit `--cache-type-k f32
+--cache-type-v f32 --flash-attn off` on both F32 and Q8_0 llama.cpp
+legs, via the shared `_launch_controlled_server()`), all four
+external-oracle tools were rerun for real against the pinned server and
+pinned models, same 7 prompts, same exact token IDs, same compared
+position: the Q8-vs-Q8 oracle, the F32 localizer, the paired four-way
+tool, and the three-authority PyTorch/OrcEngine/llama.cpp diagnostic
+(this time with GENUINE provenance verification per OE-ADR-046's Gate
+3 fix -- the manifest was actually opened, and the actual F32 GGUF
+passed for this specific run was actually hashed and cross-checked).
+
+**Result: identical to the uncontrolled run, on every prompt, both
+selected tokens and their agreement/disagreement pattern.** The same 3
+prompts (`dev_year_weather`, `holdout_she_walked`, `holdout_quick_fox`)
+disagree between {PyTorch, OrcEngine} and llama.cpp under the
+controlled settings, with the identical specific llama.cpp-selected
+tokens as the uncontrolled run. Full table:
+`Tools/OrcEnginePhase6/fixtures/PHASE6_CONTROLLED_RERUN_STATUS.md`.
+
+**Conclusion: the KV-cache-precision/flash-attention confound Codex
+identified is confirmed NOT to be the cause of the disagreement.**
+Per the governing instruction, this does NOT mean llama.cpp is wrong --
+it rules out one specific candidate explanation and leaves the true
+cause unresolved. A partial one-factor sensitivity check (prior/default
+vs. controlled-F32-with-flash-off) is recorded; the middle configuration
+(F32 cache with flash-attention left at its default `auto`) was NOT
+separately run in this pass and is noted as a gap, not silently
+skipped. The narrowest remaining parity questions (RoPE metadata
+interpretation, position/cache-slot bookkeeping, llama.cpp's own GGUF
+metadata parsing for this model) are recorded as recommended next
+checks and were NOT investigated in this pass.
+
+**Disposition.** No OrcEngine transformer math was changed or
+investigated. Per instruction ("Do not call llama.cpp wrong... stop
+before changing OrcEngine transformer math unless a specific OrcEngine
+defect is localized and supported by evidence"), this stops here for
+the external-comparison question. Stages 4-6 remain not started;
+`orcengine-phase6-freeze` does not exist and this entry does not
+authorize creating it; FL-08 remains not started. The internal Q8_0
+tolerance investigation (Gate 6) is a separate, subsequent step.

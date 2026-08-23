@@ -1,0 +1,17 @@
+Paired corpus validated: exactly 7 unique expected prompt IDs present, all required fields structurally sound.
+Server identity verified: hash-pinned AND --version confirms build 10436/6fed9f6ff
+F32 GGUF identity verified: fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac (matches pinned authority and evidence records)
+Q8_0 GGUF identity verified: 3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398 (matches pinned authority and evidence records)
+[F32] llama-server healthy on port 52752 (pid 56340)
+[Q8_0] llama-server healthy on port 52798 (pid 49288)
+
+Prompt                     Orc F32    Orc Q8  llama F32  llama Q8  IntAgree  ExtF32Agree  ExtQ8Agree
+dev_capital_of_france          260       260        260       260      True         True        True
+dev_once_upon_a_time            28        28         28        28      True         True        True
+dev_code_snippet               253       253        253       253      True         True        True
+dev_year_weather               523       523        436       436      True        False       False
+holdout_hello_world            253       253        253       253      True         True        True
+holdout_she_walked            3589      3589      38734      9612      True        False       False
+holdout_quick_fox            27003     27003         28        28      True        False       False
+
+DONE: paired four-way evidence collected for 7 prompts, written to 'Tools/OrcEnginePhase6/fixtures/phase6_paired_four_way_report_controlled.jsonl'

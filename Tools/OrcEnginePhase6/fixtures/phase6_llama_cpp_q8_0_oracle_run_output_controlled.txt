@@ -1,0 +1,47 @@
+Server identity verified: hash-pinned AND --version confirms build 10436/6fed9f6ff
+Q8_0 GGUF identity verified: 3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398 (matches pinned authority and evidence records)
+llama-server healthy on dynamically-chosen port 54210 (pid 55704)
+dev_capital_of_france    tokens_match=True orc_argmax=   260 llama_argmax=   260 argmax_agree=True
+    token    260: llama_logprob=-1.373424  orc_logprob=-1.392357  diff=0.018934  (diagnostic only, no justified tolerance -- see module docstring)
+    token   1217: llama_logprob=-2.209699  orc_logprob=-3.182398  diff=0.972699  (diagnostic only, no justified tolerance -- see module docstring)
+    token   7042: llama_logprob=-2.294490  orc_logprob=-2.387566  diff=0.093076  (diagnostic only, no justified tolerance -- see module docstring)
+    token   3807: llama_logprob=-2.938620  orc_logprob=-2.542393  diff=0.396227  (diagnostic only, no justified tolerance -- see module docstring)
+    token   1343: llama_logprob=-3.951032  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+dev_once_upon_a_time     tokens_match=True orc_argmax=    28 llama_argmax=    28 argmax_agree=True
+    token     28: llama_logprob=-0.493534  orc_logprob=-0.300367  diff=0.193167  (diagnostic only, no justified tolerance -- see module docstring)
+    token    281: llama_logprob=-2.190953  orc_logprob=-1.679073  diff=0.511879  (diagnostic only, no justified tolerance -- see module docstring)
+    token    665: llama_logprob=-2.750386  orc_logprob=-3.500555  diff=0.750169  (diagnostic only, no justified tolerance -- see module docstring)
+    token    260: llama_logprob=-3.983574  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token    253: llama_logprob=-3.988134  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+dev_code_snippet         tokens_match=True orc_argmax=   253 llama_argmax=   253 argmax_agree=True
+    token    253: llama_logprob=-1.161269  orc_logprob=-0.520455  diff=0.640815  (diagnostic only, no justified tolerance -- see module docstring)
+    token    278: llama_logprob=-2.460556  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token    365: llama_logprob=-2.513930  orc_logprob=-2.590819  diff=0.076889  (diagnostic only, no justified tolerance -- see module docstring)
+    token   3635: llama_logprob=-3.710432  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token    216: llama_logprob=-3.711474  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+dev_year_weather         tokens_match=True orc_argmax=   523 llama_argmax=   436 argmax_agree=False
+    token    436: llama_logprob=-1.922756  orc_logprob=-2.680623  diff=0.757867  (diagnostic only, no justified tolerance -- see module docstring)
+    token    282: llama_logprob=-2.736454  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token   1483: llama_logprob=-3.269655  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token     29: llama_logprob=-3.479007  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token   4065: llama_logprob=-3.561181  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+holdout_hello_world      tokens_match=True orc_argmax=   253 llama_argmax=   253 argmax_agree=True
+    token    253: llama_logprob=-1.768713  orc_logprob=-1.714424  diff=0.054289  (diagnostic only, no justified tolerance -- see module docstring)
+    token    260: llama_logprob=-2.204041  orc_logprob=-2.245196  diff=0.041155  (diagnostic only, no justified tolerance -- see module docstring)
+    token    957: llama_logprob=-2.618868  orc_logprob=-1.847700  diff=0.771168  (diagnostic only, no justified tolerance -- see module docstring)
+    token    441: llama_logprob=-3.316695  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token    732: llama_logprob=-3.483037  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+holdout_she_walked       tokens_match=True orc_argmax=  3589 llama_argmax=  9612 argmax_agree=False
+    token   9612: llama_logprob=-3.593165  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token  36420: llama_logprob=-3.838732  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token  29566: llama_logprob=-4.300550  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token  38734: llama_logprob=-4.312156  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token  21099: llama_logprob=-4.356945  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+holdout_quick_fox        tokens_match=True orc_argmax= 27003 llama_argmax=    28 argmax_agree=False
+    token     28: llama_logprob=-2.567859  orc_logprob=-3.429738  diff=0.861879  (diagnostic only, no justified tolerance -- see module docstring)
+    token    198: llama_logprob=-2.750381  orc_logprob=-3.256302  diff=0.505922  (diagnostic only, no justified tolerance -- see module docstring)
+    token    314: llama_logprob=-3.355760  orc_logprob=N/A (outside OrcEngine's own top-5 slice)
+    token  27003: llama_logprob=-3.461778  orc_logprob=-1.441394  diff=2.020383  (diagnostic only, no justified tolerance -- see module docstring)
+    token    553: llama_logprob=-3.655761  orc_logprob=-3.527264  diff=0.128497  (diagnostic only, no justified tolerance -- see module docstring)
+
+FAIL: OrcEngine-Q8_0 vs pinned llama.cpp-Q8_0 oracle agreement (token-ID identity + argmax match ONLY -- log-probability diffs are reported as diagnostic evidence, not gated, because no justified external-oracle log-probability tolerance exists yet; deriving one is explicitly deferred, not fabricated after seeing results)
