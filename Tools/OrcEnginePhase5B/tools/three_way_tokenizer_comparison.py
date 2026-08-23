@@ -138,6 +138,9 @@ def llama_cpp_tokenize(text: str) -> list[int]:
     proc = subprocess.run([LLAMA_TOKENIZE_PATH, "-m", GGUF_PATH, "-p", text, "--ids"],
                           capture_output=True, timeout=30)
     stdout = proc.stdout.decode("utf-8", errors="replace")
+    if proc.returncode != 0:
+        raise RuntimeError(f"llama-tokenize exited {proc.returncode}: "
+                            f"{proc.stderr.decode('utf-8', errors='replace')!r}")
     for line in reversed(stdout.splitlines()):
         line = line.strip()
         if line.startswith("[") and line.endswith("]"):

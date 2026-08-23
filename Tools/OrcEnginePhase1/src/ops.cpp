@@ -29,6 +29,12 @@ void rmsnorm_into(std::span<const float> x, int64_t rows, int64_t cols,
     if (static_cast<int64_t>(out.size()) != expected) {
         throw std::invalid_argument("orcengine::ops::rmsnorm_into: out.size() does not match rows*cols");
     }
+    if (static_cast<int64_t>(x.size()) != expected) {
+        throw std::invalid_argument("orcengine::ops::rmsnorm_into: x.size() does not match rows*cols");
+    }
+    if (static_cast<int64_t>(weight.size()) != cols) {
+        throw std::invalid_argument("orcengine::ops::rmsnorm_into: weight.size() does not match cols");
+    }
     for (int64_t r = 0; r < rows; ++r) {
         AccumT sum_sq = AccumT(0);
         for (int64_t c = 0; c < cols; ++c) {
@@ -148,6 +154,15 @@ void linear_no_bias_into(std::span<const float> x, int64_t rows, int64_t in_feat
     const int64_t expected = checked_mul_i64(rows, out_features, "linear_no_bias element count");
     if (static_cast<int64_t>(out.size()) != expected) {
         throw std::invalid_argument("orcengine::ops::linear_no_bias_into: out.size() does not match rows*out_features");
+    }
+    const int64_t expected_x = checked_mul_i64(rows, in_features, "linear_no_bias input element count");
+    if (static_cast<int64_t>(x.size()) != expected_x) {
+        throw std::invalid_argument("orcengine::ops::linear_no_bias_into: x.size() does not match rows*in_features");
+    }
+    const int64_t expected_weight = checked_mul_i64(out_features, in_features, "linear_no_bias weight element count");
+    if (static_cast<int64_t>(weight_out_in.size()) != expected_weight) {
+        throw std::invalid_argument(
+            "orcengine::ops::linear_no_bias_into: weight_out_in.size() does not match out_features*in_features");
     }
     for (int64_t r = 0; r < rows; ++r) {
         for (int64_t o = 0; o < out_features; ++o) {

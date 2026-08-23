@@ -192,6 +192,12 @@ int main(int argc, char** argv) {
         }
         {
             // new_len exceeding the workspace's max_tokens_per_step must be rejected.
+            // Asserted unconditionally: the fixture's own prefill size is checked
+            // first so this case cannot silently pass by being vacuous (a bare
+            // `rejected || len <= 1` OR would let a shrunk fixture mask a real
+            // regression, the same false-pass shape OE-ADR-038 fixed elsewhere).
+            check(trace[0].new_tokens.size() > 1,
+                  "precondition: fixture prefill has more than 1 token (so the rejection below is exercised)");
             ActivationWorkspace tiny(cfg.hidden, cfg.intermediate, q_dim, kv_dim, cfg.vocab, 1);
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             bool rejected = false;
@@ -200,8 +206,7 @@ int main(int argc, char** argv) {
             } catch (const std::exception&) {
                 rejected = true;
             }
-            check(rejected || trace[0].new_tokens.size() <= 1,
-                  "new_len exceeding workspace.max_tokens_per_step() rejected");
+            check(rejected, "new_len exceeding workspace.max_tokens_per_step() rejected");
         }
 
         std::printf("\n=== Summary ===\n");

@@ -42,6 +42,19 @@ CachedStepResult forward_cached_step_workspace_unsafe_explicit_position(
                                  ") exceeds workspace.max_tokens_per_step() (" +
                                  std::to_string(workspace.max_tokens_per_step()) + ")");
     }
+    // Checked up front, before any per-layer work or cache write, so a
+    // workspace/model mismatch fails closed at the call boundary instead
+    // of surfacing later as a confusing span-size exception partway
+    // through the layer loop (ops::*_into's own checks would still catch
+    // it, but not until after several layers' cache writes had already
+    // happened).
+    const int64_t expected_q_dim = cfg.n_q_heads * cfg.head_dim;
+    const int64_t expected_kv_dim = cfg.n_kv_heads * cfg.head_dim;
+    if (workspace.hidden() != cfg.hidden || workspace.intermediate() != cfg.intermediate ||
+        workspace.q_dim() != expected_q_dim || workspace.kv_dim() != expected_kv_dim ||
+        workspace.vocab() != cfg.vocab) {
+        throw std::runtime_error("forward_cached_step_workspace: workspace dimensions do not match model config");
+    }
 
     const int64_t hidden = cfg.hidden;
 
