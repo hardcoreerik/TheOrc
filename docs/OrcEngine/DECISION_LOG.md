@@ -3499,3 +3499,62 @@ acceptance-gate change. Full record:
 Stages 4-6 remain not started; `orcengine-phase6-freeze` does not
 exist and this entry does not authorize creating it; FL-08 remains not
 started. Stopping here for Codex review, as instructed.
+
+## OE-ADR-049 — Fail-closed corpus/hash defects in the three-authority diagnostic corrected (combined Codex/Grok remediation round 5, Commit 1)
+
+**Finding: `_load_exact_corpus()` (OE-ADR-046) claimed, in its own
+docstring, to reject unexpected prompt IDs, but its actual behavior
+only checked duplicates intersecting the expected set
+(`duplicated & expected`) and silently FILTERED unexpected rows out of
+the returned dict (`if pid in expected`) instead of aborting on them.**
+A file containing the 7 expected IDs plus an extra unexpected row, or a
+duplicate of an unexpected row, passed through completely unnoticed --
+the claim in the docstring did not match the code.
+
+**Fix.** `_load_exact_corpus()` now aborts on ANY ID outside the exact
+expected 7-prompt set, unconditionally (not gated behind first
+satisfying the missing-ID check), and reports ALL duplicate IDs (not
+only ones intersecting the expected set -- though by construction, once
+the unexpected-ID check has already passed, every remaining ID is
+necessarily in the expected set). 4 new regression tests: an unexpected
+row aborts even alongside a complete valid corpus, an unexpected row
+alone (without the full 7) also aborts, and a duplicate of an
+unexpected ID aborts. The old
+`test_unrelated_extra_entries_are_ignored_not_rejected` -- which
+asserted the WRONG (silently-filtering) behavior as correct -- is
+replaced with `test_unexpected_entry_aborts` asserting the correct
+fail-closed behavior.
+
+**Finding: `_verify_pytorch_authority()`'s evidence-row hash check used
+`entry.get("f32_artifact_sha256")` + `is not None`, which silently
+skipped the check entirely when the field was simply ABSENT from a
+row** (`.get()` returns `None`, `None is not None` is `False`) -- an
+evidence row with no hash field at all was treated the same as one
+whose hash matched, not flagged as a gap.
+
+**Fix.** The field must now be present (`"f32_artifact_sha256" not in
+entry` aborts), a non-empty string (`isinstance(..., str)` and
+truthiness both checked), and equal to the verified GGUF hash -- three
+distinct, explicit failure modes instead of one conflated check. 5 new
+regression tests: missing field entirely, null, empty string,
+non-string, and (already covered previously) mismatched value. The
+success message was also corrected to state precisely what was
+checked ("every one of N evidence row(s) was checked and required to
+carry a present, non-empty, matching f32_artifact_sha256 (none
+skipped)") rather than the vaguer "every applicable evidence row",
+which implied some rows might legitimately be exempt.
+
+**Verification.** Combined Python test count across both test files:
+**84** (78 prior + 6 net new -- `test_phase6_three_authority_f32_
+diagnostic.py` alone went from 20 to 26: one old test removed
+(`test_unrelated_extra_entries_are_ignored_not_rejected`, which
+asserted the wrong behavior), 3 new exact-corpus tests added, 4 new
+evidence-hash tests added), all passing.
+
+**Disposition.** This commit is a narrow fail-closed-defect correction
+only -- no numerical investigation, no documentation-claim narrowing
+(that is Gate 2, a separate commit), no frozen Phase 1-5C file touched.
+Both freeze blockers (internal tolerance failure, external same-Q8
+disagreement) remain unresolved and unchanged. Stages 4-6 remain not
+started; `orcengine-phase6-freeze` does not exist and this entry does
+not authorize creating it; FL-08 remains not started.

@@ -160,6 +160,36 @@ class PyTorchAuthorityVerificationTests(unittest.TestCase):
                 self.hf_dir, self.manifest_path, self.gguf_path,
                 [{"id": "x", "f32_artifact_sha256": self.gguf_hash}])
 
+    def test_evidence_row_missing_hash_field_entirely_aborts(self):
+        # Codex remediation round 5, Gate 1: the field being ABSENT
+        # (not merely null) must abort -- the prior `.get()` + `is not
+        # None` check silently skipped this exact case.
+        with self._patched():
+            with self.assertRaises(SystemExit):
+                diag._verify_pytorch_authority(
+                    self.hf_dir, self.manifest_path, self.gguf_path, [{"id": "x"}])
+
+    def test_evidence_row_null_hash_aborts(self):
+        with self._patched():
+            with self.assertRaises(SystemExit):
+                diag._verify_pytorch_authority(
+                    self.hf_dir, self.manifest_path, self.gguf_path,
+                    [{"id": "x", "f32_artifact_sha256": None}])
+
+    def test_evidence_row_empty_string_hash_aborts(self):
+        with self._patched():
+            with self.assertRaises(SystemExit):
+                diag._verify_pytorch_authority(
+                    self.hf_dir, self.manifest_path, self.gguf_path,
+                    [{"id": "x", "f32_artifact_sha256": ""}])
+
+    def test_evidence_row_non_string_hash_aborts(self):
+        with self._patched():
+            with self.assertRaises(SystemExit):
+                diag._verify_pytorch_authority(
+                    self.hf_dir, self.manifest_path, self.gguf_path,
+                    [{"id": "x", "f32_artifact_sha256": 12345}])
+
     def test_missing_gguf_file_aborts(self):
         with self._patched():
             with self.assertRaises(SystemExit):
@@ -215,13 +245,25 @@ class ExactCorpusLoaderTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             diag._load_exact_corpus(path, "test")
 
-    def test_unrelated_extra_entries_are_ignored_not_rejected(self):
+    def test_unexpected_entry_aborts(self):
+        # Codex remediation round 5, Gate 1: the PRIOR version of
+        # _load_exact_corpus claimed (in its own docstring) to reject
+        # unexpected IDs but actually just silently filtered them out of
+        # the returned dict while accepting the file. This is the exact
+        # regression that behavior allowed through -- now it must abort.
         rows = self._all_seven_rows()
         rows.append({"id": "some_unrelated_prompt_not_in_this_diagnostic", "value": "extra"})
         path = self._write_jsonl(rows)
-        result = diag._load_exact_corpus(path, "test")
-        self.assertEqual(len(result), 7)
-        self.assertNotIn("some_unrelated_prompt_not_in_this_diagnostic", result)
+        with self.assertRaises(SystemExit):
+            diag._load_exact_corpus(path, "test")
+
+    def test_unexpected_entry_alone_without_all_seven_also_aborts(self):
+        # An unexpected ID must abort even when it is NOT accompanied by
+        # a full valid corpus -- the unexpected-ID check must not be
+        # gated behind first satisfying the missing-ID check.
+        path = self._write_jsonl([{"id": "totally_unrelated_prompt", "value": 0}])
+        with self.assertRaises(SystemExit):
+            diag._load_exact_corpus(path, "test")
 
     def test_duplicate_of_a_LATER_entry_does_not_silently_overwrite(self):
         # The specific bug this replaces: a plain dict-comprehension
@@ -230,6 +272,18 @@ class ExactCorpusLoaderTests(unittest.TestCase):
         rows = self._all_seven_rows()
         first_id = rows[0]["id"]
         rows.insert(3, {"id": first_id, "value": "sneaky duplicate"})
+        path = self._write_jsonl(rows)
+        with self.assertRaises(SystemExit):
+            diag._load_exact_corpus(path, "test")
+
+    def test_duplicate_of_an_unexpected_id_also_aborts(self):
+        # Gate 1: "reject all duplicate IDs, not only duplicates
+        # intersecting the expected set." A duplicate of an ID that
+        # isn't even in the expected corpus must still be rejected (via
+        # the unexpected-ID check, which now runs unconditionally).
+        rows = self._all_seven_rows()
+        rows.append({"id": "unexpected_prompt", "value": 1})
+        rows.append({"id": "unexpected_prompt", "value": 2})
         path = self._write_jsonl(rows)
         with self.assertRaises(SystemExit):
             diag._load_exact_corpus(path, "test")

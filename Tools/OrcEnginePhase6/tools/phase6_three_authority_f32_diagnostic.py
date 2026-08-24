@@ -171,10 +171,26 @@ def _verify_pytorch_authority(hf_model_dir: str, manifest_path: str, f32_gguf_pa
     if actual_gguf_hash != EXPECTED_F32_GGUF_SHA256:
         sys.exit(f"ABORT: F32 GGUF SHA-256 {actual_gguf_hash} does not match the independently pinned "
                  f"expected constant {EXPECTED_F32_GGUF_SHA256} (Outcome P4).")
+    # Codex remediation round 5, Gate 1: every expected evidence row MUST
+    # carry f32_artifact_sha256, as a non-empty string, matching the
+    # verified GGUF hash. The PRIOR version used `entry.get(...)` +
+    # `is not None`, which silently skipped the check entirely for a row
+    # where the field was simply ABSENT (`.get()` returns None, `None is
+    # not None` is False) -- a missing field was not the same thing as a
+    # matching one, but was treated as such. Now: missing, null, empty,
+    # non-string, and mismatched are all explicit, distinct failures.
     for entry in evidence_entries:
-        evidence_hash = entry.get("f32_artifact_sha256")
-        if evidence_hash is not None and evidence_hash != actual_gguf_hash:
-            sys.exit(f"ABORT: evidence entry {entry.get('id')!r} records f32_artifact_sha256="
+        entry_id = entry.get("id")
+        if "f32_artifact_sha256" not in entry:
+            sys.exit(f"ABORT: evidence entry {entry_id!r} is missing required field "
+                     f"'f32_artifact_sha256' entirely -- cannot verify it was generated against the "
+                     f"verified F32 GGUF (Outcome P4).")
+        evidence_hash = entry["f32_artifact_sha256"]
+        if not isinstance(evidence_hash, str) or not evidence_hash:
+            sys.exit(f"ABORT: evidence entry {entry_id!r} has a null, empty, or non-string "
+                     f"f32_artifact_sha256 ({evidence_hash!r}) (Outcome P4).")
+        if evidence_hash != actual_gguf_hash:
+            sys.exit(f"ABORT: evidence entry {entry_id!r} records f32_artifact_sha256="
                      f"{evidence_hash!r}, which does not match the verified F32 GGUF hash "
                      f"{actual_gguf_hash} -- evidence was generated against a different file "
                      f"(Outcome P4).")
@@ -191,8 +207,9 @@ def _verify_pytorch_authority(hf_model_dir: str, manifest_path: str, f32_gguf_pa
     print(f"PyTorch authority verified: manifest {manifest_path!r} opened and parsed; "
           f"model.safetensors SHA-256 {actual_safetensors_hash} matches BOTH the manifest's "
           f"source_safetensors_sha256 AND the independently pinned constant; F32 GGUF SHA-256 "
-          f"{actual_gguf_hash} matches the manifest's output_gguf_sha256, the independently pinned "
-          f"constant, AND every applicable evidence row.")
+          f"{actual_gguf_hash} matches the manifest's output_gguf_sha256 AND the independently pinned "
+          f"constant; every one of {len(evidence_entries)} evidence row(s) was checked and required to "
+          f"carry a present, non-empty, matching f32_artifact_sha256 (none skipped).")
     return manifest
 
 
@@ -232,12 +249,23 @@ def _top_k(logits: list[float], k: int) -> list[tuple[int, float]]:
 
 
 def _load_exact_corpus(path: str, label: str) -> dict[str, dict]:
-    """Codex remediation round 4, Gate 3: fails closed on duplicate,
-    missing, empty, or unexpected prompt IDs BEFORE building the
-    {id: row} dict -- the ORIGINAL code built the dict via a
-    comprehension that would silently let a later duplicate entry
-    overwrite an earlier one. Reuses the same validation shape as
-    phase6_paired_four_way_evidence.py's _validate_paired_corpus()."""
+    """Codex remediation round 5, Gate 1: fails closed on duplicate,
+    missing, empty, or UNEXPECTED prompt IDs BEFORE building the
+    {id: row} dict.
+
+    The PRIOR version of this function (round 4) claimed in its own
+    docstring to reject unexpected IDs, but its actual behavior only
+    checked duplicates AMONG the expected set (`duplicated & expected`)
+    and silently FILTERED unexpected rows out of the returned dict
+    (`if pid in expected`) rather than aborting on them -- an
+    unexpected row, or a duplicate of an unexpected row, passed through
+    completely unnoticed. This is now a genuinely exact-corpus loader:
+    the file must contain PRECISELY the 7 expected prompt IDs, each
+    exactly once, nothing else -- any deviation aborts before the
+    {id: row} dict is ever built (so a duplicate can never silently
+    overwrite an earlier entry, and an unexpected row can never be
+    silently dropped from consideration while still having been
+    present in the source file)."""
     with open(path, encoding="utf-8") as f:
         rows = [json.loads(line) for line in f if line.strip()]
 
@@ -249,19 +277,27 @@ def _load_exact_corpus(path: str, label: str) -> dict[str, dict]:
 
     expected = set(CONTROL_PROMPT_IDS) | set(DIVERGENT_PROMPT_IDS)
     id_set = set(ids)
+
+    unexpected = id_set - expected
+    if unexpected:
+        sys.exit(f"ABORT: {label} contains ID(s) outside the exact expected 7-prompt corpus: "
+                 f"{sorted(unexpected)}. This loader requires precisely the expected set, nothing else.")
+
     missing = expected - id_set
     if missing:
         sys.exit(f"ABORT: {label} is missing expected prompt ID(s): {sorted(missing)}")
+
     if len(ids) != len(id_set):
         seen, duplicated = set(), set()
         for pid in ids:
             (duplicated if pid in seen else seen).add(pid)
-        duplicated_relevant = duplicated & expected
-        if duplicated_relevant:
-            sys.exit(f"ABORT: {label} contains duplicate entries for expected prompt ID(s): "
-                     f"{sorted(duplicated_relevant)}")
+        # ALL duplicates reported, not only ones intersecting `expected`
+        # -- by this point `unexpected` has already aborted, so every
+        # remaining ID is in `expected` anyway, but the check itself no
+        # longer artificially narrows to `duplicated & expected`.
+        sys.exit(f"ABORT: {label} contains duplicate entries for prompt ID(s): {sorted(duplicated)}")
 
-    return {pid: r for pid, r in zip(ids, rows) if pid in expected}
+    return {pid: r for pid, r in zip(ids, rows)}
 
 
 def run(hf_model_dir: str, manifest_path: str, f32_gguf_path: str, evidence_path: str,
