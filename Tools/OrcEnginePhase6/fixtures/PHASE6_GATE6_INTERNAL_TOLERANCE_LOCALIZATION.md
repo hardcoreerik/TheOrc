@@ -1,4 +1,21 @@
-# Phase 6 Stage 1, Gate 6: internal Q8_0 tolerance-failure localization -- no defect found; methodology inadequate
+# Phase 6 Stage 1, Gate 6: internal Q8_0 tolerance-failure localization -- inconclusive, defect not excluded (corrected)
+
+**CORRECTION (Codex/Grok remediation round 5, see OE-ADR-050): this
+document's original title and Classification section overclaimed what
+the evidence supports.** The original text asserted "no defect found"
+and argued a shared dispatch code path "would be expected to manifest
+on EVERY layer" if it contained a bug -- that reasoning is not sound: a
+data-dependent defect (triggered only by particular block values,
+tensor shapes, activation ranges, or numerical regimes) can be entirely
+real while still appearing at only some layers, because those
+conditions are what varies layer to layer, not the code. The corrected,
+narrower title and Classification section below say precisely what the
+evidence establishes and no more: the failure reproduces via an
+independent code path, large aggregate divergence appears after layers
+11 and 28, and **no implementation defect has been identified -- but a
+data-dependent layout/dequantization/math defect has NOT been
+excluded either.** The original overclaimed wording is preserved in
+this file's git history rather than silently disappearing.
 
 This is a SEPARATE investigation from the external llama.cpp comparison
 (OE-ADR-046/047). It concerns OrcEngine's OWN F32-vs-Q8_0 behavior only.
@@ -68,9 +85,12 @@ code path, not a different computation.
   afterward, not with a runaway/unstable divergence.
 - **Layer 28**: a second, larger isolated discontinuity (max abs diff
   jumps ~8x from layer 27's 13.4 to 104.7).
-- **Layer 29**: the error partially SHRINKS (104.7 -> 39.6) --
-  consistent with normalization/nonlinearity effects partially damping
-  an extreme per-dimension outlier, not with unbounded divergence.
+- **Layer 29**: the error partially SHRINKS (104.7 -> 39.6). **Reported
+  as an observed reduction in aggregate error only** -- an earlier
+  draft of this document attributed this to "normalization/nonlinearity
+  effects partially damping an extreme per-dimension outlier," which
+  was not measured and is corrected out; no specific mechanism is
+  claimed for this reduction without dedicated measurement.
 - **Final result**: despite this large intermediate divergence, both
   models still select the IDENTICAL top-1 token (`27003`) -- the
   logit-level error is large in an absolute sense but does not flip the
@@ -104,22 +124,29 @@ poorly-scaled BLOCK interacting with this prompt's specific activation
 pattern, which would require much finer-grained (per-block/per-channel)
 instrumentation not attempted in this bounded pass.
 
-## Classification
+## Classification (corrected -- see OE-ADR-050)
 
-**No Q8_0 layout/dequantization/dispatch defect was found.** The
-strongest argument against a systemic implementation defect: Q8_0
-dequantization and the per-layer forward-pass dispatch run the
-IDENTICAL code path for every one of the 30 layers (already proven
-correct on synthetic and real fixtures in Checkpoints 1-2 -- known-value
-blocks, boundary signed-byte cases, real mixed-format loading, byte-
-identical retained-F32-tensor verification). A defect in that shared
-dispatch code would be expected to manifest on EVERY layer, not
-specifically and only at layers 11 and 28 while 26 other layers behave
-smoothly. The observed pattern -- isolated, bounded, non-runaway jumps
-at specific layers for this specific prompt, with the top-1 selection
-still landing correctly -- is consistent with genuine per-block
-quantization sensitivity that this particular adversarial holdout
-prompt happens to trigger, not a bug.
+**No implementation defect has been IDENTIFIED. This is not the same
+claim as "no defect EXISTS," and the original version of this document
+conflated the two.** The original argument -- that Q8_0 dequantization
+and per-layer dispatch run identical code every layer, so a defect
+"would be expected to manifest on EVERY layer" -- does not hold up: a
+DATA-DEPENDENT defect (one triggered only by particular block scale
+values, particular tensor shapes, particular activation magnitude
+ranges, or a specific numerical regime -- e.g. an edge case in rounding,
+saturation, or accumulation order that only certain inputs reach) can
+be entirely real while manifesting at only some layers, precisely
+BECAUSE those conditions vary layer to layer even though the code does
+not. The observed pattern (isolated, bounded, non-runaway jumps at
+layers 11 and 28, with the top-1 selection still landing correctly) is
+CONSISTENT WITH genuine per-block quantization sensitivity that this
+adversarial prompt happens to trigger -- but consistency is not proof,
+and this document does not rule out a genuine data-dependent
+implementation defect at or feeding into those two layers. The
+weight-magnitude cross-check ruled out ONE specific hypothesis (global
+per-layer weight magnitude alone) but, by its own stated limitation
+(a scalar per-tensor max cannot see per-32-element-block behavior),
+cannot rule in or out a specific poorly-scaled block.
 
 **This is also not simply "a comparison/evidence defect"**: the
 independent layer-by-layer diagnostic reproduces the exact same
@@ -130,14 +157,18 @@ uses) -- ruling out an evidence-generation-side bug as the explanation
 for the NUMBER itself (though it does not by itself rule out a subtler
 defect inside the shared per-layer math both paths call).
 
-**Conclusion: the DEV-derived tolerance-DERIVATION METHODOLOGY is
-inadequate, not the implementation.** A flat `2.0x` multiplier of a
-4-prompt DEV maximum cannot be expected to bound a per-block
-quantization-sensitivity tail this narrow and prompt-specific -- this
-matches the original Checkpoint 3 finding's own hypothesis
-(`CHECKPOINT3_STATUS.md`), now supported by concrete per-layer
-evidence (an isolated, bounded, non-systemic divergence pattern) rather
-than asserted without investigation.
+**The current evidence does NOT yet prove that the tolerance-
+DERIVATION METHODOLOGY, rather than implementation behavior, is the
+cause.** A flat `2.0x` multiplier of a 4-prompt DEV maximum being an
+inadequate STATISTICAL methodology (too few DEV samples to bound a
+tail) remains a live hypothesis, matching the original Checkpoint 3
+finding (`CHECKPOINT3_STATUS.md`) -- but this document's own evidence
+(isolated per-layer jumps at specific layers) is equally consistent
+with an as-yet-unlocalized implementation issue that a methodology fix
+alone would not address. **Classification: still inconclusive.**
+Gate 3 below performs a same-input weight-vs-state decomposition and a
+per-block inspection specifically to distinguish these two
+possibilities, rather than asserting one without that evidence.
 
 ## What happens next -- explicitly NOT done in this pass
 

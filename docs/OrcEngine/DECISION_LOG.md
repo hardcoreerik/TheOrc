@@ -3558,3 +3558,47 @@ Both freeze blockers (internal tolerance failure, external same-Q8
 disagreement) remain unresolved and unchanged. Stages 4-6 remain not
 started; `orcengine-phase6-freeze` does not exist and this entry does
 not authorize creating it; FL-08 remains not started.
+
+## OE-ADR-050 — Correction to OE-ADR-048: internal localization reclassified inconclusive, not "no defect found" (Commit 2)
+
+**This is a correction/follow-up record. OE-ADR-048 is preserved above
+unchanged as historical evidence of the reasoning and results at the
+time.**
+
+**The controlling finding (Codex/Grok):** OE-ADR-048 titled its
+conclusion "no Q8_0 layout/dequantization/dispatch defect found" and
+supported that with the argument that shared dispatch code "would be
+expected to manifest on every layer" if it contained a bug. That
+reasoning does not hold: a DATA-DEPENDENT defect -- one triggered only
+by particular block scale values, tensor shapes, activation magnitude
+ranges, or a specific numerical regime (rounding, saturation,
+accumulation-order edge cases) -- can be entirely real while
+manifesting at only some layers, because those triggering conditions
+vary layer to layer even though the CODE does not. OE-ADR-048's own
+evidence (isolated jumps at layers 11 and 28 specifically) does not by
+itself distinguish "genuine per-block quantization sensitivity" from
+"an unlocalized data-dependent defect at those layers" -- both produce
+the same observable pattern.
+
+**Corrected classification: still INCONCLUSIVE, not "no defect
+found."** `PHASE6_GATE6_INTERNAL_TOLERANCE_LOCALIZATION.md` is
+corrected in place (with a visible correction banner, original wording
+preserved in git history) to state precisely what the evidence
+establishes: the failure reproduces via an independent code path;
+large aggregate divergence appears after layers 11 and 28; no
+implementation defect has been IDENTIFIED, but a data-dependent one has
+NOT been EXCLUDED; the current evidence does not yet prove the
+tolerance-derivation methodology (rather than implementation behavior)
+is the cause. Layer 29's error reduction is now reported as an observed
+fact only -- the earlier "normalization/nonlinearity damping" mechanism
+claim is removed as unmeasured.
+
+**Disposition.** The internal tolerance gate remains **FAILED**
+(`0.973504` vs `1.079983`), unchanged. Gate 3's same-input weight-vs-
+state decomposition and per-block inspection (separate, subsequent
+commit) exist specifically to make this classification more
+conclusive, not to have been skipped in favor of an unsupported
+"methodology, not implementation" verdict. No frozen Phase 1-5C file
+touched. Both freeze blockers remain unresolved. Stages 4-6 remain not
+started; `orcengine-phase6-freeze` does not exist and this entry does
+not authorize creating it; FL-08 remains not started.
