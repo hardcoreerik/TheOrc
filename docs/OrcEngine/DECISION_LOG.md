@@ -3602,3 +3602,79 @@ conclusive, not to have been skipped in favor of an unsupported
 touched. Both freeze blockers remain unresolved. Stages 4-6 remain not
 started; `orcengine-phase6-freeze` does not exist and this entry does
 not authorize creating it; FL-08 remains not started.
+
+## OE-ADR-051 — Internal localization extended: layers 11/28 are model-wide and position-0-specific; external config parity checked (Commit 3, combined Codex/Grok remediation round 5)
+
+**Gate 3 extension.** `phase6_holdout_quick_fox_layer_localization.cpp`
+extended (no frozen Phase 1-5C file touched) with: per-POSITION metrics
+alongside aggregate, a config-equality guard, shape checks, and a
+same-cumulative-input four-way weight-vs-state decomposition at the two
+implicated layers (11, 28), run across three prompts in one process --
+the failing `holdout_quick_fox`, DEV prompt `dev_code_snippet` (passes,
+error `0.486752`), and HOLDOUT control `holdout_hello_world` (passes,
+error `0.487471`).
+
+**Finding 1: layers 11 and 28 are NOT unique to the failing prompt.**
+The identical discontinuity pattern occurs on all three prompts
+regardless of final pass/fail status (layer 11 max_abs: `11.43` /
+`10.99` / `12.07`; layer 28: `104.65` / `102.40` / `91.88`) -- these are
+common, model-wide amplification points. What determines the FINAL
+pass/fail outcome is not whether layers 11/28 diverge (they do, always)
+but how that divergence propagates through the remaining layers for
+each prompt's specific activation pattern.
+
+**Finding 2: the divergence concentrates at POSITION 0**, not spread
+across the prompt. At layer 11, position 0 accounts for `~11-12` of the
+aggregate max-abs-diff on every prompt, with positions 1+ two orders of
+magnitude smaller (`0.2-0.6`) -- the same concentration holds at layer
+28. Three different first-token IDs (`504`, `1604`, `19556`) all show
+this, ruling out a specific token value as the trigger and pointing at
+something structural to position 0's computation.
+
+**Finding 3: both weight quantization AND input-state propagation
+contribute substantially** at both implicated layers (neither isolated
+effect is negligible relative to the other), with a large sub-additive
+interaction at layer 11 and a near-additive one at layer 28 -- recorded
+as an observation, mechanism not explained.
+
+**Revised classification: still inconclusive, substantially more
+localized.** Per-block inspection (block-scale distribution, worst-
+block error, saturation counts, cross-check against the independent
+reference dequantization) was explicitly NOT performed in this pass --
+disclosed as a limitation and the concrete recommended next step.
+
+**Gate 4: external config parity.** A table
+(`PHASE6_GATE4_CONFIG_PARITY.md`) cross-checks HF `config.json`, F32
+GGUF metadata (read directly, not assumed), OrcEngine `ModelConfig`,
+and llama.cpp's effective config (inferred from the same GGUF metadata
+since no CLI override was ever passed for any of these fields; `n_ctx`
+independently confirmed live via `/props`) for architecture, layer
+count, hidden size, head/KV-head counts, head dim/RoPE dimension count,
+`rope_theta`, RMSNorm epsilon, context length, vocabulary size,
+tied/untied output weights, and BOS/EOS policy. **No configuration
+drift found** in any field checked -- all match the HF source exactly
+or within float32 rounding. This does NOT prove llama.cpp's internal
+interpretation is correct, only that the values it would read match.
+**The per-prefix-position divergence check (finding the exact first
+position where llama.cpp's prediction diverges) was NOT performed in
+this pass** -- disclosed as a limitation, not silently omitted; the
+internal finding that divergence concentrates at position 0 is noted
+as a reason to prioritize this check next, without claiming it as
+already-measured evidence for the external question.
+
+**Verification.** New target built and run clean under Debug, Release,
+and strict (`/W4 /WX /permissive-`); ASan run with no memory-safety
+findings and numerically consistent results across all lanes.
+
+**Disposition.** Neither freeze blocker is resolved. The internal
+tolerance gate remains **FAILED** (`0.973504` vs `1.079983`),
+unchanged -- no new tolerance proposed, no new holdout defined, no
+change to the acceptance gate. The external same-Q8 disagreement
+remains unresolved -- no configuration drift found, but the causal
+question (why do OrcEngine/PyTorch and llama.cpp disagree on 3 of 7
+prompts) is not answered by this pass; the prefix-position check
+remains the most promising concrete next step. No frozen Phase 1-5C
+transformer math was changed or modified. Stages 4-6 remain not
+started; `orcengine-phase6-freeze` does not exist and this entry does
+not authorize creating it; FL-08 remains not started. Stopping here for
+Codex review, as instructed.

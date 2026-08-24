@@ -170,6 +170,108 @@ Gate 3 below performs a same-input weight-vs-state decomposition and a
 per-block inspection specifically to distinguish these two
 possibilities, rather than asserting one without that evidence.
 
+## Gate 3 extension (round 5): per-position tracking, same-input decomposition, control prompts
+
+The diagnostic (`phase6_holdout_quick_fox_layer_localization.cpp`) was
+extended, without touching any frozen Phase 1-5C file, to: (A) report
+PER-POSITION max-abs-diff alongside the aggregate, and verify F32/Q8_0
+`ModelConfig` equality before reusing one for both paths; (B) at each
+implicated layer, run a same-cumulative-input four-way decomposition
+(F32 weights/F32 input, Q8 weights/F32 input, F32 weights/Q8 input, Q8
+weights/Q8 input) to separate the isolated WEIGHT-quantization effect
+from the isolated INCOMING-STATE effect; (C) run the same analysis on
+THREE prompts in one process (one model load): the failing
+`holdout_quick_fox`, a DEV prompt already below tolerance
+(`dev_code_snippet`, F32-vs-Q8_0 error `0.486752`), and an agreeing
+HOLDOUT control (`holdout_hello_world`, error `0.487471`). Raw output:
+`phase6_holdout_quick_fox_layer_localization_output.txt`.
+
+### Finding 1 (Gate 3C): layers 11 and 28 are NOT unique to the failing prompt
+
+**The identical discontinuity pattern -- a sharp jump at layer 11,
+sustained elevation through layers 12-26, and a second larger jump at
+layer 28 -- occurs on ALL THREE prompts**, including the two that
+comfortably pass the internal tolerance:
+
+| Prompt | Tolerance status | Layer 11 max_abs | Layer 28 max_abs |
+|---|---|---|---|
+| `holdout_quick_fox` | FAILS (`1.079983` > `0.973504`) | 11.43 | 104.65 |
+| `dev_code_snippet` | passes (`0.486752`) | 10.99 | 102.40 |
+| `holdout_hello_world` | passes (`0.487471`) | 12.07 | 91.88 |
+
+This directly answers Gate 3C: **layers 11 and 28 are common, model-
+wide amplification points, not something specific to
+`holdout_quick_fox`.** The three prompts' FINAL output-projection
+errors differ substantially (`1.08` vs `0.49` vs `0.49`) despite
+comparable layer-11/28 divergence magnitude -- meaning what determines
+PASS vs. FAIL is not simply "does layer 11/28 blow up" (it does, on
+every prompt examined) but something in how that intermediate
+divergence propagates through the REMAINING layers and interacts with
+this specific prompt's own activation pattern at the final position.
+
+### Finding 2 (Gate 3A): the divergence is concentrated at POSITION 0, not spread across positions
+
+For every prompt and every layer where a large jump occurs, the
+per-position breakdown shows **position 0 (the first token) accounts
+for nearly all of the aggregate max-abs-diff**, with later positions
+one to two orders of magnitude smaller. Example, layer 11:
+
+| Prompt | Position 0 | Positions 1+ |
+|---|---|---|
+| `holdout_quick_fox` | 11.4252 | 0.31-0.58 |
+| `dev_code_snippet` | 10.9926 | 0.20-0.33 |
+| `holdout_hello_world` | 12.0654 | 0.30-0.64 |
+
+The same position-0 concentration holds at layer 28 (e.g.
+`holdout_quick_fox`: position 0 = `104.6543`, positions 1-3 = `1.11-2.42`).
+This is a genuinely new, more specific localization than round 4
+established: **the phenomenon is not "layer 11/28 broadly," it is
+"layer 11/28's handling of POSITION 0 specifically,"** across three
+different first-token IDs (`504`, `1604`, `19556` respectively) --
+ruling out one specific token value as the trigger, and pointing at
+something structural to position 0's computation (e.g. its RoPE angle
+being the identity rotation, or an all-positions-attend-to-position-0
+attention pattern) rather than that token's specific embedding.
+
+### Finding 3 (Gate 3B): both weight quantization and state propagation contribute substantially, with a sub-additive interaction
+
+Same-cumulative-input decomposition at layer 11 (`holdout_quick_fox`):
+isolated WEIGHT effect (F32 weights vs Q8 weights, same F32 input)
+`max_abs=11.42`; isolated STATE effect (F32 input vs Q8 input, same
+F32 weights) `max_abs=16.41`; cumulative COMBINED `max_abs=11.43`. At
+layer 28: WEIGHT effect `max_abs=59.64`; STATE effect `max_abs=45.04`;
+COMBINED `max_abs=104.65`. **Both isolated effects are large on their
+own at both layers -- this is not a case where one factor dominates
+and the other is negligible.** The combined effect is consistently
+LESS than the naive additive bound (weight+state) at layer 11 (e.g.
+`11.43` combined vs `27.83` additive bound for `holdout_quick_fox` --
+a large negative "interaction gap"), but very close to additive at
+layer 28 (`104.65` combined vs `104.68` additive bound). This pattern
+(large sub-additive interaction at 11, near-additive at 28) is recorded
+as an observation; this diagnostic does not attempt to explain the
+mechanism behind the difference between the two layers' interaction
+behavior.
+
+### Revised classification
+
+**Still inconclusive, but substantially more localized than round 4.**
+The evidence now points specifically at: layers 11 and 28, position 0
+specifically (not later positions), a real contribution from BOTH
+weight quantization and propagated input state (not purely one or the
+other), occurring identically across three prompts regardless of final
+pass/fail outcome. This is consistent with either (a) a genuine,
+position-0-specific quantization sensitivity in a small number of
+Q8_0 blocks feeding layers 11/28's Q/K/V/O or gate/up/down projections,
+that this model's architecture or these two layers' weight
+distributions happen to make unusually large, or (b) an as-yet-
+unlocalized data-dependent implementation issue specific to position-0
+handling at those two layers. **Per-block inspection (Gate 3D:
+block-scale distribution, worst-block error, saturation counts,
+cross-check against the independent reference dequantization) was NOT
+performed in this pass** -- disclosed as a real limitation and the
+concrete recommended next step, not silently skipped. The internal
+tolerance gate remains **FAILED**, unchanged.
+
 ## What happens next -- explicitly NOT done in this pass
 
 Per instruction: "If no implementation defect is found and the
