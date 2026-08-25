@@ -3978,3 +3978,64 @@ that is Gate 3, tracked separately. No frozen file touched. Neither
 freeze blocker's status changes. `orcengine-phase6-freeze` does not
 exist and this entry does not authorize creating it. FL-08 remains not
 started.
+
+## OE-ADR-057 — Gate 3: genuine single-variable Q/K isolation confirmed causal (combined Codex/Grok remediation round 7, Commit 3)
+
+**Upgrades classification from "strongly-supported primary cause" to
+"causally isolated."** Full writeup: `PHASE6_GATE3_QK_ISOLATION.md`.
+
+**New tool** `phase6_gate3_qk_isolation.py` (`gguf.GGUFReader`/
+`GGUFWriter`, existing tooling, no binary patcher):
+
+1. `audit`: extends Gate 2's 3-layer Q/K spot check to all 30 layers
+   (60/60 tensors verified via the official `permute()`, 0 mismatches)
+   and, for the first time, exhaustively enumerates EVERY metadata
+   field on both the existing-custom and canonical F32 GGUFs.
+   **New disclosure**: the canonical file differs in 11 additional
+   metadata fields (mostly descriptive: license/quantization_version/
+   size_label/basename/languages/type; plus informational restatements
+   `llama.attention.key_length`/`value_length`/`llama.vocab_size`
+   already independently verified elsewhere), is missing 1 the custom
+   converter writes (`tokenizer.ggml.add_eos_token`), and has a
+   differently-formatted `general.name`. None affect computation
+   (tokenizer fields are irrelevant since every comparison in this
+   project bypasses tokenization with fixed token IDs) but were
+   previously unverified, not merely undisclosed.
+2. `build` (Option A): constructs a NEW F32 GGUF from the EXISTING
+   CUSTOM baseline -- every metadata field and every non-Q/K tensor
+   copied verbatim, only `blk.N.attn_q.weight`/`blk.N.attn_k.weight`
+   (all 30 layers, 60 tensors) permuted via the official formula.
+   **Programmatically self-verified** (re-read after write, compared
+   against baseline): `isolation_verified: true` -- 0 non-Q/K tensor
+   mismatches, 0 metadata mismatches, exactly 60/60 Q/K tensors
+   correctly permuted. `output.weight` present and unchanged.
+
+**Controlled comparison, full 7-prompt corpus, same pinned server/
+settings**: the Q/K-isolated artifact (F32 and Q8_0, quantized via the
+same pinned `llama-quantize.exe`) reproduces the EXACT canonical-
+artifact result from OE-ADR-053 -- all 3 previously-divergent prompts
+(`dev_year_weather`->523, `holdout_she_walked`->3589,
+`holdout_quick_fox`->27003) now agree with PyTorch/OrcEngine; all 4
+controls continue to agree. Raw results:
+`phase6_gate3_qk_isolation_llama_cpp_results.json`.
+
+**Classification: causally isolated.** The artifact that produced this
+flip differs from the existing-custom baseline in NOTHING but the Q/K
+permutation -- verified tensor-by-tensor and field-by-field, not
+assumed. "A Q/K-only change resolves every disagreement while all
+other data remain fixed" is exactly what was measured.
+
+7 new focused regression tests
+(`test_phase6_gate3_qk_isolation.py`) for the permutation formula
+(hand-derived example, self-inverse property, `n_head_kv` override) and
+the metadata-diff classifier (identical/differing/only-on-one-side,
+internal header fields excluded). Full suite: 103/103 passing.
+
+**Disposition.** Both new artifacts (`.orc/gate3-qk-isolation/`,
+untracked) are diagnostic only, never overwrite an existing Phase 6
+fixture. Does NOT authorize modifying `convert_real_candidate.py` or
+any frozen file. Does NOT clear the external acceptance gate on the
+EXISTING pinned custom artifacts (unmodified, still disagree with
+llama.cpp). Internal tolerance blocker completely unaffected -- Gate 5,
+separate. `orcengine-phase6-freeze` does not exist and this entry does
+not authorize creating it. FL-08 remains not started.
