@@ -1,0 +1,13 @@
+Architecture: llama
+Container: GGUF v3
+Artifact dialect (Q/K): CANONICAL_LLAMA_CPP
+Runtime target: canonical-llama.cpp
+Compatibility: VERIFIED_COMPATIBLE
+Evidence:
+  - artifact sha256=aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7
+  - container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates
+  - architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3
+  - output.weight tensor absent -- tied head materialized from token_embd.weight at runtime (canonical-converter convention)
+  - Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: this artifact's Q/K == reference 'F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf''s Q/K directly, verified on 60/60 tensors (30/30 layers)
+Confidence: NUMERICALLY_VERIFIED
+Execution authorization: granted

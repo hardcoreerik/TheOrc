@@ -1,0 +1,15 @@
+Architecture: llama
+Container: GGUF v3
+Artifact dialect (Q/K): CANONICAL_LLAMA_CPP
+Runtime target: orcengine-current
+Compatibility: VERIFIED_NORMALIZATION_REQUIRED
+Required transformation:
+  - Q/K RoPE-layout un-permutation required (canonical llama.cpp -> raw-HF, to match OrcEngine's CURRENT loader's undocumented expectation) -- see Phase 6 OE-ADR-058
+Evidence:
+  - artifact sha256=dbf0d1f31d3afd0864bb02a916b7e3762728fd616eebd34bd6021c7497def219
+  - container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates
+  - architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3
+  - output.weight tensor absent -- tied head materialized from token_embd.weight at runtime (canonical-converter convention)
+  - Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: this artifact's Q/K == reference 'F:/Ai/OrchestratorIDE-phase6-quantization/Tools/OrcEnginePhase6/fixtures/smollm2-135m-q8_0.gguf''s Q/K directly, verified on 60/60 tensors (30/30 layers)
+Confidence: NUMERICALLY_VERIFIED
+Execution authorization: denied

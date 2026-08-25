@@ -1,0 +1,49 @@
+{
+  "artifact": {
+    "file_size_bytes": 539845216,
+    "path": "F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf",
+    "sha256": "aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7"
+  },
+  "confidence_level": "NUMERICALLY_VERIFIED",
+  "container": {
+    "evidence": [],
+    "type": "GGUF",
+    "valid": true,
+    "version": 3
+  },
+  "declared_architecture": "llama",
+  "evidence": [
+    "artifact sha256=aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7",
+    "container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates",
+    "architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3",
+    "output.weight tensor absent -- tied head materialized from token_embd.weight at runtime (canonical-converter convention)",
+    "Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: this artifact's Q/K == reference 'F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf''s Q/K directly, verified on 60/60 tensors (30/30 layers)"
+  ],
+  "execution_authorization": true,
+  "known_normalization_requirements": [],
+  "metadata_fingerprint": "0a80e3cd4e97a4b3c785d1bfb909b27f44ff6301b52006546fc7192bd7046f37",
+  "output_weight_semantics": "ABSENT",
+  "provenance": {
+    "known": false,
+    "producer": null,
+    "source": "UNKNOWN"
+  },
+  "qk_layout": {
+    "classification": "CANONICAL_LLAMA_CPP",
+    "confidence": "NUMERICALLY_VERIFIED",
+    "layers_checked": 60,
+    "layers_total": 60,
+    "per_layer_consistent": true
+  },
+  "quantization_formats": [
+    "F32"
+  ],
+  "runtime_compatibility": {
+    "result": "VERIFIED_COMPATIBLE",
+    "target": "canonical-llama.cpp"
+  },
+  "schema_version": 1,
+  "tensor_inventory_fingerprint": "eed5bc67d2643aead5a6ed0a0236412670bf76e25dcaa3f39db66a80f62fd498",
+  "tokenizer_fingerprint": "98d107f01b3dd045a56f35d4e5c913801126427d5a109c381174479cd63057f4",
+  "unresolved_ambiguities": []
+}

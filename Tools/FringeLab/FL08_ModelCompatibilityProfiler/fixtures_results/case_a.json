@@ -1,0 +1,51 @@
+{
+  "artifact": {
+    "file_size_bytes": 653091040,
+    "path": "F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf",
+    "sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac"
+  },
+  "confidence_level": "NUMERICALLY_VERIFIED",
+  "container": {
+    "evidence": [],
+    "type": "GGUF",
+    "valid": true,
+    "version": 3
+  },
+  "declared_architecture": "llama",
+  "evidence": [
+    "artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+    "container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates",
+    "architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3",
+    "output.weight present and byte-identical to token_embd.weight (logically tied, physically duplicated)",
+    "Q/K fingerprint matches RAW_HF convention: permute(this artifact's Q/K) == reference 'F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf''s Q/K, verified on 60/60 tensors (30/30 layers)"
+  ],
+  "execution_authorization": false,
+  "known_normalization_requirements": [
+    "Q/K RoPE-layout permutation required (raw-HF -> canonical llama.cpp interleaving)"
+  ],
+  "metadata_fingerprint": "0fe1164e4735dfffa621a9e695be9ca37ed188dd4ac9493855f6c2aef7d9007d",
+  "output_weight_semantics": "TIED_PHYSICALLY_DUPLICATED",
+  "provenance": {
+    "known": false,
+    "producer": null,
+    "source": "UNKNOWN"
+  },
+  "qk_layout": {
+    "classification": "RAW_HF",
+    "confidence": "NUMERICALLY_VERIFIED",
+    "layers_checked": 60,
+    "layers_total": 60,
+    "per_layer_consistent": true
+  },
+  "quantization_formats": [
+    "F32"
+  ],
+  "runtime_compatibility": {
+    "result": "VERIFIED_NORMALIZATION_REQUIRED",
+    "target": "canonical-llama.cpp"
+  },
+  "schema_version": 1,
+  "tensor_inventory_fingerprint": "08bb0fd35e0417cffb8ea6d05d4d4d32f683d0ab397b2dc5f949406f11201163",
+  "tokenizer_fingerprint": "8c5e3d9c62f4d8b4595190aa13eaaf0ed411772c85211f481403233d97f5dcbd",
+  "unresolved_ambiguities": []
+}

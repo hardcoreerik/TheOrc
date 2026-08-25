@@ -1,0 +1,22 @@
+{
+  "destructive": false,
+  "execution_authorized": false,
+  "modifies_source_artifact": false,
+  "produces_new_artifact": true,
+  "required_operations": [
+    {
+      "evidence": "Q/K fingerprint check verified on 60/60 tensors (NUMERICALLY_VERIFIED)",
+      "layers": "0-29",
+      "operation": "permute_q_projection"
+    },
+    {
+      "evidence": "Q/K fingerprint check verified on 60/60 tensors (NUMERICALLY_VERIFIED)",
+      "layers": "0-29",
+      "operation": "permute_k_projection"
+    }
+  ],
+  "schema_version": 1,
+  "source_artifact_sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+  "source_layout": "hf_raw_rotate_half",
+  "target_layout": "llama_cpp_interleaved_rope"
+}

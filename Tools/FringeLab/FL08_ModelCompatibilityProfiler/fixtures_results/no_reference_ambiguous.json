@@ -1,0 +1,50 @@
+{
+  "artifact": {
+    "file_size_bytes": 653091040,
+    "path": "F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf",
+    "sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac"
+  },
+  "confidence_level": "AMBIGUOUS",
+  "container": {
+    "evidence": [],
+    "type": "GGUF",
+    "valid": true,
+    "version": 3
+  },
+  "declared_architecture": "llama",
+  "evidence": [
+    "artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+    "container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates",
+    "architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3",
+    "output.weight present and byte-identical to token_embd.weight (logically tied, physically duplicated)"
+  ],
+  "execution_authorization": false,
+  "known_normalization_requirements": [],
+  "metadata_fingerprint": "0fe1164e4735dfffa621a9e695be9ca37ed188dd4ac9493855f6c2aef7d9007d",
+  "output_weight_semantics": "TIED_PHYSICALLY_DUPLICATED",
+  "provenance": {
+    "known": false,
+    "producer": null,
+    "source": "UNKNOWN"
+  },
+  "qk_layout": {
+    "classification": "UNKNOWN",
+    "confidence": "AMBIGUOUS",
+    "layers_checked": 0,
+    "layers_total": 30,
+    "per_layer_consistent": false
+  },
+  "quantization_formats": [
+    "F32"
+  ],
+  "runtime_compatibility": {
+    "result": "AMBIGUOUS",
+    "target": "canonical-llama.cpp"
+  },
+  "schema_version": 1,
+  "tensor_inventory_fingerprint": "08bb0fd35e0417cffb8ea6d05d4d4d32f683d0ab397b2dc5f949406f11201163",
+  "tokenizer_fingerprint": "8c5e3d9c62f4d8b4595190aa13eaaf0ed411772c85211f481403233d97f5dcbd",
+  "unresolved_ambiguities": [
+    "no paired reference artifact supplied -- Q/K layout cannot be classified from a single artifact (tensor names alone are not evidence, per this profiler's explicit design)"
+  ]
+}
