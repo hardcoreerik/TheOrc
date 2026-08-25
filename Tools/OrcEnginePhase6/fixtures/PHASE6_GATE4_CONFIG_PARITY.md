@@ -59,8 +59,9 @@ the HF source config.json exactly (RoPE theta, RMSNorm epsilon within
 float32 rounding, head counts, layer count, hidden size, context
 length, vocabulary size). The tied/untied and BOS/EOS fields are
 independently corroborated by behavior already observed elsewhere in
-this project's evidence (untied lm_head confirmed via the real
-`output.weight` tensor and via matching top-5 predictions using it; no
+this project's evidence (logically-tied, physically-duplicated
+`output.weight` confirmed byte-identical to `token_embd.weight`, and
+via matching top-5 predictions using it; no
 BOS insertion confirmed via exact token-ID matches on every external
 run).
 

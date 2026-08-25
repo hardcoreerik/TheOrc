@@ -3874,3 +3874,50 @@ is now comprehensively verified, not assumed from a partial check.**
 it. No frozen file touched. Neither freeze blocker's status changes.
 `orcengine-phase6-freeze` does not exist and this entry does not
 authorize creating it. FL-08 remains not started.
+
+## OE-ADR-055 — Round 7 claim-hygiene correction: root-cause identification is not production remediation (combined Codex/Grok remediation round 7, Commit 1)
+
+**Correction, not retraction, of OE-ADR-053/054.** Those entries are
+preserved unchanged above; their underlying evidence (the byte-level
+permutation proof, the 272-tensor exhaustive diff, the 4-prompt
+controlled comparison) remains correct. What is corrected is
+current-state summary language that overstated what the evidence
+establishes:
+
+1. **"This resolves the external same-Q8/F32 disagreement blocker"**
+   (OE-ADR-053's opening line, and the matching banner in
+   `PHASE6_GATE2_QK_LAYOUT_ROOT_CAUSE.md`) overclaimed resolution.
+   **Corrected current status:** the external acceptance gate on the
+   EXISTING pinned custom artifacts is still **RED/FAILED** -- those
+   artifacts still disagree with llama.cpp, unchanged, because no
+   frozen file or pinned fixture has been modified. Root-cause
+   identification is not the same as production remediation or
+   acceptance clearance. No canonical-GGUF support policy has been
+   accepted or implemented for OrcEngine.
+2. **"Only the GGUF's Q/K tensor layout changed" / "only the GGUF's
+   Q/K layout changed"** (OE-ADR-053's classification paragraph and the
+   matching text in `PHASE6_GATE2_QK_LAYOUT_ROOT_CAUSE.md`) was not
+   literally true even after OE-ADR-054's exhaustive tensor diff: the
+   compared canonical and existing-custom files also differ in
+   `output.weight` presence (canonical omits it entirely). OE-ADR-054's
+   272-tensor diff verified tensor VALUES are otherwise identical, but
+   that is a narrower claim than genuine single-variable isolation
+   (an experiment that holds every structural property fixed except
+   Q/K and observes the same result). **Corrected:** downgraded to
+   "strongly-supported primary cause" pending Gate 3 (round 7)'s actual
+   single-variable isolation experiment -- see
+   `PHASE6_GATE3_QK_ISOLATION.md` for its result and honest
+   classification.
+
+**Both `PHASE6_GATE2_QK_LAYOUT_ROOT_CAUSE.md` and this entry now state
+the corrected status explicitly: external mismatch -- probable cause
+identified, production acceptance not yet cleared; internal tolerance
+-- still FAILED (`0.973504` vs `1.079983`); Phase 6 -- not
+freeze-ready.**
+
+**Disposition.** No frozen file touched. Neither freeze blocker's
+status changes as a RESULT of this entry (this entry is a language
+correction; Gate 3/4/5 below may change the isolation/compatibility
+picture, tracked in their own ADR entries). `orcengine-phase6-freeze`
+does not exist and this entry does not authorize creating it. FL-08
+remains not started.

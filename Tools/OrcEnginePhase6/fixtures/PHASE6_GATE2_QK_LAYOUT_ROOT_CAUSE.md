@@ -1,7 +1,21 @@
-# Phase 6 Stage 1, Gate 2: Q/K GGUF layout incompatibility confirmed as the external root cause -- Outcome A
+# Phase 6 Stage 1, Gate 2: Q/K GGUF layout incompatibility -- strongly-supported external root cause (Outcome A)
 
-**This resolves the external same-Q8/F32 disagreement blocker.** The
-custom project GGUF converter (`Tools/OrcEnginePhase0/oracle/
+> **CORRECTED (round 7, combined Codex/Grok remediation, see
+> OE-ADR-055):** the original banner below read "This resolves the
+> external same-Q8/F32 disagreement blocker." That overstated the
+> finding. **Root-cause identification is not the same as production
+> remediation or acceptance clearance.** The external acceptance gate
+> on the EXISTING pinned custom artifacts is still **RED/FAILED** --
+> those artifacts still disagree with llama.cpp, unchanged, because
+> nothing about the pinned custom F32/Q8_0 fixtures or the frozen
+> converter has been modified. No canonical-GGUF support policy has
+> been accepted or implemented for OrcEngine. What this investigation
+> established is a strongly-supported explanation for WHY the existing
+> artifacts disagree -- see Gate 3 (this round) for the genuine
+> single-variable isolation experiment that upgrades this from
+> "strongly supported" toward "causally isolated."
+
+The custom project GGUF converter (`Tools/OrcEnginePhase0/oracle/
 convert_real_candidate.py`, NOT modified by this investigation) writes
 HF `q_proj.weight`/`k_proj.weight` directly into GGUF
 `attn_q.weight`/`attn_k.weight` without applying the RoPE-layout
@@ -10,7 +24,11 @@ the `llama` architecture. A canonical GGUF pair, generated with the
 EXACT pinned llama.cpp source's own official converter against the
 same pinned HF source, resolves ALL THREE previously-divergent prompts
 when loaded into the SAME pinned `llama-server.exe` under the SAME
-controlled numerical settings used throughout this remediation.
+controlled numerical settings used throughout this remediation. This
+canonical comparison is confounded by one other known structural
+difference (the canonical file omits `output.weight`; see below) --
+Gate 3 (this round) isolates Q/K as the sole variable to close that
+gap.
 
 ## 2A: exact layout contracts
 
@@ -202,11 +220,21 @@ step given the machinery already built here.
 This is exactly what was measured: canonical llama.cpp (both F32 and
 Q8_0) agrees with PyTorch and OrcEngine on all 4 prompts tested,
 including all 3 that disagreed under the existing custom layout.
-**This directly and causally implicates the missing Q/K RoPE-layout
-permutation in `convert_real_candidate.py` as the external root cause**
--- not merely a correlated hypothesis, but a controlled before/after
-comparison (same server, same settings, same prompts, same tokens,
-only the GGUF's Q/K tensor layout changed) that flips the result.
+**This directly implicates the missing Q/K RoPE-layout permutation in
+`convert_real_candidate.py` as the strongly-supported external root
+cause** -- a controlled before/after comparison (same server, same
+settings, same prompts, same tokens) that flips the result. This is
+**not yet a genuinely isolated single-variable proof**: the compared
+files also differ in `output.weight` presence (canonical omits it;
+see "Additional structural difference" above), so "only Q/K changed"
+describes the two files' TENSOR VALUES (verified exhaustively, see the
+Codex follow-up above) but not their complete structural identity.
+Because the differing `output.weight` is byte-identical to
+`token_embd.weight` wherever present, and llama.cpp materializes the
+tied head from `token_embd.weight` when `output.weight` is absent, this
+confound is judged numerically inert -- but "judged inert" is a
+narrower claim than "proven irrelevant by direct single-variable
+experiment." See Gate 3 (this round) for that experiment.
 
 ## What this does and does NOT authorize
 
@@ -237,4 +265,24 @@ only the GGUF's Q/K tensor layout changed) that flips the result.
   artifact without production changes was not tested in this pass (Gate
   2C item 5, "if the existing loader accepts them without production
   changes") -- given the scope already covered, this is deferred and
-  disclosed as a limitation, not silently skipped.
+  disclosed as a limitation, not silently skipped. **Addressed in round
+  7, Gate 4** -- see `PHASE6_GATE4_ORCENGINE_CANONICAL_COMPATIBILITY.md`.
+
+## Status as of round 7 (combined Codex/Grok remediation)
+
+- **External acceptance gate on the EXISTING pinned custom artifacts:
+  still RED/FAILED.** Unchanged, because no frozen file or pinned
+  fixture was modified.
+- **Root cause: strongly-supported hypothesis, upgraded toward isolated
+  in Gate 3 (round 7)** -- see
+  `PHASE6_GATE3_QK_ISOLATION.md` for the genuine single-variable
+  experiment and its classification.
+- **Internal tolerance gate: still FAILED** (`0.973504` vs `1.079983`),
+  unaffected by any of this investigation -- see
+  `PHASE6_GATE6_INTERNAL_TOLERANCE_LOCALIZATION.md` (round 7 per-block
+  addendum).
+- **No canonical-GGUF support policy has been accepted or implemented
+  for OrcEngine.** Any such change requires a separate, reviewed
+  specification -- see the round-7 Gate 4 proposal (not implemented).
+- **Phase 6: not freeze-ready.** `orcengine-phase6-freeze` does not
+  exist.

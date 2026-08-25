@@ -128,6 +128,17 @@ tensors unquantized regardless of the requested target type.
 
 ## Tied/untied output-head identity
 
+> **CORRECTED (round 6, see `PHASE6_GATE4_CONFIG_PARITY.md` and
+> OE-ADR-052):** "UNTIED" below describes tensor-presence structure
+> only. `output.weight` was subsequently verified byte-for-byte
+> identical to `token_embd.weight` (`np.array_equal` = `True`). The
+> accurate current characterization is **logically tied (HF's declared
+> `tie_word_embeddings=true` intent), physically duplicated** (two
+> byte-identical tensor records), not two independently-varying weight
+> matrices. The paragraph below is preserved as originally written for
+> its structural/metadata findings, which remain correct as far as they
+> go.
+
 **Confirmed from actual metadata, not assumed:** this fixture (both the
 F32 input and the quantized output) is **UNTIED** --
 `orcengine_gguf_inspect` reports `output_semantics: untied` for the F32
