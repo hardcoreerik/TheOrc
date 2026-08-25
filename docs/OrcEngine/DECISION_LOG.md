@@ -4039,3 +4039,60 @@ EXISTING pinned custom artifacts (unmodified, still disagree with
 llama.cpp). Internal tolerance blocker completely unaffected -- Gate 5,
 separate. `orcengine-phase6-freeze` does not exist and this entry does
 not authorize creating it. FL-08 remains not started.
+
+## OE-ADR-058 — Gate 4: OrcEngine canonical-GGUF compatibility status determined (diagnostics only) (combined Codex/Grok remediation round 7, Commit 4)
+
+Full writeup: `PHASE6_GATE4_ORCENGINE_CANONICAL_COMPATIBILITY.md`. New
+diagnostic-only tool `phase6_gate4_canonical_loader_diagnostic.cpp`
+(new CMake target, no frozen file or existing tool modified) calls
+OrcEngine's existing, unmodified loader/forward path against one GGUF
+path with no hardcoded expected-size gate (unlike
+`phase6_q8_0_comparison.cpp`, which exists specifically to protect the
+pinned committed fixtures).
+
+**Loader accepts all 4 Gate 2/3 diagnostic artifacts** (canonical
+F32/Q8_0, Q/K-isolated F32/Q8_0) -- loads without exception, correct
+config, all 28 forward passes (4 artifacts x 7 prompts) produce finite
+results, 0 exceptions.
+
+**Does NOT agree with PyTorch or canonical llama.cpp on the same 3
+prompts it previously disagreed on, when fed the CANONICAL (correctly
+permuted) layout.** 2 of 3 (`dev_year_weather`->436,
+`holdout_quick_fox`->28) reproduce EXACTLY the existing-custom-layout
+llama.cpp's WRONG answer -- confirming the predicted pattern: OrcEngine
+silently misinterprets canonically-permuted Q/K as if it were raw. The
+third (`holdout_she_walked`->260) produces a third, distinct wrong
+answer matching neither prior result -- disclosed as an open,
+unexplained discrepancy (a plausible but unproven hypothesis: this
+prompt's 4-token prefill accumulates attention over multiple RoPE
+positions unlike llama.cpp's single-step completion, which could
+interact with a layout mismatch differently than same-position
+comparisons do) rather than forced into the clean pattern.
+
+**Bounded production-layout-policy proposal appended (NOT implemented,
+requires separate reviewed specification):** canonical llama.cpp
+compatibility as the intended target format (with the raw-only
+alternative explicitly not ruled out); the smallest seam is a NEW
+materialization-time adapter applying the already-proven `permute()`/
+un-permute transform to Q/K BEFORE the frozen transformer math, never
+inside it; frozen historical fixtures must remain byte-identical
+through the adapter path with no layout marker; layout selection must
+be fail-closed via an explicit, project-controlled metadata marker
+(tensor names alone cannot distinguish raw from canonical layout, per
+Gate 3's own artifacts) -- absence must refuse-or-warn, never guess;
+5 required tests enumerated (equivalence, round-trip self-inverse,
+hostile-no-marker-on-canonical-input, full regression, real-loader
+external-oracle re-run).
+
+**Verification:** Debug build clean, ran 4/4 artifacts successfully.
+Strict (`/W4 /WX /permissive- /EHsc`) zero warnings. ASan
+(`/fsanitize=address /EHsc` confirmed present in the compile command)
+built clean; run result and durable evidence path recorded in the Gate
+4 doc.
+
+**Disposition.** No loader, transformer math, or frozen file modified.
+Policy proposal not implemented -- stopping here per instruction.
+Neither freeze blocker's status changes (external gate still RED on
+the unmodified pinned artifacts; internal tolerance blocker untouched,
+Gate 5 separate). `orcengine-phase6-freeze` does not exist and this
+entry does not authorize creating it. FL-08 remains not started.

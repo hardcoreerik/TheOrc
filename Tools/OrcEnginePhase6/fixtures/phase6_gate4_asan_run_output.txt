@@ -1,0 +1,11 @@
+[asan_canonical_f32] file: .orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf (539845216 bytes)
+[asan_canonical_f32] LOAD OK: vocab=49152 hidden=576 n_layers=30 n_q_heads=9 n_kv_heads=3 head_dim=64 max_positions=8192
+[asan_canonical_f32] dev_capital_of_france    argmax=260 top5=[(260, 17.273657), (7042, 16.351980), (1217, 16.331383), (3807, 15.844070), (253, 15.133603)]
+[asan_canonical_f32] dev_once_upon_a_time     argmax=28 top5=[(28, 16.636404), (281, 14.563922), (665, 14.255244), (253, 13.151312), (260, 13.022064)]
+[asan_canonical_f32] dev_code_snippet         argmax=253 top5=[(253, 17.874283), (278, 16.747490), (365, 16.408085), (24, 15.845053), (216, 15.742683)]
+[asan_canonical_f32] dev_year_weather         argmax=436 top5=[(436, 25.986246), (282, 24.633329), (761, 24.403065), (9656, 24.168024), (28, 24.090706)]
+[asan_canonical_f32] holdout_hello_world      argmax=253 top5=[(253, 22.636639), (260, 22.226250), (957, 21.368683), (441, 21.326080), (732, 20.666603)]
+[asan_canonical_f32] holdout_she_walked       argmax=260 top5=[(260, 18.650326), (618, 16.607044), (28, 16.558704), (6644, 16.403051), (288, 16.359602)]
+[asan_canonical_f32] holdout_quick_fox        argmax=28 top5=[(28, 28.175379), (314, 27.608942), (198, 27.541380), (281, 26.700811), (365, 26.659588)]
+[asan_canonical_f32] PASS: 0/7 prompts failed
+EXIT: 0

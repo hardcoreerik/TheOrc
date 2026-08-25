@@ -114,3 +114,16 @@ else()
     message(STATUS "Phase 6 Gate 6 holdout_quick_fox layer localization: SKIPPED -- "
                    "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
 endif()
+
+# Gate 4 (combined Codex/Grok remediation round 7): diagnostic-only
+# single-GGUF loader probe -- does OrcEngine's existing, unmodified
+# loader accept the Gate 2/3 canonical/Q/K-isolated artifacts, and what
+# does it compute if so. Takes one GGUF path (not the paired F32+Q8_0
+# real-fixture pair), so it does not require ORCENGINE_REAL_F32_GGUF/
+# ORCENGINE_REAL_Q8_0_GGUF to be configured -- always registered.
+add_executable(phase6_gate4_canonical_loader_diagnostic tools/phase6_gate4_canonical_loader_diagnostic.cpp)
+target_link_libraries(phase6_gate4_canonical_loader_diagnostic PRIVATE orcengine_phase5a orcengine_phase2)
+target_compile_options(phase6_gate4_canonical_loader_diagnostic PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
