@@ -45,6 +45,12 @@ struct DiffStats {
     double rmse = 0.0;
 };
 
+int g_selftest_failures = 0;
+void check_and_report(const std::string& name, bool ok) {
+    std::printf("[%s] %s\n", ok ? "PASS" : "FAIL", name.c_str());
+    if (!ok) ++g_selftest_failures;
+}
+
 // Codex remediation round 5, Gate 3A: per-position, not aggregate-only.
 // `values` is [new_len, hidden]-shaped (row-major); returns one DiffStats
 // per position so the specific position driving a layer's jump can be
@@ -87,6 +93,103 @@ DiffStats diff_aggregate(const std::vector<float>& a, const std::vector<float>& 
     return s;
 }
 
+// Codex remediation round 6, Gate 1B: the ORIGINAL Part B "interaction"
+// heuristic computed `combined.max_abs - (weight.max_abs + state.max_abs)`
+// -- comparing three SEPARATELY-located scalar maxima is not a valid
+// interaction measurement, since the isolated weight-effect maximum and
+// the isolated state-effect maximum can occur at entirely different
+// coordinates from each other and from the combined effect's own
+// maximum. The mathematically correct per-element factorial interaction
+// residual is `out_qq[i] - out_qf[i] - out_fq[i] + out_ff[i]` -- the
+// residual between the actual combined change and the coordinate-wise
+// sum of the two isolated changes, evaluated at every coordinate
+// independently, not via separately-located scalar maxima.
+struct LocatedStats {
+    DiffStats stats;      // vs. an implicit zero baseline (this IS the effect vector's own magnitude)
+    int64_t max_position = -1;
+    int64_t max_channel = -1;
+};
+
+// Computes elementwise `effect[i] = a[i] - b[i]` and returns its
+// magnitude stats (max_abs, rmse) PLUS the exact (position, channel)
+// coordinate where the max occurred, so two different effects' maxima
+// can never be silently conflated as if co-located.
+LocatedStats effect_vector_stats(const std::vector<float>& a, const std::vector<float>& b,
+                                 int64_t new_len, int64_t row_width) {
+    if (a.size() != b.size() || a.size() != static_cast<size_t>(new_len * row_width)) {
+        throw std::runtime_error("effect_vector_stats: shape mismatch");
+    }
+    LocatedStats result;
+    double sq_sum = 0.0;
+    for (int64_t p = 0; p < new_len; ++p) {
+        for (int64_t c = 0; c < row_width; ++c) {
+            const size_t idx = static_cast<size_t>(p * row_width + c);
+            const float d = std::fabs(a[idx] - b[idx]);
+            if (d > result.stats.max_abs) {
+                result.stats.max_abs = d;
+                result.max_position = p;
+                result.max_channel = c;
+            }
+            sq_sum += static_cast<double>(d) * static_cast<double>(d);
+        }
+    }
+    result.stats.rmse = std::sqrt(sq_sum / static_cast<double>(a.size()));
+    return result;
+}
+
+// The true four-term factorial interaction residual, elementwise:
+// interaction[i] = qq[i] - qf[i] - fq[i] + ff[i]. Returns its own
+// magnitude stats + location, exactly like effect_vector_stats -- this
+// is NOT a difference of two already-computed DiffStats scalars.
+LocatedStats factorial_interaction_stats(const std::vector<float>& out_ff, const std::vector<float>& out_qf,
+                                         const std::vector<float>& out_fq, const std::vector<float>& out_qq,
+                                         int64_t new_len, int64_t row_width) {
+    const size_t n = out_ff.size();
+    if (out_qf.size() != n || out_fq.size() != n || out_qq.size() != n ||
+        n != static_cast<size_t>(new_len * row_width)) {
+        throw std::runtime_error("factorial_interaction_stats: shape mismatch");
+    }
+    LocatedStats result;
+    double sq_sum = 0.0;
+    for (int64_t p = 0; p < new_len; ++p) {
+        for (int64_t c = 0; c < row_width; ++c) {
+            const size_t idx = static_cast<size_t>(p * row_width + c);
+            const float interaction = out_qq[idx] - out_qf[idx] - out_fq[idx] + out_ff[idx];
+            const float d = std::fabs(interaction);
+            if (d > result.stats.max_abs) {
+                result.stats.max_abs = d;
+                result.max_position = p;
+                result.max_channel = c;
+            }
+            sq_sum += static_cast<double>(d) * static_cast<double>(d);
+        }
+    }
+    result.stats.rmse = std::sqrt(sq_sum / static_cast<double>(n));
+    return result;
+}
+
+// Per-position (not whole-vector) breakdown of the factorial interaction
+// residual, at layers 11/28 specifically, per instruction.
+std::vector<DiffStats> factorial_interaction_per_position(
+    const std::vector<float>& out_ff, const std::vector<float>& out_qf,
+    const std::vector<float>& out_fq, const std::vector<float>& out_qq,
+    int64_t new_len, int64_t row_width) {
+    std::vector<DiffStats> per_pos(static_cast<size_t>(new_len));
+    for (int64_t p = 0; p < new_len; ++p) {
+        double sq_sum = 0.0;
+        float max_abs = 0.0f;
+        for (int64_t c = 0; c < row_width; ++c) {
+            const size_t idx = static_cast<size_t>(p * row_width + c);
+            const float interaction = out_qq[idx] - out_qf[idx] - out_fq[idx] + out_ff[idx];
+            const float d = std::fabs(interaction);
+            max_abs = std::max(max_abs, d);
+            sq_sum += static_cast<double>(d) * static_cast<double>(d);
+        }
+        per_pos[static_cast<size_t>(p)] = {max_abs, std::sqrt(sq_sum / static_cast<double>(row_width))};
+    }
+    return per_pos;
+}
+
 void require_configs_equal(const ModelConfig& f32_cfg, const ModelConfig& q8_cfg) {
     // Codex remediation round 5, Gate 3A: fail closed BEFORE using
     // `f32_cfg` for both paths (as the original version implicitly did)
@@ -126,9 +229,63 @@ const std::vector<PromptCase> kControlAndFailingPrompts = {
 // Layers implicated by round-4's aggregate trace on holdout_quick_fox.
 const std::vector<int64_t> kImplicatedLayers = {11, 28};
 
+// Codex remediation round 6, Gate 1B: hostile self-check proving the
+// factorial-interaction formula does NOT silently conflate two
+// separately-located effect maxima -- the exact failure mode of the
+// OLD scalar `combined.max_abs - (weight.max_abs + state.max_abs)`
+// heuristic this replaces. Constructs a tiny 2-position, 4-channel
+// synthetic case where the weight effect's own maximum and the state
+// effect's own maximum occur at DIFFERENT coordinates, and proves the
+// interaction residual is computed per-coordinate (not from the two
+// scalar maxima) by checking it against a hand-computed reference.
+void run_interaction_formula_hostile_selftest() {
+    std::printf("=== Gate 1B self-test: factorial interaction residual formula ===\n");
+    const int64_t new_len = 2, row_width = 4;
+    // out_ff: baseline, all zeros.
+    const std::vector<float> out_ff(static_cast<size_t>(new_len * row_width), 0.0f);
+    // out_qf (weight effect = qf-ff): large at position 0, channel 0 only.
+    std::vector<float> out_qf(static_cast<size_t>(new_len * row_width), 0.0f);
+    out_qf[0] = 10.0f;  // position 0, channel 0
+    // out_fq (state effect = fq-ff): large at position 1, channel 3 only --
+    // DELIBERATELY a different coordinate from the weight effect's own max.
+    std::vector<float> out_fq(static_cast<size_t>(new_len * row_width), 0.0f);
+    out_fq[7] = 6.0f;  // position 1, channel 3
+    // out_qq (combined = qq-ff): superposition of both effects PLUS a
+    // deliberate extra +3.0 interaction term at position 0, channel 1 (a
+    // THIRD coordinate, distinct from both isolated maxima) so the
+    // interaction residual at that specific coordinate is exactly +3.0,
+    // and the residual at the two isolated-effect coordinates is exactly
+    // 0 (since qq there equals qf/fq plus ff exactly, no extra term).
+    std::vector<float> out_qq = out_ff;
+    out_qq[0] = out_qf[0];                 // position 0, channel 0: no interaction here
+    out_qq[7] = out_fq[7];                 // position 1, channel 3: no interaction here
+    out_qq[1] = 3.0f;                      // position 0, channel 1: pure interaction term
+
+    // Old (WRONG) heuristic would have reported:
+    //   weight.max_abs=10.0 (at [0,0]), state.max_abs=6.0 (at [1,3]),
+    //   combined.max_abs=10.0 (at [0,0] -- since 10.0 > 6.0 > 3.0),
+    //   "interaction_gap" = 10.0 - (10.0+6.0) = -6.0 -- a number with NO
+    //   relationship to the actual +3.0 interaction term this test
+    //   constructed, because it never looks at [0,1] at all.
+    const LocatedStats interaction = factorial_interaction_stats(out_ff, out_qf, out_fq, out_qq, new_len, row_width);
+    const bool located_correctly = interaction.max_position == 0 && interaction.max_channel == 1;
+    const bool value_correct = std::fabs(interaction.stats.max_abs - 3.0f) < 1e-6f;
+    check_and_report("hostile self-test: interaction residual correctly located at [pos=0,ch=1], "
+                     "not conflated with the weight-effect maximum at [pos=0,ch=0] or the "
+                     "state-effect maximum at [pos=1,ch=3]",
+                     located_correctly && value_correct);
+    std::printf("  measured: max_abs=%.6f at [pos=%lld,ch=%lld] (expected: 3.0 at [pos=0,ch=1])\n\n",
+                interaction.stats.max_abs, (long long)interaction.max_position, (long long)interaction.max_channel);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    run_interaction_formula_hostile_selftest();
+    if (g_selftest_failures != 0) {
+        std::fprintf(stderr, "Gate 1B self-test FAILED -- aborting before any model I/O\n");
+        return 1;
+    }
     if (argc != 3) {
         std::fprintf(stderr, "usage: phase6_holdout_quick_fox_layer_localization F32.gguf Q8_0.gguf\n");
         return 2;
@@ -251,26 +408,44 @@ int main(int argc, char** argv) {
                 const std::vector<float> out_qq = execute_cached_transformer_layer(
                     x_before_q8, new_len, 0, q8_lw, cfg, layer, cos_by_pos, sin_by_pos, cache_qq);
 
-                const DiffStats weight_effect = diff_aggregate(out_ff, out_qf);     // (1) vs (2)
-                const DiffStats state_effect = diff_aggregate(out_ff, out_fq);      // (1) vs (3)
-                const DiffStats combined_effect = diff_aggregate(out_ff, out_qq);   // (1) vs (4)
-                // Linear-superposition prediction: if weight and state
-                // effects were independent/additive, combined max_abs would
-                // be roughly bounded by their sum. The gap (if any) is
-                // reported as an interaction, not attributed to a specific
-                // mechanism.
-                const float additive_bound = weight_effect.max_abs + state_effect.max_abs;
-                const float interaction_gap = combined_effect.max_abs - additive_bound;
+                // Codex remediation round 6, Gate 1B: the four elementwise
+                // effect vectors, each with its OWN independently-located
+                // maximum (never confused with another effect's maximum).
+                const LocatedStats weight_effect = effect_vector_stats(out_qf, out_ff, new_len, hidden);       // qf - ff
+                const LocatedStats state_effect = effect_vector_stats(out_fq, out_ff, new_len, hidden);        // fq - ff
+                const LocatedStats combined_effect = effect_vector_stats(out_qq, out_ff, new_len, hidden);     // qq - ff
+                const LocatedStats interaction = factorial_interaction_stats(out_ff, out_qf, out_fq, out_qq, new_len, hidden);
+                const auto interaction_per_pos = factorial_interaction_per_position(out_ff, out_qf, out_fq, out_qq, new_len, hidden);
+                const auto weight_per_pos = diff_per_position(out_qf, out_ff, new_len, hidden);
+                const auto state_per_pos = diff_per_position(out_fq, out_ff, new_len, hidden);
+                const auto combined_per_pos = diff_per_position(out_qq, out_ff, new_len, hidden);
 
-                std::printf("  isolated WEIGHT effect  (F32 weights vs Q8 weights, same F32 input):  max_abs=%.6f rmse=%.6f\n",
-                            weight_effect.max_abs, weight_effect.rmse);
-                std::printf("  isolated STATE effect   (F32 input vs Q8 input, same F32 weights):    max_abs=%.6f rmse=%.6f\n",
-                            state_effect.max_abs, state_effect.rmse);
-                std::printf("  cumulative COMBINED     (Q8 weights + Q8 input, matches Part A):      max_abs=%.6f rmse=%.6f\n",
-                            combined_effect.max_abs, combined_effect.rmse);
-                std::printf("  additive bound (weight+state)=%.6f; combined-additive interaction gap=%.6f "
-                            "(positive = super-additive interaction, not explained by either effect alone)\n",
-                            additive_bound, interaction_gap);
+                std::printf("  isolated WEIGHT effect  (out_qf-out_ff, same F32 input):  max_abs=%.6f rmse=%.6f "
+                            "at [pos=%lld,ch=%lld]\n",
+                            weight_effect.stats.max_abs, weight_effect.stats.rmse,
+                            (long long)weight_effect.max_position, (long long)weight_effect.max_channel);
+                std::printf("  isolated STATE effect   (out_fq-out_ff, same F32 weights): max_abs=%.6f rmse=%.6f "
+                            "at [pos=%lld,ch=%lld]\n",
+                            state_effect.stats.max_abs, state_effect.stats.rmse,
+                            (long long)state_effect.max_position, (long long)state_effect.max_channel);
+                std::printf("  combined effect         (out_qq-out_ff, matches Part A):  max_abs=%.6f rmse=%.6f "
+                            "at [pos=%lld,ch=%lld]\n",
+                            combined_effect.stats.max_abs, combined_effect.stats.rmse,
+                            (long long)combined_effect.max_position, (long long)combined_effect.max_channel);
+                std::printf("  FACTORIAL INTERACTION RESIDUAL (out_qq-out_qf-out_fq+out_ff): max_abs=%.6f rmse=%.6f "
+                            "at [pos=%lld,ch=%lld] (this is the mathematically valid interaction measure -- "
+                            "NOT a difference of separately-located scalar maxima)\n",
+                            interaction.stats.max_abs, interaction.stats.rmse,
+                            (long long)interaction.max_position, (long long)interaction.max_channel);
+                std::printf("  per-position max_abs: weight=[");
+                for (int64_t p = 0; p < new_len; ++p) std::printf("%.4f%s", weight_per_pos[static_cast<size_t>(p)].max_abs, p + 1 < new_len ? "," : "");
+                std::printf("] state=[");
+                for (int64_t p = 0; p < new_len; ++p) std::printf("%.4f%s", state_per_pos[static_cast<size_t>(p)].max_abs, p + 1 < new_len ? "," : "");
+                std::printf("] combined=[");
+                for (int64_t p = 0; p < new_len; ++p) std::printf("%.4f%s", combined_per_pos[static_cast<size_t>(p)].max_abs, p + 1 < new_len ? "," : "");
+                std::printf("] interaction=[");
+                for (int64_t p = 0; p < new_len; ++p) std::printf("%.4f%s", interaction_per_pos[static_cast<size_t>(p)].max_abs, p + 1 < new_len ? "," : "");
+                std::printf("]\n");
             }
         }
         return 0;
