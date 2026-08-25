@@ -3921,3 +3921,60 @@ correction; Gate 3/4/5 below may change the isolation/compatibility
 picture, tracked in their own ADR entries). `orcengine-phase6-freeze`
 does not exist and this entry does not authorize creating it. FL-08
 remains not started.
+
+## OE-ADR-056 — Gate 2 hardened to fail closed; full 7-prompt canonical comparison confirms round-6 result (combined Codex/Grok remediation round 7, Commit 2)
+
+**Problem.** The round-6 prototype (`phase6_gate2_canonical_layout_check.py`)
+accepted arbitrary `--server`/GGUF paths with zero identity
+verification, ran only 4 of the 7 corpus prompts, and wrote only
+argmax/top-5 -- it did not durably prove WHICH server or artifacts
+produced its report, and did not exercise the full corpus.
+
+**Fix.** Rewrote the script to reuse
+`phase6_llama_cpp_q8_0_oracle.py`'s established identity/launch/request
+helpers (imported as `oracle`, the same pattern
+`phase6_paired_four_way_evidence.py` already uses -- no second identity
+framework). Before any server launches, verifies: `llama-server.exe`
+SHA-256 + `--version` banner (build 10436/commit 6fed9f6ff) +
+`llama-server-impl.dll` SHA-256; existing-custom F32 GGUF SHA-256;
+existing-custom Q8_0 GGUF SHA-256; canonical F32 GGUF SHA-256
+(`aef7f8d4...`); canonical Q8_0 GGUF SHA-256 (`dbf0d1f3...`); and the
+fixed 7-prompt corpus's exact IDs/text/token-IDs. Fails closed (never
+silently partial) on: missing files, missing/null/empty hashes, any
+hash mismatch, wrong server version, unexpected/missing/duplicate
+prompt IDs, a live token-ID mismatch, malformed/incomplete
+`/completion` response fields, or an incomplete result set. The
+committed JSON report carries every verified identity, the exact
+pinned llama.cpp converter commit (`6fed9f6ff7a603b124cb8c5864fca6ea
+879f9f99`) and HF source revision (`93efa2f097d58c2a74874c7e644dbc9b0
+cee75a2`), the controlled server args, the neutral greedy payload, and
+all 4 legs' results for all 7 prompts.
+
+**Result: the hardened, full-corpus run reproduces the round-6 finding
+exactly, now on the complete 7-prompt corpus instead of a 4-prompt
+subset.** All 4 previously-agreeing controls (`dev_capital_of_france`,
+`dev_once_upon_a_time`, `dev_code_snippet`, `holdout_hello_world`)
+continue to agree (260/28/253/253) on both canonical legs. All 3
+previously-divergent prompts (`dev_year_weather`, `holdout_she_walked`,
+`holdout_quick_fox`) now agree with PyTorch/OrcEngine (523/3589/27003)
+on both canonical F32 and canonical Q8_0. `PHASE6_GATE2_QK_LAYOUT_
+ROOT_CAUSE.md` section 2C updated; the round-6 4-prompt table is
+retained as historical, marked superseded.
+
+12 new focused regression tests added
+(`test_phase6_gate2_canonical_layout_check.py`) covering this script's
+OWN trust-boundary logic (identity-hash pass/fail, corpus-shape
+validation, token-ID-mismatch-aborts-before-completion, malformed
+`/completion` response fields) -- reusing real temp-file hash fixtures
+per the established pattern in `test_phase6_llama_cpp_q8_0_oracle.py`,
+not duplicating oracle-module coverage. Full Python suite: 96/96
+passing (baseline was 84 several rounds ago; grown via legitimately
+added coverage across rounds, no regressions).
+
+**Disposition.** Strengthens, does not change, OE-ADR-053's
+classification. Does NOT itself achieve genuine single-variable
+isolation (the compared canonical file still omits `output.weight`) --
+that is Gate 3, tracked separately. No frozen file touched. Neither
+freeze blocker's status changes. `orcengine-phase6-freeze` does not
+exist and this entry does not authorize creating it. FL-08 remains not
+started.

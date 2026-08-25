@@ -171,7 +171,41 @@ introduce a numerical discrepancy -- but it is a second, independent
 divergence from the official converter's output, disclosed for
 completeness.
 
-## 2C: controlled comparison (scoped to final-position, not a full prefix sweep -- see limitation below)
+## 2C: controlled comparison -- ROUND 7 UPDATE: now the FULL fail-closed 7-prompt corpus (supersedes the round-6 4-prompt/final-position-only pass below)
+
+**Round 7** (`phase6_gate2_canonical_layout_check.py`, rewritten to
+fail closed on identity -- see the module docstring for the exact
+verification list): ran the SAME pinned, hash-verified
+`llama-server.exe` against all FOUR legs (existing-custom F32,
+existing-custom Q8_0, canonical F32, canonical Q8_0) across the FULL
+fixed 7-prompt corpus (not just 3 divergent + 1 control), under the
+same controlled settings (`--cache-type-k f32 --cache-type-v f32
+--flash-attn off`). Every GGUF's SHA-256, the server's SHA-256 +
+`--version` banner, and the impl DLL's SHA-256 were verified BEFORE any
+server launched. Token-ID identity re-verified live via `/tokenize` for
+every prompt on every leg -- exact match throughout. Raw console output
+and full structured JSON (all identities, settings, and results):
+`phase6_gate2_canonical_layout_check_report.json`.
+
+| Prompt | PyTorch/OrcEngine (ground truth) | llama.cpp existing-custom F32 | llama.cpp existing-custom Q8_0 | **llama.cpp canonical F32** | **llama.cpp canonical Q8_0** |
+|---|---|---|---|---|---|
+| `dev_capital_of_france` (control) | 260 | 260 | 260 | **260** | **260** |
+| `dev_once_upon_a_time` (control) | 28 | 28 | 28 | **28** | **28** |
+| `dev_code_snippet` (control) | 253 | 253 | 253 | **253** | **253** |
+| `holdout_hello_world` (control) | 253 | 253 | 253 | **253** | **253** |
+| `dev_year_weather` | 523 | 436 | 436 | **523** | **523** |
+| `holdout_she_walked` | 3589 | 38734 | 9612 | **3589** | **3589** |
+| `holdout_quick_fox` | 27003 | 28 | 28 | **27003** | **27003** |
+
+**Every single previously-divergent prompt now agrees with PyTorch and
+OrcEngine once llama.cpp is given the canonically-permuted GGUF, and
+every previously-agreeing control prompt continues to agree, across the
+COMPLETE 7-prompt corpus (not a 4-prompt subset).** This is a stronger,
+fully reproducible, hash-bound version of the round-6 result below --
+the round-6 result is retained for its historical record but is
+superseded by this table as the current authority.
+
+### Round 6 original pass (4 prompts, final position only -- historical, superseded above)
 
 Ran llama.cpp (pinned server, controlled settings
 `--cache-type-k f32 --cache-type-v f32 --flash-attn off`, matching
@@ -189,10 +223,7 @@ match throughout (`tok_match=True`).
 | `holdout_she_walked` | 3589 | 3589 | 38734 | 9612 | **3589** | **3589** |
 | `holdout_quick_fox` | 27003 | 27003 | 28 | 28 | **27003** | **27003** |
 
-**Every single previously-divergent prompt now agrees with PyTorch and
-OrcEngine once llama.cpp is given the canonically-permuted GGUF.** The
-control prompt (already agreeing) continues to agree. Raw run output
-and structured JSON:
+Raw run output and structured JSON (historical):
 `phase6_gate2_canonical_llama_cpp_results.json`.
 
 ### First divergence position

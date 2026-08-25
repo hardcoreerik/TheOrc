@@ -1,0 +1,849 @@
+{
+  "schema_version": 1,
+  "identities": {
+    "llama_server_exe_sha256": "ae159e001d959e7a773af61e24d8e7d5d4de565865ec12a0dfd9974dc8ab7ca1",
+    "llama_server_impl_dll_sha256": "77f8cf124d0222993f7e98c16cecc855bc7b0d31f8005155d75f141944846793",
+    "llama_server_build_marker": "build 10436",
+    "llama_server_commit_marker": "6fed9f6ff",
+    "existing_custom_f32_gguf_sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+    "existing_custom_q8_0_gguf_sha256": "3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398",
+    "canonical_f32_gguf_sha256": "aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7",
+    "canonical_q8_0_gguf_sha256": "dbf0d1f31d3afd0864bb02a916b7e3762728fd616eebd34bd6021c7497def219",
+    "pinned_llama_cpp_converter_commit": "6fed9f6ff7a603b124cb8c5864fca6ea879f9f99",
+    "pinned_llama_cpp_tag": "b10436",
+    "pinned_hf_source": "HuggingFaceTB/SmolLM2-135M",
+    "pinned_hf_revision": "93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
+  },
+  "controlled_server_args": [
+    "--cache-type-k",
+    "f32",
+    "--cache-type-v",
+    "f32",
+    "--flash-attn",
+    "off"
+  ],
+  "neutral_greedy_params": {
+    "temperature": 0,
+    "cache_prompt": false,
+    "repeat_penalty": 1.0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0
+  },
+  "prompt_corpus": {
+    "dev_capital_of_france": {
+      "text": "The capital of France is",
+      "token_ids": [
+        504,
+        3575,
+        282,
+        4649,
+        314
+      ]
+    },
+    "dev_once_upon_a_time": {
+      "text": "Once upon a time",
+      "token_ids": [
+        6403,
+        1980,
+        253,
+        655
+      ]
+    },
+    "dev_code_snippet": {
+      "text": "def add(a, b): return",
+      "token_ids": [
+        1604,
+        803,
+        24,
+        81,
+        28,
+        278,
+        727,
+        1003
+      ]
+    },
+    "dev_year_weather": {
+      "text": "In 2026, the weather",
+      "token_ids": [
+        788,
+        216,
+        34,
+        32,
+        34,
+        38,
+        28,
+        260,
+        3947
+      ]
+    },
+    "holdout_hello_world": {
+      "text": "Hello world, this is",
+      "token_ids": [
+        19556,
+        905,
+        28,
+        451,
+        314
+      ]
+    },
+    "holdout_she_walked": {
+      "text": "She walked into the",
+      "token_ids": [
+        8113,
+        13197,
+        618,
+        260
+      ]
+    },
+    "holdout_quick_fox": {
+      "text": "The quick brown fox",
+      "token_ids": [
+        504,
+        2365,
+        6354,
+        16438
+      ]
+    }
+  },
+  "results": {
+    "existing_custom_f32": {
+      "dev_capital_of_france": {
+        "token_ids_match": true,
+        "argmax": 260,
+        "top5": [
+          [
+            260,
+            -1.4811
+          ],
+          [
+            1217,
+            -2.171712
+          ],
+          [
+            7042,
+            -2.182086
+          ],
+          [
+            3807,
+            -2.941796
+          ],
+          [
+            1343,
+            -3.927956
+          ]
+        ]
+      },
+      "dev_once_upon_a_time": {
+        "token_ids_match": true,
+        "argmax": 28,
+        "top5": [
+          [
+            28,
+            -0.408987
+          ],
+          [
+            281,
+            -2.252174
+          ],
+          [
+            665,
+            -3.036534
+          ],
+          [
+            260,
+            -4.186903
+          ],
+          [
+            253,
+            -4.212683
+          ]
+        ]
+      },
+      "dev_code_snippet": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -1.099402
+          ],
+          [
+            278,
+            -2.510527
+          ],
+          [
+            365,
+            -2.683157
+          ],
+          [
+            3635,
+            -3.701216
+          ],
+          [
+            216,
+            -3.795693
+          ]
+        ]
+      },
+      "dev_year_weather": {
+        "token_ids_match": true,
+        "argmax": 436,
+        "top5": [
+          [
+            436,
+            -1.898117
+          ],
+          [
+            282,
+            -2.813732
+          ],
+          [
+            1483,
+            -3.339729
+          ],
+          [
+            29,
+            -3.39208
+          ],
+          [
+            4065,
+            -3.568704
+          ]
+        ]
+      },
+      "holdout_hello_world": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -1.709952
+          ],
+          [
+            260,
+            -2.155554
+          ],
+          [
+            957,
+            -2.592867
+          ],
+          [
+            441,
+            -3.363741
+          ],
+          [
+            732,
+            -3.594256
+          ]
+        ]
+      },
+      "holdout_she_walked": {
+        "token_ids_match": true,
+        "argmax": 38734,
+        "top5": [
+          [
+            38734,
+            -3.854646
+          ],
+          [
+            9612,
+            -4.136611
+          ],
+          [
+            29566,
+            -4.17487
+          ],
+          [
+            36420,
+            -4.259037
+          ],
+          [
+            44220,
+            -4.538546
+          ]
+        ]
+      },
+      "holdout_quick_fox": {
+        "token_ids_match": true,
+        "argmax": 28,
+        "top5": [
+          [
+            28,
+            -2.471928
+          ],
+          [
+            198,
+            -2.710938
+          ],
+          [
+            314,
+            -3.298016
+          ],
+          [
+            27003,
+            -3.317879
+          ],
+          [
+            553,
+            -3.534946
+          ]
+        ]
+      }
+    },
+    "existing_custom_q8_0": {
+      "dev_capital_of_france": {
+        "token_ids_match": true,
+        "argmax": 260,
+        "top5": [
+          [
+            260,
+            -1.373424
+          ],
+          [
+            1217,
+            -2.209699
+          ],
+          [
+            7042,
+            -2.29449
+          ],
+          [
+            3807,
+            -2.93862
+          ],
+          [
+            1343,
+            -3.951032
+          ]
+        ]
+      },
+      "dev_once_upon_a_time": {
+        "token_ids_match": true,
+        "argmax": 28,
+        "top5": [
+          [
+            28,
+            -0.493534
+          ],
+          [
+            281,
+            -2.190953
+          ],
+          [
+            665,
+            -2.750386
+          ],
+          [
+            260,
+            -3.983574
+          ],
+          [
+            253,
+            -3.988134
+          ]
+        ]
+      },
+      "dev_code_snippet": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -1.161269
+          ],
+          [
+            278,
+            -2.460556
+          ],
+          [
+            365,
+            -2.51393
+          ],
+          [
+            3635,
+            -3.710432
+          ],
+          [
+            216,
+            -3.711474
+          ]
+        ]
+      },
+      "dev_year_weather": {
+        "token_ids_match": true,
+        "argmax": 436,
+        "top5": [
+          [
+            436,
+            -1.922756
+          ],
+          [
+            282,
+            -2.736454
+          ],
+          [
+            1483,
+            -3.269655
+          ],
+          [
+            29,
+            -3.479007
+          ],
+          [
+            4065,
+            -3.561181
+          ]
+        ]
+      },
+      "holdout_hello_world": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -1.768713
+          ],
+          [
+            260,
+            -2.204041
+          ],
+          [
+            957,
+            -2.618868
+          ],
+          [
+            441,
+            -3.316695
+          ],
+          [
+            732,
+            -3.483037
+          ]
+        ]
+      },
+      "holdout_she_walked": {
+        "token_ids_match": true,
+        "argmax": 9612,
+        "top5": [
+          [
+            9612,
+            -3.593165
+          ],
+          [
+            36420,
+            -3.838732
+          ],
+          [
+            29566,
+            -4.30055
+          ],
+          [
+            38734,
+            -4.312156
+          ],
+          [
+            21099,
+            -4.356945
+          ]
+        ]
+      },
+      "holdout_quick_fox": {
+        "token_ids_match": true,
+        "argmax": 28,
+        "top5": [
+          [
+            28,
+            -2.567859
+          ],
+          [
+            198,
+            -2.750381
+          ],
+          [
+            314,
+            -3.35576
+          ],
+          [
+            27003,
+            -3.461778
+          ],
+          [
+            553,
+            -3.655761
+          ]
+        ]
+      }
+    },
+    "canonical_f32": {
+      "dev_capital_of_france": {
+        "token_ids_match": true,
+        "argmax": 260,
+        "top5": [
+          [
+            260,
+            -1.340528
+          ],
+          [
+            7042,
+            -2.366035
+          ],
+          [
+            3807,
+            -2.616116
+          ],
+          [
+            1217,
+            -3.126412
+          ],
+          [
+            253,
+            -3.238697
+          ]
+        ]
+      },
+      "dev_once_upon_a_time": {
+        "token_ids_match": true,
+        "argmax": 28,
+        "top5": [
+          [
+            28,
+            -0.274354
+          ],
+          [
+            281,
+            -1.74752
+          ],
+          [
+            665,
+            -3.596326
+          ],
+          [
+            335,
+            -5.609056
+          ],
+          [
+            981,
+            -5.747209
+          ]
+        ]
+      },
+      "dev_code_snippet": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -0.502407
+          ],
+          [
+            365,
+            -2.629303
+          ],
+          [
+            933,
+            -3.232306
+          ],
+          [
+            476,
+            -3.514658
+          ],
+          [
+            637,
+            -3.585119
+          ]
+        ]
+      },
+      "dev_year_weather": {
+        "token_ids_match": true,
+        "argmax": 523,
+        "top5": [
+          [
+            523,
+            -1.725491
+          ],
+          [
+            9656,
+            -2.193651
+          ],
+          [
+            281,
+            -2.451387
+          ],
+          [
+            436,
+            -2.662071
+          ],
+          [
+            314,
+            -3.189817
+          ]
+        ]
+      },
+      "holdout_hello_world": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -1.682149
+          ],
+          [
+            957,
+            -1.844092
+          ],
+          [
+            260,
+            -2.189979
+          ],
+          [
+            469,
+            -3.222204
+          ],
+          [
+            354,
+            -3.723767
+          ]
+        ]
+      },
+      "holdout_she_walked": {
+        "token_ids_match": true,
+        "argmax": 3589,
+        "top5": [
+          [
+            3589,
+            -1.883984
+          ],
+          [
+            9902,
+            -2.824866
+          ],
+          [
+            2291,
+            -3.108328
+          ],
+          [
+            4608,
+            -3.383528
+          ],
+          [
+            9516,
+            -3.830548
+          ]
+        ]
+      },
+      "holdout_quick_fox": {
+        "token_ids_match": true,
+        "argmax": 27003,
+        "top5": [
+          [
+            27003,
+            -1.698185
+          ],
+          [
+            25437,
+            -2.12542
+          ],
+          [
+            198,
+            -3.042519
+          ],
+          [
+            28,
+            -3.223483
+          ],
+          [
+            553,
+            -3.263286
+          ]
+        ]
+      }
+    },
+    "canonical_q8_0": {
+      "dev_capital_of_france": {
+        "token_ids_match": true,
+        "argmax": 260,
+        "top5": [
+          [
+            260,
+            -1.369369
+          ],
+          [
+            7042,
+            -2.421123
+          ],
+          [
+            3807,
+            -2.703273
+          ],
+          [
+            253,
+            -3.074067
+          ],
+          [
+            1217,
+            -3.228626
+          ]
+        ]
+      },
+      "dev_once_upon_a_time": {
+        "token_ids_match": true,
+        "argmax": 28,
+        "top5": [
+          [
+            28,
+            -0.269281
+          ],
+          [
+            281,
+            -1.772795
+          ],
+          [
+            665,
+            -3.546648
+          ],
+          [
+            335,
+            -5.692987
+          ],
+          [
+            981,
+            -5.815063
+          ]
+        ]
+      },
+      "dev_code_snippet": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -0.565667
+          ],
+          [
+            365,
+            -2.620932
+          ],
+          [
+            933,
+            -3.124797
+          ],
+          [
+            476,
+            -3.52106
+          ],
+          [
+            637,
+            -3.573723
+          ]
+        ]
+      },
+      "dev_year_weather": {
+        "token_ids_match": true,
+        "argmax": 523,
+        "top5": [
+          [
+            523,
+            -1.743874
+          ],
+          [
+            9656,
+            -2.134099
+          ],
+          [
+            281,
+            -2.40499
+          ],
+          [
+            436,
+            -2.488547
+          ],
+          [
+            314,
+            -3.255259
+          ]
+        ]
+      },
+      "holdout_hello_world": {
+        "token_ids_match": true,
+        "argmax": 253,
+        "top5": [
+          [
+            253,
+            -1.730622
+          ],
+          [
+            957,
+            -1.833538
+          ],
+          [
+            260,
+            -2.233825
+          ],
+          [
+            469,
+            -3.145813
+          ],
+          [
+            354,
+            -3.666763
+          ]
+        ]
+      },
+      "holdout_she_walked": {
+        "token_ids_match": true,
+        "argmax": 3589,
+        "top5": [
+          [
+            3589,
+            -1.989937
+          ],
+          [
+            9902,
+            -2.875432
+          ],
+          [
+            2291,
+            -3.110795
+          ],
+          [
+            4608,
+            -3.275751
+          ],
+          [
+            9516,
+            -4.026585
+          ]
+        ]
+      },
+      "holdout_quick_fox": {
+        "token_ids_match": true,
+        "argmax": 27003,
+        "top5": [
+          [
+            27003,
+            -1.369549
+          ],
+          [
+            25437,
+            -1.886447
+          ],
+          [
+            198,
+            -3.408868
+          ],
+          [
+            28,
+            -3.465313
+          ],
+          [
+            17,
+            -3.534757
+          ]
+        ]
+      }
+    }
+  }
+}
