@@ -117,6 +117,27 @@ existing custom (un-permuted) tensor directly (`np.array_equal` =
 `False`). Both facts independently confirmed, not assumed from the
 non-identity of the permutation formula alone.
 
+**Follow-up (Codex review finding): "only Q/K changed" was asserted
+without an exhaustive check.** The original pass here checked Q/K
+specifically at 3 layers and separately confirmed the tied-embedding
+byte-identity, but never systematically compared every OTHER shared
+tensor between the two files -- so the causal claim that Q/K is the
+SOLE variable between the "existing-custom" and "canonical" comparison
+legs was not fully verified, only plausible. Closed via
+`tools/phase6_gate2_full_tensor_diff.py`
+(`phase6_gate2_full_tensor_diff_output.txt`): compares ALL 272 shared
+tensors between the two GGUFs (Q/K compared post-permutation using the
+already-proven transform, everything else compared raw,
+byte-for-byte). **Result: zero mismatches beyond Q/K.** Every one of
+the other 272 shared tensors (V/O projections, FFN gate/up/down,
+attention/FFN norms, `token_embd.weight`, `output_norm.weight`) is
+byte-for-byte identical between the two files. The only structural
+difference is the already-disclosed `output.weight` presence/absence,
+which is itself accounted for (byte-identical to `token_embd.weight`
+in the file that has it; the file that lacks it relies on llama.cpp
+reusing `token_embd.weight` for the tied head at runtime instead). **The
+"only Q/K changed" claim is now comprehensively verified, not assumed.**
+
 **Additional structural difference found (not the focus of this
 investigation, recorded for completeness)**: the canonical converter
 does NOT write a separate `output.weight` tensor at all when

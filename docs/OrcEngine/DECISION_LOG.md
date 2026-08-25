@@ -3844,3 +3844,33 @@ self-consistent with the existing (un-permuted) GGUF layout it was
 built to consume. `orcengine-phase6-freeze` does not exist and this
 entry does not authorize creating it. FL-08 remains not started.
 Stopping here for Codex review, as instructed.
+
+## OE-ADR-054 — Gate 2 follow-up: "only Q/K changed" claim exhaustively verified (Codex review finding, closed)
+
+**Codex review finding (during live review of OE-ADR-053):** the
+Outcome A causal claim -- that Q/K layout is the sole variable between
+the "existing-custom" and "canonical" llama.cpp comparison legs --
+rested only on checking Q/K specifically (3 layers) plus the separately
+-established tied-embedding byte-identity. The already-disclosed
+`output.weight` presence/absence difference meant "only Q/K changed"
+was not yet literally proven; every OTHER shared tensor (V/O
+projections, FFN gate/up/down, norms, `token_embd.weight`) had not been
+checked.
+
+**Closed.** `tools/phase6_gate2_full_tensor_diff.py` (new, committed)
+compares all 272 shared tensors between the existing-custom and
+canonical F32 GGUFs -- Q/K compared post-permutation using the already-
+proven transform, every other tensor compared raw, byte-for-byte.
+**Result: zero mismatches beyond Q/K.** Every one of the other 272
+shared tensors is byte-for-byte identical. The only remaining
+structural difference is the already-disclosed `output.weight`
+presence/absence, itself already accounted for (byte-identical to
+`token_embd.weight` where present; the tied head is materialized from
+`token_embd.weight` at runtime where absent). `PHASE6_GATE2_QK_LAYOUT_
+ROOT_CAUSE.md` updated with this result. **The Outcome A causal claim
+is now comprehensively verified, not assumed from a partial check.**
+
+**Disposition.** Strengthens OE-ADR-053's conclusion; does not change
+it. No frozen file touched. Neither freeze blocker's status changes.
+`orcengine-phase6-freeze` does not exist and this entry does not
+authorize creating it. FL-08 remains not started.

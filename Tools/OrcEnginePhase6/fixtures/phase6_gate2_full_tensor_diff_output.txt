@@ -1,0 +1,6 @@
+tensors only in custom GGUF: ['output.weight']
+tensors only in canonical GGUF: []
+checked 272 shared tensors (Q/K compared post-permutation, everything else raw)
+mismatches beyond Q/K: 0
+
+PASS: no unexplained tensor differences beyond Q/K permutation and the already-accounted-for output.weight/token_embd.weight tie
