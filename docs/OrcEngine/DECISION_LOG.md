@@ -3651,9 +3651,23 @@ since no CLI override was ever passed for any of these fields; `n_ctx`
 independently confirmed live via `/props`) for architecture, layer
 count, hidden size, head/KV-head counts, head dim/RoPE dimension count,
 `rope_theta`, RMSNorm epsilon, context length, vocabulary size,
-tied/untied output weights, and BOS/EOS policy. **No configuration
-drift found** in any field checked -- all match the HF source exactly
-or within float32 rounding. This does NOT prove llama.cpp's internal
+tied/untied output weights, and BOS/EOS policy. **Corrected wording
+(round 6): architecture, layer count, hidden size, head/KV-head
+counts, head dim/RoPE dimension count, RoPE theta, RMSNorm epsilon,
+context length, and vocabulary size all matched the HF source exactly
+or within float32 rounding -- tied-weight REPRESENTATION is a
+disclosed exception, not a match: HF's config declares
+`tie_word_embeddings=true`, but the custom converter materializes
+`token_embd.weight` and `output.weight` as two separate GGUF tensor
+records. Independently verified (round 6): those two tensors ARE
+byte-for-byte identical (`np.array_equal` on the decoded F32 arrays
+returns `True`) -- so the artifact is correctly described as LOGICALLY
+TIED but PHYSICALLY DUPLICATED, not as two independently-varying
+weight matrices. The original wording's "untied" framing (from
+`output_semantics: untied` in `orcengine_gguf_inspect`'s tensor-
+presence-based classification) is not incorrect about tensor
+STRUCTURE, but must not be read as evidence of numerically independent
+weights -- it is not.** This does NOT prove llama.cpp's internal
 interpretation is correct, only that the values it would read match.
 **The per-prefix-position divergence check (finding the exact first
 position where llama.cpp's prediction diverges) was NOT performed in
@@ -3678,3 +3692,155 @@ transformer math was changed or modified. Stages 4-6 remain not
 started; `orcengine-phase6-freeze` does not exist and this entry does
 not authorize creating it; FL-08 remains not started. Stopping here for
 Codex review, as instructed.
+
+## OE-ADR-052 — Claim-hygiene corrections and factorial-interaction fix (combined Codex/Grok remediation round 6, Commit 1)
+
+**Claim-hygiene corrections to `PHASE6_GATE6_INTERNAL_TOLERANCE_
+LOCALIZATION.md` and OE-ADR-051** (this document preserved unchanged
+above as historical evidence; corrections applied to the current-truth
+document only):
+
+1. "Layers 11 and 28 are model-wide amplification points" corrected to
+   "common across all three examined prompts" -- three prompts do not
+   establish model-wide coverage.
+2. "The identical discontinuity pattern" corrected to "the same
+   discontinuity PATTERN"; measured magnitudes differ prompt to prompt
+   (`11.43`/`10.99`/`12.07` at layer 11; `104.65`/`102.40`/`91.88` at
+   layer 28) and were never actually identical.
+3. The "Per-layer F32-vs-Q8_0 hidden-state divergence" table and
+   "Weight-magnitude cross-check" section (embedding-lookup line,
+   final-RMSNorm line, per-layer max-weight table) are explicitly
+   marked HISTORICAL, cited to their originating commit
+   (`f0a74fd3660f1d9a6628d576f378491640e025bd`) -- the diagnostic was
+   rewritten in round 5 to run three prompts with per-position
+   tracking and no longer emits these figures; the currently committed
+   output file does not contain them.
+4. Tied-output wording corrected: HF declares `tie_word_embeddings=
+   true`; the custom converter writes `token_embd.weight` and
+   `output.weight` as two separate GGUF tensor records. Independently
+   verified (this round): those two tensors are byte-for-byte
+   identical (`np.array_equal` = `True` on the decoded F32 arrays).
+   Corrected description: LOGICALLY TIED, PHYSICALLY DUPLICATED -- not
+   "numerically independent/untied weights," which the mere presence
+   of two tensor records does not establish and the prior wording
+   risked implying.
+
+**Invalid interaction heuristic replaced.** The Part B "same-input
+decomposition" previously reported `combined.max_abs -
+(weight.max_abs + state.max_abs)` as an "interaction gap" -- comparing
+three SEPARATELY-LOCATED scalar maxima, which is not a valid
+interaction measurement (confirmed: the weight-effect and state-effect
+maxima occur at different coordinates, e.g. layer 11 weight-effect
+max at `[pos=0,ch=306]` vs. state-effect max at `[pos=0,ch=507]`).
+Replaced with the mathematically correct per-element factorial
+interaction residual `interaction[i] = out_qq[i] - out_qf[i] -
+out_fq[i] + out_ff[i]`, computed and reported at every coordinate with
+its own independently-located maximum, plus per-position breakdowns at
+both implicated layers for all three prompts. A hostile self-test
+(`run_interaction_formula_hostile_selftest()`, runs before any model
+I/O, aborts on failure) constructs a synthetic case with three
+effects' maxima at three different coordinates and proves the residual
+is correctly computed and located, not conflated.
+
+**Corrected result: the interaction is negligible, not large and
+sub-/near-additive as the old heuristic implied.** Interaction
+residual max_abs ranges `0.016-0.47` across both layers and all three
+prompts -- one to three orders of magnitude smaller than either
+isolated effect (`11-104`). The weight-quantization effect and the
+input-state-propagation effect combine almost perfectly ADDITIVELY at
+both implicated layers; the earlier "large sub-additive interaction at
+layer 11, near-additive at layer 28" conclusion is retired.
+
+**Verification.** New target rebuilt and rerun clean under Debug,
+strict (`/W4 /WX /permissive-`), and ASan (no memory-safety findings,
+numerically consistent results across all lanes). Durable output
+regenerated (`phase6_holdout_quick_fox_layer_localization_output.txt`)
+and every current documentation number is traceable to it.
+
+**Disposition.** Neither freeze blocker changes as a result of this
+commit. Internal tolerance gate remains **FAILED**
+(`0.973504` vs `1.079983`), unchanged. No frozen Phase 0-5C file
+modified, including `Tools/OrcEnginePhase0/oracle/
+convert_real_candidate.py` (untouched, read-only evidence).
+`orcengine-phase6-freeze` does not exist and this entry does not
+authorize creating it. FL-08 remains not started.
+
+## OE-ADR-053 — Q/K GGUF layout incompatibility confirmed as the external root cause: Outcome A (Commit 2)
+
+**This resolves the external same-Q8/F32 disagreement blocker.**
+
+**Hypothesis (Codex).** The custom project converter
+(`Tools/OrcEnginePhase0/oracle/convert_real_candidate.py`, read-only,
+NOT modified) writes HF `q_proj.weight`/`k_proj.weight` directly into
+GGUF `attn_q.weight`/`attn_k.weight` with no permutation. The pinned
+llama.cpp source (`6fed9f6ff7a603b124cb8c5864fca6ea879f9f99`, tag
+`b10436`, full SHA resolved via the GitHub API) official converter
+(`conversion/llama.py`, class `LlamaModel`, `undo_permute = True`)
+applies a documented RoPE-layout permutation to Q/K before writing.
+
+**Verification, not assumption.** Fetched the exact pinned commit into
+the pre-existing local `F:\Ai\llama.cpp` checkout via `git fetch
+<url> <full-sha> --depth=1` (working tree left untouched; extraction
+via `git archive`/`git show`, never `git checkout`). Directly verified:
+applying the official `permute()` formula to the EXISTING custom
+GGUF's Q/K tensors (checked at layers 0, 11, 28) produces arrays
+BYTE-FOR-BYTE IDENTICAL to a canonical GGUF generated by the official
+converter against the same pinned HF source -- proving, not inferring,
+that the existing custom GGUF's Q/K tensors are in the raw (un-
+permuted) HF layout.
+
+**Canonical artifacts generated** (Gate 2B): canonical F32 GGUF via
+`convert_hf_to_gguf.py` against the pinned HF source (SHA-256
+`aef7f8d4...`), quantized to Q8_0 via the same pinned `llama-quantize.exe`
+already established in `Q8_0_FIXTURE_PROVENANCE.md` (SHA-256
+`dbf0d1f3...`). Both `.gguf` files untracked (`.orc/` gitignored);
+neither existing Phase 6 fixture was overwritten. A second, independent
+structural difference was also found and disclosed: the canonical
+converter omits a separate `output.weight` tensor entirely when
+`tie_word_embeddings=true` (272 tensors vs. the custom converter's 273)
+-- not numerically significant here since the custom duplicate is
+byte-identical to `token_embd.weight`, but recorded for completeness.
+
+**Controlled comparison (Gate 2C, final position, 3 divergent prompts +
+1 control), same pinned server, same controlled settings used
+throughout this remediation:**
+
+| Prompt | PyTorch/OrcEngine | llama.cpp existing-custom | llama.cpp CANONICAL |
+|---|---|---|---|
+| `dev_capital_of_france` (control) | 260 | 260 | 260 |
+| `dev_year_weather` | 523 | 436 | **523** |
+| `holdout_she_walked` | 3589 | 38734 (F32) / 9612 (Q8) | **3589** |
+| `holdout_quick_fox` | 27003 | 28 | **27003** |
+
+**Every previously-divergent prompt agrees with PyTorch/OrcEngine once
+llama.cpp is given the canonically-permuted GGUF, on both F32 and
+Q8_0.** Token-ID identity re-verified live for every prompt on every
+leg -- exact match throughout.
+
+**Classification: Outcome A** ("Canonical llama.cpp aligns with
+PyTorch while existing-custom llama.cpp does not... supports a
+custom-GGUF tensor-layout incompatibility as the external root
+cause"). This is a controlled before/after comparison (identical
+server, settings, prompts, tokens; only the GGUF's Q/K layout changed)
+that flips the result -- not a correlated hypothesis.
+
+**Limitation, disclosed.** A full per-prefix-position sweep (finding
+the exact first token position at which the existing-custom-layout run
+first diverges) was NOT performed -- only the final prompt position was
+measured (the position every other Phase 6 comparison and the internal
+tolerance gate itself use). Whether OrcEngine's existing loader accepts
+the canonical GGUF without production changes was also not tested.
+Both are recorded as the natural next steps, not silently skipped.
+
+**Disposition.** Does NOT authorize modifying `convert_real_candidate.py`
+or any other frozen Phase 0-5C file -- any production decision about
+supporting the canonical Q/K layout requires a separate, reviewed
+specification. Does NOT resolve the internal Q8_0 tolerance blocker
+(a separate, unaffected question about OrcEngine's own F32-vs-Q8_0
+behavior on the existing artifacts) -- that gate remains **FAILED**
+(`0.973504` vs `1.079983`), unchanged. Does not claim OrcEngine's RoPE
+convention is "more correct" in the abstract -- only that it is
+self-consistent with the existing (un-permuted) GGUF layout it was
+built to consume. `orcengine-phase6-freeze` does not exist and this
+entry does not authorize creating it. FL-08 remains not started.
+Stopping here for Codex review, as instructed.
