@@ -1,16 +1,17 @@
 Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): RAW_HF
-Pair identity: VERIFIED
+Pair identity: UNVERIFIED
 Runtime target: orcengine-current
-Compatibility: VERIFIED_COMPATIBLE
+Compatibility: AMBIGUOUS
 Evidence:
   - artifact sha256=3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398
   - container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates
   - architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)
   - output.weight present and byte-identical to token_embd.weight (logically tied, physically duplicated)
-  - [pair-identity] all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout
+  - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_eos_token'], only on reference=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id']
   - Q/K fingerprint matches RAW_HF convention: permute(this artifact's Q/K) == reference 'F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-q8_0.gguf''s Q/K (this artifact is raw relative to the reference, per the externally-fixed permute() direction), verified on 60/60 tensors (30/30 layers)
-  - OrcEngine's CURRENT loader expects raw-HF Q/K layout (Phase 6 round 7 Gate 4 finding, see the separate Phase 6 worktree/branch evidence -- not present in this tree) -- this artifact matches as-is
-Confidence: STRUCTURALLY_VERIFIED
-Execution authorization: granted
+Unresolved ambiguities:
+  - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_eos_token'], only on reference=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id']
+Confidence: AMBIGUOUS
+Execution authorization: denied

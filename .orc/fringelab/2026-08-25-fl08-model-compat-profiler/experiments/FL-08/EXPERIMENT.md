@@ -89,12 +89,23 @@ axis for non-square tensors.
 
 ### What is now proven
 
-- **The false-authorization defect is closed.** A direct (non-
-  permuted) Q/K match between artifact and reference now classifies as
-  `SAME_LAYOUT_UNKNOWN`, never `RAW_HF`/`CANONICAL_LLAMA_CPP`, and
-  never authorizes execution. Confirmed on real Phase 6 artifacts
-  (Cases A-D below) and on 6 dedicated regression tests
-  (`TestGate1DirectMatchNeverAbsolute`).
+> **Correction (round 3, Grok finding #3):** the bullet below originally
+> read "Confirmed on real Phase 6 artifacts (Cases A-D below)." That
+> overstated the evidence -- committed Cases A-D are directional
+> permute successes (`RAW_HF`/`CANONICAL_LLAMA_CPP` via the permutation
+> hypotheses), never an unlabeled direct-match rerun on real identical
+> artifacts, and no "Cases A-D" table exists in THIS document (the
+> tables live in `fixtures_results/`). The direct-match closure is
+> proven by the synthetic `TestGate1DirectMatchNeverAbsolute` suite
+> plus direct code inspection, not by a real-artifact direct-match run.
+> Corrected wording below.
+
+- **The false-authorization defect (for the specific direct-match
+  vector Grok's round-1 review found) is closed, proven by 6 dedicated
+  synthetic regression tests** (`TestGate1DirectMatchNeverAbsolute`) --
+  a direct (non-permuted) Q/K match between artifact and reference now
+  classifies as `SAME_LAYOUT_UNKNOWN`, never `RAW_HF`/
+  `CANONICAL_LLAMA_CPP`, and never authorizes execution.
 - **The two permutation-direction hypotheses remain valid and are
   UNCHANGED** -- `permute(X) == Y` still proves X is raw-form/Y is
   canonical-form, because `official_permute()` is the externally fixed,
@@ -154,13 +165,21 @@ axis for non-square tensors.
 - **Single-artifact (unpaired) layout inference** remains explicitly
   unimplemented -- a well-formed artifact with no reference still
   reports `UNKNOWN`/`AMBIGUOUS`, never a guess from tensor names.
-- **Tokenizer/general metadata differences alone** (with tensors
-  identical) do not flip `pair_identity` -- pair identity in this
-  experiment is proven from tensor CONTENT, not metadata bookkeeping;
-  see `test_reference_with_different_tokenizer_metadata_documented_
-  behavior`. This is a disclosed scope boundary: a future round could
-  additionally require metadata-fingerprint agreement, but that was
-  not implemented here.
+> **Superseded (round 3):** the bullet immediately below claimed
+> tokenizer/general metadata differences alone do not flip
+> `pair_identity`. That was true of round 2's implementation (no
+> metadata comparison existed at all) but is explicitly REVERSED by
+> round 3, Gate 1C -- execution-affecting metadata and the entire
+> `tokenizer.*` namespace ARE now required to agree for `VERIFIED` pair
+> identity. General provenance/bookkeeping fields (name, license,
+> quantization_version, etc.) remain benign and do not block it -- see
+> the "Execution-relevant metadata policy" table above for the exact,
+> current classification.
+
+- ~~Tokenizer/general metadata differences alone (with tensors
+  identical) do not flip `pair_identity`~~ -- preserved as historical
+  round-2 text, no longer accurate; see the correction immediately
+  above.
 - **The reverse (canonical -> raw-HF) normalization transform** has no
   proven formula in this experiment. `build_plan` fails closed rather
   than guess.
@@ -177,3 +196,169 @@ Production integration has not been authorized and was not attempted.
 The corrected Cases A-E results, artifact hashes, unit-test counts, and
 lane results are in the round-2 commit's own report (see the session's
 final report to the user) and in `fixtures_results/`.
+
+## Round 3 remediation: results and conclusions
+
+Triggered by a combined Codex authority review and an independent Grok
+Double Check (report:
+`gdc-orchestratoride-fringelab-fl08-research-orcengine-fl08-model-
+compat-profiler-fl08-round2-remediation.md`, project root, untracked,
+preserved unmodified). Verdict was **FIX BEFORE MERGE/FREEZE**: Grok's
+top finding was that `verify_pair_identity()` could still report
+`VERIFIED` and authorize execution when `output.weight` is present on
+only one side and never compared -- live in round-2's own committed
+Case B evidence (272 vs. 273 tensors). Codex independently reproduced
+five additional live defects (see the mega-prompt's own reproduction
+block): `ROPE_METADATA_DRIFT`, `OUTPUT_ONLY_ONE_SIDE`,
+`WRONG_QK_INPUT_WIDTH`, `ODD_HEAD_DIM_CRASH`, a `RAW_HF DECLARED`
+result resolving to `VERIFIED_COMPATIBLE`, and an
+`INCOMPLETE_COUNTS_PLAN` normalization-plan gap.
+
+### Output-head asymmetry policy (Gate 1B)
+
+`output.weight` present on exactly one side is now handled explicitly,
+never silently skipped:
+
+- **Both absent:** shared tied representation, does not block pair
+  identity.
+- **Both present:** compared for exact type, logical shape, and
+  numerical value equality like any other non-Q/K tensor; a mismatch
+  is `UNVERIFIED`.
+- **Present on exactly one side:** `UNVERIFIED` *unless* ALL of the
+  following are proven (`_tied_output_proof()`): (1) same GGML tensor
+  type as that side's own `token_embd.weight`; (2) same logical shape;
+  (3) numerically identical contents (`np.array_equal`, exact value
+  equality -- for the F32 data this project's real and synthetic
+  fixtures contain, this is equivalent to byte-identical; no NaN or
+  signed-zero content is present in any fixture used, so this
+  distinction does not currently matter in practice, but the precise
+  claim is "exact array equality," not "byte-identical bytes on disk,"
+  and evidence text is worded that way going forward); (4)
+  `token_embd.weight` ITSELF already passed the non-Q/K pair-identity
+  comparison (a doubly-tampered artifact where both the embedding and
+  a "tied" output are altered together cannot exploit the proof); (5)
+  evidence explicitly records which side had the tied duplicate and
+  which side's tied head is materialized from `token_embd.weight` at
+  runtime instead.
+
+**Case B's actual disposition:** the real custom-vs-canonical artifact
+pair's `output.weight` asymmetry (custom has it, tied to its own
+`token_embd.weight`; canonical omits it) independently satisfies all 5
+tied-proof conditions -- confirmed by regenerating real evidence (see
+below). This part of Case B is NOT what makes the current real-artifact
+runs non-authorizing; see the metadata policy below for what does.
+
+### Execution-relevant metadata policy (Gate 1C)
+
+Compared directly against the real custom-vs-canonical artifact pair
+before writing any code (not assumed):
+
+| Field(s) | Classification | Rule |
+|---|---|---|
+| `general.name`, `general.basename`, `general.languages`, `general.license`, `general.quantization_version`, `general.size_label`, `general.type`, `general.file_type`, `general.alignment` | **BENIGN** | never blocks pair identity |
+| `llama.feed_forward_length`, `llama.attention.layer_norm_rms_epsilon`, `llama.rope.dimension_count`, `llama.rope.freq_base`, `llama.context_length` | **EXECUTION-AFFECTING (required)** | must be present and equal on both sides |
+| `llama.rope.scaling.type`/`.factor`, `llama.attention.sliding_window` | **EXECUTION-AFFECTING (optional)** | if present on either side, must be present and equal on both |
+| `llama.attention.key_length`, `llama.attention.value_length`, `llama.vocab_size` | **EXECUTION-RELATED, REDUNDANT** | not required symmetric; when present, the VALUE is cross-checked against this profiler's own independently-verified `head_dim`/embedding-row-count facts, not merely carried as inert evidence |
+| entire `tokenizer.*` namespace (vocabulary, model/pre, token IDs, special-token flags) | **TOKENIZER-AFFECTING** | the full key set must match exactly, and every value must be equal, on both sides |
+
+**This is the single biggest behavioral change this round.** The real
+custom-vs-canonical artifacts differ in `tokenizer.ggml.add_eos_token`
+(custom only), `tokenizer.ggml.add_space_prefix` and
+`tokenizer.ggml.unknown_token_id` (canonical only) -- a genuine,
+real, one-sided tokenizer-metadata asymmetry, not a synthetic
+construction. Per the tokenizer-affecting rule above, this now makes
+`pair_identity` **`UNVERIFIED`** for every real Cases A-D pairing,
+where round 2 reported `VERIFIED`. This is NOT a weakened test or a
+regression -- it is the gate working as specified: Q/K layout
+compatibility and tokenizer-metadata compatibility are two SEPARATE
+questions, and this profiler's job is to not silently ignore the
+second one just because the first one resolves cleanly.
+
+### Complete tensor-shape rules (Gate 2)
+
+Every required tensor is now validated for its COMPLETE logical
+dimensions (rank, every axis), not rows alone: `attn_q.weight`
+`(hidden,hidden)`; `attn_k.weight`/`attn_v.weight`
+`(kv_heads*head_dim,hidden)`; `attn_output.weight` `(hidden,hidden)`;
+`attn_norm.weight`/`ffn_norm.weight`/`output_norm.weight` exactly
+`(hidden,)`; `ffn_gate.weight`/`ffn_up.weight`
+`(feed_forward_length,hidden)`; `ffn_down.weight`
+`(hidden,feed_forward_length)`; `token_embd.weight` rank-2 with
+logical last dim `hidden`; `output.weight` (when present) compatible
+with vocabulary/hidden. `head_dim` is additionally required EVEN and
+positive before any permutation is attempted.
+
+**`WRONG_QK_INPUT_WIDTH` result:** the exact Codex probe (correct rows,
+input width `hidden+2`) now returns a structured `INVALID`, confirmed
+by 7 dedicated regression tests covering Q, K, V, attention-output,
+FFN gate/up/down.
+
+**`ODD_HEAD_DIM_CRASH` result:** an odd `head_dim` (e.g. `hidden=18,
+n_head=2` -> `head_dim=9`) is now caught explicitly BEFORE any tensor
+is handed to `official_permute()`, returning structured `INVALID` with
+an explanatory ambiguity string, confirmed by a dedicated regression.
+`_compare_qk_tensor()` additionally wraps the permutation call in
+`try/except ValueError` as defense in depth.
+
+### Declaration-only and contradictory-declaration behavior (Gate 3)
+
+`RAW_HF DECLARED` no longer resolves to `VERIFIED_COMPATIBLE`: a
+direct-match label derived from `--reference-layout` (confidence
+`DECLARED`) now always resolves `runtime_compatibility.result` to
+`AMBIGUOUS`, and the CLI returns nonzero -- confirmed by 2 dedicated
+tests (one checking the profile dict directly, one invoking the real
+CLI subprocess and checking its exit code). If `--reference-layout` is
+supplied on a DIRECTIONAL numerical match (not a direct match) and
+contradicts the numerically-proven relationship, the result is an
+explicit `CONTRADICTION` ambiguity and `AMBIGUOUS`/non-authorizing --
+never a silent preference for either the declaration or the numerical
+evidence. A declaration that AGREES with a directional numerical match
+does not interfere with it.
+
+### `INCOMPLETE_COUNTS_PLAN` result (Gate 4)
+
+`normalization_plan.py`'s `build_plan()` now validates every nested
+field it consumes (type, presence, and cross-field consistency --
+`qk_tensors_total == layers_total*2`, `layers_checked == layers_total`,
+`qk_tensors_checked == qk_tensors_total`, `per_layer_consistent`,
+`pair_identity.status == "VERIFIED"` exactly, `reference.terminal_
+result is None`) before trusting it. A malformed/incomplete nested
+profile always returns `(None, reason)`, never raises -- confirmed by
+9 dedicated tests including the exact "one checked tensor, zero
+checked layers" internally-inconsistent case.
+
+### Cases A-E: final, honest disposition
+
+All 4 real artifact hashes re-verified immediately before this run,
+unchanged from every prior round:
+
+| Artifact | SHA-256 |
+|---|---|
+| existing-custom F32 | `fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac` |
+| existing-custom Q8_0 | `3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398` |
+| canonical F32 | `aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7` |
+| canonical Q8_0 | `dbf0d1f31d3afd0864bb02a916b7e3762728fd616eebd34bd6021c7497def219` |
+
+With the tokenizer-metadata requirement now enforced, **Cases A-D are
+honestly `AMBIGUOUS`, `pair_identity: UNVERIFIED`, execution denied** --
+NOT the `VERIFIED_NORMALIZATION_REQUIRED`/`VERIFIED_COMPATIBLE` results
+round 2 reported. This is not a loosened test producing a worse
+number; it is a NEW, real check (round 2 never implemented it)
+correctly finding a NEW, real, disclosed asymmetry in the actual
+artifacts. The underlying Q/K permutation math is UNCHANGED and still
+verified -- Case A's evidence still shows "Q/K fingerprint matches
+RAW_HF convention ... verified on 60/60 tensors (30/30 layers)"; it is
+the OVERALL pair-identity/authorization verdict that is now honestly
+narrower. Case E (tampered fixture) is unchanged: structural `INVALID`,
+execution denied, exit nonzero.
+
+No real-artifact run currently reaches `VERIFIED_NORMALIZATION_
+REQUIRED` or `VERIFIED_COMPATIBLE` -- the forward normalization-plan
+mechanism itself is still demonstrated working correctly, but only via
+`TestGate7NormalizationPlan`'s synthetic fixtures (which have no
+tokenizer-metadata asymmetry to trip the new gate). A future round
+resolving the tokenizer-metadata question directly (e.g. deciding
+whether tokenizer metadata is genuinely part of "the same executable
+model" for this profiler's narrow forward-pass scope, or requiring an
+explicit operator override) would be the natural next step to recover
+a real-artifact authorizing case.

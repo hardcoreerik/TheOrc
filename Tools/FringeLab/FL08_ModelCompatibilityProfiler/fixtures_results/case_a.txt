@@ -1,17 +1,17 @@
 Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): RAW_HF
-Pair identity: VERIFIED
+Pair identity: UNVERIFIED
 Runtime target: canonical-llama.cpp
-Compatibility: VERIFIED_NORMALIZATION_REQUIRED
-Required transformation:
-  - Q/K RoPE-layout permutation required (raw-HF -> canonical llama.cpp interleaving)
+Compatibility: AMBIGUOUS
 Evidence:
   - artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac
   - container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates
   - architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)
   - output.weight present and byte-identical to token_embd.weight (logically tied, physically duplicated)
-  - [pair-identity] all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout
+  - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_eos_token'], only on reference=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id']
   - Q/K fingerprint matches RAW_HF convention: permute(this artifact's Q/K) == reference 'F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf''s Q/K (this artifact is raw relative to the reference, per the externally-fixed permute() direction), verified on 60/60 tensors (30/30 layers)
-Confidence: STRUCTURALLY_VERIFIED
+Unresolved ambiguities:
+  - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_eos_token'], only on reference=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id']
+Confidence: AMBIGUOUS
 Execution authorization: denied

@@ -9,9 +9,9 @@
     "container_valid": true,
     "encoding_supported": true,
     "matches_target_as_is": false,
-    "no_unresolved_ambiguity": true,
-    "normalization_not_required": false,
-    "pair_identity_verified": true,
+    "no_unresolved_ambiguity": false,
+    "normalization_not_required": true,
+    "pair_identity_verified": false,
     "per_layer_consistent": true,
     "qk_numerically_verified": true,
     "qk_tensors_nonzero_and_complete": true,
@@ -20,11 +20,11 @@
   "confidence": {
     "architecture": "STRUCTURALLY_VERIFIED",
     "container": "STRUCTURALLY_VERIFIED",
-    "pair_identity": "NUMERICALLY_VERIFIED",
+    "pair_identity": "AMBIGUOUS",
     "qk_dialect": "NUMERICALLY_VERIFIED",
     "reference": "STRUCTURALLY_VERIFIED"
   },
-  "confidence_level": "STRUCTURALLY_VERIFIED",
+  "confidence_level": "AMBIGUOUS",
   "container": {
     "evidence": [
       "artifact sha256=dbf0d1f31d3afd0864bb02a916b7e3762728fd616eebd34bd6021c7497def219",
@@ -41,20 +41,18 @@
     "container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates",
     "architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)",
     "output.weight tensor absent -- tied head materialized from token_embd.weight at runtime (canonical-converter convention)",
-    "[pair-identity] all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout",
+    "[pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']",
     "Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: permute(reference 'F:/Ai/OrchestratorIDE-phase6-quantization/Tools/OrcEnginePhase6/fixtures/smollm2-135m-q8_0.gguf''s Q/K) == this artifact's Q/K (the reference is raw relative to this artifact, per the externally-fixed permute() direction), verified on 60/60 tensors (30/30 layers)"
   ],
   "execution_authorization": false,
-  "known_normalization_requirements": [
-    "Q/K RoPE-layout un-permutation required (canonical llama.cpp -> raw-HF, to match OrcEngine's CURRENT loader's undocumented expectation -- see the separate Phase 6 worktree/branch evidence, not present in this tree)"
-  ],
+  "known_normalization_requirements": [],
   "metadata_fingerprint": "23c1bf3debc30392a13a280e5d81a7cc9309c64cd7ea6624c09f8e719c7354ef",
   "output_weight_semantics": "ABSENT",
   "pair_identity": {
     "evidence": [
-      "all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout"
+      "tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']"
     ],
-    "status": "VERIFIED"
+    "status": "UNVERIFIED"
   },
   "qk_layout": {
     "classification": "CANONICAL_LLAMA_CPP",
@@ -85,9 +83,9 @@
     "metadata_fingerprint": "635fb808d114a2f8522d6bbb70c25f40f8958d9ea622e10d668774149884f114",
     "pair_identity": {
       "evidence": [
-        "all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout"
+        "tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']"
       ],
-      "status": "VERIFIED"
+      "status": "UNVERIFIED"
     },
     "path": "F:/Ai/OrchestratorIDE-phase6-quantization/Tools/OrcEnginePhase6/fixtures/smollm2-135m-q8_0.gguf",
     "quantization_formats": [
@@ -100,11 +98,13 @@
     "tokenizer_fingerprint": "b3dc951d19443a91ef6d10d4f59f2544d8e46d64e83fec06ea43419996cc49b9"
   },
   "runtime_compatibility": {
-    "result": "VERIFIED_NORMALIZATION_REQUIRED",
+    "result": "AMBIGUOUS",
     "target": "orcengine-current"
   },
   "schema_version": 2,
   "tensor_inventory_fingerprint": "41deab898e2ad831780354db969fba0ed8a31b27c2cce9b836a91b852bca7713",
   "tokenizer_fingerprint": "f694e0dec7bbf6d052a61b022cb010861f132025c3dcc64f2de4dd3c2d620af1",
-  "unresolved_ambiguities": []
+  "unresolved_ambiguities": [
+    "[pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']"
+  ]
 }
