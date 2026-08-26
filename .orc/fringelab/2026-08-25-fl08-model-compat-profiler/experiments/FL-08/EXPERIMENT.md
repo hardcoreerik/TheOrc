@@ -208,11 +208,11 @@ top finding was that `verify_pair_identity()` could still report
 `VERIFIED` and authorize execution when `output.weight` is present on
 only one side and never compared -- live in round-2's own committed
 Case B evidence (272 vs. 273 tensors). Codex independently reproduced
-five additional live defects (see the mega-prompt's own reproduction
-block): `ROPE_METADATA_DRIFT`, `OUTPUT_ONLY_ONE_SIDE`,
-`WRONG_QK_INPUT_WIDTH`, `ODD_HEAD_DIM_CRASH`, a `RAW_HF DECLARED`
-result resolving to `VERIFIED_COMPATIBLE`, and an
-`INCOMPLETE_COUNTS_PLAN` normalization-plan gap.
+the SAME `output.weight` defect plus 5 additional live defects. See
+the authoritative defect inventory table at the end of this document
+(added round 4, correcting round 3's inconsistent "five
+additional"-followed-by-six-names / dual Grok+Codex attribution for
+`OUTPUT_ONLY_ONE_SIDE`).
 
 ### Output-head asymmetry policy (Gate 1B)
 
@@ -241,12 +241,36 @@ never silently skipped:
   which side's tied head is materialized from `token_embd.weight` at
   runtime instead.
 
-**Case B's actual disposition:** the real custom-vs-canonical artifact
-pair's `output.weight` asymmetry (custom has it, tied to its own
-`token_embd.weight`; canonical omits it) independently satisfies all 5
-tied-proof conditions -- confirmed by regenerating real evidence (see
-below). This part of Case B is NOT what makes the current real-artifact
-runs non-authorizing; see the metadata policy below for what does.
+> **Correction (round 4, Grok round-3 review finding, corroborated by
+> the user):** the paragraph below originally claimed Case B's
+> tied-output safety was "confirmed by regenerating real evidence."
+> That overstated what was executed. Case B's OWN
+> `pair_identity.evidence` (`fixtures_results/case_b.json`) is exactly
+> one string: `"tokenizer metadata key sets differ: ..."` -- the
+> function returns at the Gate 1C tokenizer check, BEFORE the non-Q/K
+> tensor comparison or Gate 1B's tied-output proof ever run. The same
+> is true of Cases A, C, and D. **No real A-D run has ever actually
+> executed `_tied_output_proof()`.**
+
+**Case B's actual disposition (corrected):** whether the real
+custom-vs-canonical artifacts' `output.weight` asymmetry would satisfy
+the 5 tied-proof conditions is NOT something any real FL-08 profiler
+run has executed or proven -- it is a CROSS-CASE INFERENCE from three
+separate facts, none of which is Case B's own executed evidence: (1)
+the same artifact hashes were independently investigated in the
+separate Phase 6 worktree/branch (`OE-ADR-057`), which established
+`output.weight` is byte-identical to `token_embd.weight` in the custom
+artifact via its own tooling, not FL-08's; (2) FL-08's own synthetic
+`TestRound3OutputWeightTiedProof` tests prove the tied-proof MECHANISM
+is correct on constructed fixtures; (3) if the tokenizer-metadata gate
+were hypothetically removed or satisfied, the non-Q/K tensor comparison
+(which DOES reach as far as needed to reuse the same code path) would
+be expected to succeed for these specific artifacts based on (1). This
+is a plausible inference, not a proven FL-08 result, and is disclosed
+as such. This part of Case B is NOT the reason the current real-artifact
+runs are non-authorizing regardless -- the tokenizer metadata policy
+below is -- but the claim that FL-08 itself proved the tied-output
+equivalence for these real artifacts is retracted.
 
 ### Execution-relevant metadata policy (Gate 1C)
 
@@ -362,3 +386,213 @@ whether tokenizer metadata is genuinely part of "the same executable
 model" for this profiler's narrow forward-pass scope, or requiring an
 explicit operator override) would be the natural next step to recover
 a real-artifact authorizing case.
+
+## Round 4 remediation: results and conclusions
+
+Triggered by a combined Codex authority review and an independent Grok
+Double Check (report:
+`gdc-orchestratoride-fringelab-fl08-research-orcengine-fl08-model-
+compat-profiler-fl08-round3-remediation.md`, project root, untracked,
+preserved unmodified -- note this report is itself a META-review of the
+round-4 remediation task's own review-prompt wording, not a code audit;
+it confirmed the tied-output test naming issue and left the two
+Codex-reproduced false-authorization classes as the primary work,
+per direct user reconciliation). Verdict: **FIX BEFORE MERGE/FREEZE**
+-- two additional false-authorization paths (equality of semantically
+invalid metadata; ungated grouped-query-attention geometry), an
+incomplete normalization-plan trust boundary, and inaccurate evidence
+wording.
+
+### Authoritative defect inventory
+
+Supersedes round 3's inconsistent "five additional" / six-name /
+dual-attribution wording for `OUTPUT_ONLY_ONE_SIDE`.
+
+| Defect ID | Discoverer | Round found | Primary symbol | Disposition |
+|---|---|---|---|---|
+| `OUTPUT_ONLY_ONE_SIDE` | Grok (round-2 review), independently reproduced by Codex (round-3 review) | 2 | `verify_pair_identity()` | Closed round 3 -- `_tied_output_proof()`, 5-condition gate |
+| `ROPE_METADATA_DRIFT` | Codex | 3 | `validate_artifact()` | Closed round 3 -- `_EXECUTION_METADATA_*` equality checks |
+| `WRONG_QK_INPUT_WIDTH` | Codex | 3 | `validate_artifact()` shape checks | Closed round 3 -- `_check_2d()`/`_check_1d()` complete-dimension validation |
+| `ODD_HEAD_DIM_CRASH` | Codex | 3 | `validate_artifact()` / `official_permute()` | Closed round 3 -- even-head_dim precondition + `try/except` |
+| `RAW_HF_DECLARED_AUTHORIZATION` | Codex | 3 | `layer5_decision()` | Closed round 3 -- explicit `DECLARED`-confidence branch forces `AMBIGUOUS` |
+| `INCOMPLETE_COUNTS_PLAN` (original) | Codex | 3 | `normalization_plan.py build_plan()` | Closed round 3 -- nested-field validation |
+| Semantic-metadata false authorization (equal-but-invalid RMS epsilon / RoPE freq_base / RoPE dimension) | Codex | 4 | `validate_artifact()` | Closed round 4 -- see "Semantic metadata validation" below |
+| Invalid GQA geometry false authorization (`n_head % n_head_kv != 0` unchecked) | Codex | 4 | `validate_artifact()` | Closed round 4 -- explicit modulus check |
+| Remaining malformed normalization-plan cases (bool-as-int, reference `container.valid` bypassed via null `terminal_result`, unvalidated hash format) | Codex | 4 | `normalization_plan.py validate_profile()`/`_get()` | Closed round 4 -- see "Normalization-plan hardening" below |
+
+Each closure's required regression evidence is named in its own
+section below and is executed as part of the full suite (final count
+at the end of this section).
+
+### Semantic metadata validation (Gate 1)
+
+Round 3 required execution-metadata EQUALITY between artifact and
+reference. Codex reproduced that two artifacts sharing the SAME
+INVALID value (`layer_norm_rms_epsilon=-1.0`, `rope.freq_base=
+-10000.0`, `rope.dimension_count=999`) previously still reached
+`pair_identity.status=VERIFIED` / `execution_authorization=true`.
+Round 4 adds semantic (not merely relative) validation in
+`validate_artifact()`, applied to EITHER artifact standalone (so it
+also protects the no-reference path), derived from the frozen
+runtime's own actual, inspected (not modified) contract:
+
+- **RMSNorm epsilon**: finite and `> 0`.
+- **RoPE freq_base**: finite and `> 0`.
+- **RoPE dimension_count**: must equal `head_dim` exactly. Source of
+  truth: `Tools/OrcEnginePhase1/include/orcengine/ops.hpp`'s own
+  comment, inspected directly -- `"Full-rotation (rotary_dim ==
+  head_dim) non-interleaved Llama RoPE ... Phase 1 has no partial
+  rotary factor."` The frozen runtime has no partial-rotary code path
+  at all, so any other value cannot be executed by it.
+- **RoPE scaling type** (if present): OrcEngine's frozen runtime
+  implements NO scaling variant (grep-confirmed: zero occurrences of
+  `rope_scaling`/`yarn`/`ntk`/`sliding_window` anywhere under
+  `Tools/OrcEngine*`) -- only the no-op values `"none"`/`"linear"`
+  (with factor `1.0`) are tolerated; anything else (`yarn`, `dynamic`,
+  ...) is rejected as an unsupported execution-affecting mode.
+- **RoPE scaling factor** (if present): finite, `> 0`, and must equal
+  `1.0` exactly (the only value consistent with "no scaling
+  implemented").
+- **Sliding window** (if present): must be `0` (the conventional
+  GGUF "no window" value) -- any nonzero value requests windowed
+  attention this runtime cannot execute.
+
+All of these fail closed to a structured `INVALID` result with
+evidence naming the specific field and value -- never an uncaught
+Python exception. Confirmed by `TestRound4SemanticMetadataValidation`
+(19 tests): all 3 exact Codex-reproduced attacks (paired matching
+invalid values), NaN/infinite/zero/negative variants where
+representable, the odd/zero/`>head_dim` RoPE-dimension variants, the
+unsupported-scaling-type and non-identity-scaling-factor and
+nonzero-sliding-window cases, and 4 valid-boundary control cases
+(including a full valid pair still reaching `RAW_HF`/non-`INVALID`)
+proving the checks are not over-strict on legitimate metadata.
+
+### Grouped-query-attention geometry (Gate 2)
+
+`hidden % n_head == 0` was already checked; `n_head % n_head_kv == 0`
+(every Q head must map onto a whole number of shared KV heads -- the
+defining GQA invariant) was not. Codex reproduced authorization with
+`hidden=24, n_head=3, n_head_kv=2` (3 does not divide evenly by 2).
+Round 4 adds the modulus check in `validate_artifact()`, returning
+`INVALID` with explicit evidence before any Q/K permutation or
+compatibility decision. Confirmed by `TestRound4GQAGeometry` (4 tests):
+the small invalid case, the exact nondegenerate Codex probe (`24/3/2`),
+valid MHA (`n_head == n_head_kv`), and valid GQA
+(`n_head > n_head_kv`, evenly divisible) -- both valid cases still
+reach `RAW_HF`, confirming the new check does not reject legitimate
+geometries.
+
+### Normalization-plan hardening (Gate 3)
+
+Three gaps closed in `normalization_plan.py`:
+
+1. **Bool-as-int**: Python's `bool` is an `int` subtype, so
+   `isinstance(True, int)` is `True` -- `layers_total=True`/
+   `layers_checked=True` previously passed integer-type validation.
+   `_get()` now explicitly rejects `bool` wherever `int` is the
+   expected type.
+2. **Reference validity bypass**: a reference with `container.valid=
+   False` but a `null` `terminal_result` previously still produced a
+   plan (validity was inferred from `terminal_result` alone). Both the
+   primary artifact's and the reference's `container.valid` AND
+   `declared_architecture` are now checked directly via a shared
+   `_validate_artifact_record()` helper (one function, used for both
+   records, per this round's "smallest shared fix" instruction).
+3. **Hash format**: `artifact.sha256`/`reference.sha256` were only
+   checked for "non-empty string" -- `"x"`/`"y"` passed. Both are now
+   required to match `^[0-9a-fA-F]{64}$` exactly; case is NOT
+   normalized (uppercase hex is accepted as-is since it is still a
+   well-formed digest shape; no other malformed value is silently
+   repaired).
+
+Confirmed by 18 new tests in `TestGate7NormalizationPlan` (30 total,
+up from round 3's 12): boolean
+counts (both `layers_total` and `layers_checked`), negative counts,
+invalid reference container, invalid primary container, unsupported
+reference architecture, unsupported primary architecture, empty/short/
+long/nonhex/arbitrary-string hashes on both sides, present-null typed
+fields (`layers_total=None`, `pair_identity.status=None`), uppercase
+hashes accepted, the original `INCOMPLETE_COUNTS_PLAN` case
+reconfirmed still closed, and a valid profile still producing the same
+bounded proposal. All malformed cases return `(None, reason)`; none
+raises.
+
+### Tied-output guard: what actually happened (Gate 4)
+
+Grok's round-3 review correctly found that
+`test_output_weight_tied_proof_fails_if_token_embd_itself_unverified`
+did not exercise the `"token_embd.weight" not in checked_names` guard
+it claimed to -- a mismatched `token_embd.weight` is caught by the
+EARLIER, separate `mismatches` check in `verify_pair_identity()` (the
+same path that catches a tampered V/FFN/norm tensor), which returns
+before Gate 1B or `_tied_output_proof()` is ever reached. Investigation
+this round confirmed the guard is **unreachable as false via any
+structurally-valid profile pair**: `token_embd.weight` is a REQUIRED
+tensor (an artifact lacking it is already `INVALID` before
+`verify_pair_identity()` is ever called), so for any pair that both
+pass Layer 1/2, it is unconditionally present on both sides by the
+time execution reaches Gate 1B.
+
+Per this round's explicit instruction not to construct an artificial
+production path merely to make an unreachable guard testable, the
+guard is kept in `profiler.py` as a documented internal invariant /
+defense-in-depth against a future refactor (see the comment at its
+call site), and the misleading test is renamed to
+`test_embedding_mismatch_denied_before_tied_output_proof_is_ever_
+reached`, now asserting the SPECIFIC evidence string the actual path
+produces (`"N non-Q/K tensor(s) differ..."`) and explicitly asserting
+the Gate-1B-specific wording (`"did not pass pair identity"`) does NOT
+appear -- so a future code change that accidentally routes this attack
+through Gate 1B instead would fail the test rather than pass silently.
+
+Retained, unrenamed, and still passing: one-sided untied output head
+denied (`test_artifact_only_untied_output_weight_denied`,
+`test_reference_only_untied_output_weight_denied`); a genuine one-sided
+tied duplicate passing when every prerequisite is independently
+satisfied (`test_one_sided_output_genuinely_tied_is_verified_and_can_
+authorize`); a mismatched embedding denied before tied-output proof
+(the renamed test above, which also covers "altering both one side's
+embedding and its matching tied output cannot bypass pair identity" --
+the fixture used already tampers the embedding on the side that ALSO
+gets a tied output).
+
+### Pair-identity evidence is fail-fast, not exhaustive
+
+Stated explicitly, since it was previously implicit: `pair_identity.
+evidence` in this schema records the FIRST failure `verify_pair_
+identity()` encountered (architecture, then geometry, then
+execution-metadata, then tokenizer, then non-Q/K tensor inventory,
+then output-weight handling, in that fixed order) -- it is NOT an
+exhaustive list of every way two artifacts differ. A profile showing
+one tokenizer-metadata mismatch does not mean that is the ONLY
+difference; later-stage checks simply never ran. This is why Case B's
+tied-output equivalence (see the correction above) cannot be read
+directly from its own evidence field.
+
+### Tokenizer policy: still fail-closed, no override added
+
+Unchanged from round 3, restated for this round's audit: weight/Q-K
+layout compatibility and tokenizer semantic compatibility are two
+SEPARATE axes this profiler checks. Current `execution_authorization`
+requires BOTH to hold. The real custom-vs-canonical A-D artifact pairs
+remain non-authorizing because tokenizer semantic equivalence has not
+been proven for them (a real, disclosed `tokenizer.ggml.*` key-set
+asymmetry exists). No operator override was added this round, per
+explicit instruction. Any future relaxation requires either
+evidence-backed tokenizer equivalence (a new check proving the
+asymmetric fields are semantically inert for this profiler's
+forward-pass scope) or a defined normalization contract for
+reconciling them -- never a manual bypass of the check itself.
+
+### Final test count (this round)
+
+`python -m unittest test_profiler` (executed, not estimated): **134
+tests, 134 passing.** Independently cross-checked via
+`grep -c "    def test_" test_profiler.py` = 134 (matches exactly). Up
+from round 3's 93. Derived directly from `git diff 47fab059 --
+test_profiler.py`: **42 `def test_` lines added, 1 removed** (the
+round-3 `test_output_weight_tied_proof_fails_if_token_embd_itself_
+unverified` renamed to `test_embedding_mismatch_denied_before_tied_
+output_proof_is_ever_reached`, counted as one removal + one addition)
+-- net **+41**, `93 + 41 = 134`, matching the executed count exactly.
