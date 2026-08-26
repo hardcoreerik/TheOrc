@@ -71,6 +71,43 @@ REQUIRED_LLAMA_GLOBAL_TENSORS = ("token_embd.weight", "output_norm.weight")
 NON_QK_LAYER_SUFFIXES = tuple(s for s in REQUIRED_LLAMA_PER_LAYER_SUFFIXES
                               if s not in ("attn_q.weight", "attn_k.weight"))
 
+# Round-3 remediation (Gate 1C): the SMALLEST explicit set of metadata
+# keys classified EXECUTION-AFFECTING for this experiment -- compared
+# by this profiler's own reading of the real Phase 6 artifacts (custom
+# vs. canonical), not a general registry. REQUIRED means present and
+# equal on both sides is mandatory for VERIFIED pair identity; OPTIONAL
+# means "if present on EITHER side, must be present and equal on BOTH"
+# (a key entirely absent from both sides is not itself a defect).
+_EXECUTION_METADATA_REQUIRED_KEYS = (
+    "llama.feed_forward_length",
+    "llama.attention.layer_norm_rms_epsilon",
+    "llama.rope.dimension_count",
+    "llama.rope.freq_base",
+    "llama.context_length",
+)
+_EXECUTION_METADATA_OPTIONAL_KEYS = (
+    "llama.rope.scaling.type",
+    "llama.rope.scaling.factor",
+    "llama.attention.sliding_window",
+)
+# Classified BENIGN (pure bookkeeping/provenance, never blocks pair
+# identity) from direct inspection of the real custom-vs-canonical
+# artifact pair (see EXPERIMENT.md's round-3 metadata classification
+# table): general.name/basename/languages/license/quantization_version/
+# size_label/type, general.file_type, general.alignment.
+#
+# llama.attention.key_length / llama.attention.value_length /
+# llama.vocab_size are execution-RELATED but REDUNDANT with fields this
+# profiler already independently verifies byte-for-byte (head_dim via
+# head_count/head_count_kv/embedding_length; vocab_size via
+# token_embd.weight's own verified shape) -- when present, their VALUE
+# is cross-checked against those already-verified facts rather than
+# requiring symmetric presence, since the real canonical artifact
+# declares them and the real custom artifact does not.
+_EXECUTION_METADATA_REDUNDANT_KEYS = (
+    "llama.attention.key_length", "llama.attention.value_length", "llama.vocab_size",
+)
+
 _INTERNAL_HEADER_FIELDS = frozenset({"GGUF.version", "GGUF.tensor_count", "GGUF.kv_count"})
 
 # Confidence ordering, weakest to strongest -- used everywhere an
@@ -224,6 +261,16 @@ class ArtifactValidation:
         self.metadata_fingerprint: str | None = None
         self.tokenizer_fingerprint: str | None = None
         self.quantization_formats: list[str] = []
+        # Round-3 remediation: execution-relevant metadata, captured
+        # individually (not only as an opaque fingerprint) so pair
+        # identity can classify EXACTLY what differs and why, per key --
+        # key -> _encode_field_value() bytes (exact, non-truncating).
+        self.execution_metadata: dict[str, bytes] = {}
+        # All tokenizer.* fields, same exact-byte encoding -- the WHOLE
+        # tokenizer.* namespace is classified tokenizer-affecting for
+        # this experiment (vocabulary, model/policy, IDs, special
+        # tokens all live under this prefix).
+        self.tokenizer_fields: dict[str, bytes] = {}
         # Terminal outcome for THIS artifact alone, independent of any
         # comparison against a reference: INVALID, VERIFIED_UNSUPPORTED,
         # or None (structurally sound, architecture-validated, ready
@@ -308,20 +355,38 @@ def validate_artifact(path: str) -> ArtifactValidation:
     n_head = _meta_int(reader, "llama.attention.head_count")
     n_head_kv = _meta_int(reader, "llama.attention.head_count_kv")
     hidden = _meta_int(reader, "llama.embedding_length")
+    ffn_length = _meta_int(reader, "llama.feed_forward_length")
+    context_length = _meta_int(reader, "llama.context_length")
 
-    if None in (n_layers, n_head, n_head_kv, hidden):
+    if None in (n_layers, n_head, n_head_kv, hidden, ffn_length, context_length):
         v.ambiguities.append("required llama.* metadata missing "
                              f"(block_count={n_layers} head_count={n_head} "
-                             f"head_count_kv={n_head_kv} embedding_length={hidden})")
+                             f"head_count_kv={n_head_kv} embedding_length={hidden} "
+                             f"feed_forward_length={ffn_length} context_length={context_length})")
         v.terminal_result = "INVALID"
         return v
-    if n_layers <= 0 or n_head <= 0 or n_head_kv <= 0 or hidden <= 0:
+    if n_layers <= 0 or n_head <= 0 or n_head_kv <= 0 or hidden <= 0 or ffn_length <= 0 or context_length <= 0:
         v.ambiguities.append(f"non-positive required geometry: block_count={n_layers} head_count={n_head} "
-                             f"head_count_kv={n_head_kv} embedding_length={hidden}")
+                             f"head_count_kv={n_head_kv} embedding_length={hidden} "
+                             f"feed_forward_length={ffn_length} context_length={context_length}")
         v.terminal_result = "INVALID"
         return v
     if hidden % n_head != 0:
         v.ambiguities.append(f"embedding_length={hidden} not evenly divisible by head_count={n_head}")
+        v.terminal_result = "INVALID"
+        return v
+    head_dim = hidden // n_head
+    if head_dim % 2 != 0:
+        # Round-3 remediation (Gate 2, Codex ODD_HEAD_DIM_CRASH probe):
+        # official_permute() reshapes on `rows // n_head // 2` -- an ODD
+        # head_dim makes that reshape's element count NOT match the
+        # tensor's actual size, and numpy raises ValueError from deep
+        # inside the permutation call rather than this profiler failing
+        # closed with a structured result. Caught HERE, before any
+        # tensor is ever handed to official_permute().
+        v.ambiguities.append(f"head_dim=hidden/head_count={head_dim} is odd -- official_permute()'s "
+                             f"reshape requires an EVEN head_dim (it reshapes into 2 halves); refusing to "
+                             f"attempt any permutation against this geometry")
         v.terminal_result = "INVALID"
         return v
 
@@ -350,12 +415,34 @@ def validate_artifact(path: str) -> ArtifactValidation:
         v.terminal_result = "INVALID"
         return v
 
+    # Round-3 remediation (Gate 2, Codex WRONG_QK_INPUT_WIDTH probe):
+    # the round-2 checks validated ROWS only (the output/logical-row
+    # axis) and never the LAST dimension (the input/column axis) --
+    # a Q/K/V/FFN tensor with correct rows but a wrong input width
+    # (e.g. hidden+2) previously passed silently. Every required
+    # tensor's COMPLETE logical dimensions are now validated, using
+    # `logical_last_dim()` so packed Q8_0 width is decoded correctly.
     missing_tensors, shape_contradictions = [], []
     for name in REQUIRED_LLAMA_GLOBAL_TENSORS:
         if _tensor_by_name(reader, name) is None:
             missing_tensors.append(name)
-    q_head_dim_half = (hidden // n_head) // 2
-    kv_row_expected_head_dim = hidden // n_head  # head_dim is shared between Q and K/V in this architecture
+
+    def _check_2d(name: str, t, expected_rows: int, expected_cols: int) -> None:
+        shape = logical_shape(t)
+        if len(shape) != 2:
+            shape_contradictions.append(f"{name}: expected rank 2, got shape {shape}")
+            return
+        rows = shape[0]
+        cols = logical_last_dim(t)
+        if rows != expected_rows or cols != expected_cols:
+            shape_contradictions.append(f"{name}: logical shape=({rows},{cols}) "
+                                        f"(raw axis shape={shape}), expected ({expected_rows},{expected_cols})")
+
+    def _check_1d(name: str, t, expected_len: int) -> None:
+        shape = logical_shape(t)
+        if len(shape) != 1 or shape[0] != expected_len:
+            shape_contradictions.append(f"{name}: expected rank 1 shape=({expected_len},), got shape={shape}")
+
     for i in range(n_layers):
         for suffix in REQUIRED_LLAMA_PER_LAYER_SUFFIXES:
             name = f"blk.{i}.{suffix}"
@@ -363,58 +450,36 @@ def validate_artifact(path: str) -> ArtifactValidation:
             if t is None:
                 missing_tensors.append(name)
                 continue
-            rows = logical_shape(t)[0]
             if suffix == "attn_q.weight":
-                if rows != n_head * kv_row_expected_head_dim or q_head_dim_half == 0:
-                    shape_contradictions.append(
-                        f"{name}: logical rows={rows}, expected {n_head}*{kv_row_expected_head_dim} "
-                        f"={n_head * kv_row_expected_head_dim} for head_count={n_head} "
-                        f"(and head_dim must be evenly halvable for permute)")
-            elif suffix == "attn_k.weight":
-                if rows != n_head_kv * kv_row_expected_head_dim:
-                    shape_contradictions.append(
-                        f"{name}: logical rows={rows}, expected {n_head_kv}*{kv_row_expected_head_dim} "
-                        f"={n_head_kv * kv_row_expected_head_dim} for head_count_kv={n_head_kv}")
-            elif suffix == "attn_v.weight":
-                if rows != n_head_kv * kv_row_expected_head_dim:
-                    shape_contradictions.append(
-                        f"{name}: logical rows={rows}, expected {n_head_kv * kv_row_expected_head_dim} "
-                        f"(V shares head_dim/head_count_kv with K)")
+                _check_2d(name, t, hidden, hidden)
+            elif suffix in ("attn_k.weight", "attn_v.weight"):
+                _check_2d(name, t, n_head_kv * head_dim, hidden)
             elif suffix == "attn_output.weight":
-                if rows != hidden:
-                    shape_contradictions.append(f"{name}: logical rows={rows}, expected hidden={hidden}")
+                _check_2d(name, t, hidden, hidden)
             elif suffix in ("attn_norm.weight", "ffn_norm.weight"):
-                if rows != hidden:
-                    shape_contradictions.append(f"{name}: logical rows={rows}, expected hidden={hidden}")
+                _check_1d(name, t, hidden)
+            elif suffix == "ffn_gate.weight" or suffix == "ffn_up.weight":
+                _check_2d(name, t, ffn_length, hidden)
             elif suffix == "ffn_down.weight":
-                if rows != hidden:
-                    shape_contradictions.append(f"{name}: logical rows={rows}, expected hidden={hidden} (output)")
-            # ffn_gate.weight / ffn_up.weight: intermediate size is
-            # architecture-specific and not independently declared
-            # anywhere this profiler reads -- only cross-checked for
-            # mutual consistency (gate/up must match), not an absolute
-            # expected value.
-
-    ffn_gate_rows, ffn_up_rows = {}, {}
-    for i in range(n_layers):
-        g = _tensor_by_name(reader, f"blk.{i}.ffn_gate.weight")
-        u = _tensor_by_name(reader, f"blk.{i}.ffn_up.weight")
-        if g is not None:
-            ffn_gate_rows[i] = logical_shape(g)[0]
-        if u is not None:
-            ffn_up_rows[i] = logical_shape(u)[0]
-    for i in range(n_layers):
-        if i in ffn_gate_rows and i in ffn_up_rows and ffn_gate_rows[i] != ffn_up_rows[i]:
-            shape_contradictions.append(f"blk.{i}: ffn_gate.weight rows={ffn_gate_rows[i]} != "
-                                        f"ffn_up.weight rows={ffn_up_rows[i]}")
+                _check_2d(name, t, hidden, ffn_length)
 
     emb = _tensor_by_name(reader, "token_embd.weight")
-    if emb is not None and logical_last_dim(emb) != hidden:
-        shape_contradictions.append(f"token_embd.weight logical last dim={logical_last_dim(emb)} "
-                                    f"(raw axis shape={logical_shape(emb)}), expected hidden={hidden}")
+    if emb is not None:
+        emb_shape = logical_shape(emb)
+        if len(emb_shape) != 2 or logical_last_dim(emb) != hidden:
+            shape_contradictions.append(f"token_embd.weight: expected rank-2 with logical last dim=hidden="
+                                        f"{hidden}, got shape={emb_shape} logical_last_dim={logical_last_dim(emb)}")
     norm = _tensor_by_name(reader, "output_norm.weight")
-    if norm is not None and logical_shape(norm)[0] != hidden:
-        shape_contradictions.append(f"output_norm.weight rows={logical_shape(norm)[0]}, expected hidden={hidden}")
+    if norm is not None:
+        _check_1d("output_norm.weight", norm, hidden)
+    out_head = _tensor_by_name(reader, "output.weight")
+    if out_head is not None and emb is not None:
+        out_shape = logical_shape(out_head)
+        vocab_rows = logical_shape(emb)[0]
+        if len(out_shape) != 2 or out_shape[0] != vocab_rows or logical_last_dim(out_head) != hidden:
+            shape_contradictions.append(f"output.weight: expected shape compatible with vocabulary="
+                                        f"{vocab_rows}/hidden={hidden}, got shape={out_shape} "
+                                        f"logical_last_dim={logical_last_dim(out_head)}")
 
     if missing_tensors:
         v.ambiguities.append(f"required tensor(s) missing for declared architecture/layer count: "
@@ -433,6 +498,14 @@ def validate_artifact(path: str) -> ArtifactValidation:
     v.tensor_inventory_fingerprint = _fingerprint_tensor_inventory(reader)
     v.metadata_fingerprint = _fingerprint_metadata(reader)
     v.tokenizer_fingerprint = _fingerprint_tokenizer(reader)
+    for key in _EXECUTION_METADATA_REQUIRED_KEYS + _EXECUTION_METADATA_OPTIONAL_KEYS + \
+            _EXECUTION_METADATA_REDUNDANT_KEYS:
+        f = reader.fields.get(key)
+        if f is not None:
+            v.execution_metadata[key] = _encode_field_value(f)
+    for key in reader.fields:
+        if key.startswith("tokenizer."):
+            v.tokenizer_fields[key] = _encode_field_value(reader.fields[key])
     v.architecture_confidence = "STRUCTURALLY_VERIFIED"
     return v
 
@@ -494,8 +567,16 @@ def _compare_qk_tensor(a, b, n_head: int, ref_n_head_kv: int, hidden: int) -> tu
         # Q8_0 with matching shape.
 
     direct_match = np.array_equal(a.data, b.data)
-    a_is_raw_relative_to_b = np.array_equal(official_permute(a.data.copy(), n_head, ref_n_head_kv), b.data)
-    b_is_raw_relative_to_a = np.array_equal(official_permute(b.data.copy(), n_head, ref_n_head_kv), a.data)
+    # Defense in depth: validate_artifact() already rejects odd/zero
+    # head_dim before Layer 3 ever runs, so this reshape should never
+    # fail here -- but a caught, structured AMBIGUOUS result is still
+    # strictly better than an uncaught crash if that invariant is ever
+    # violated by a future code path.
+    try:
+        a_is_raw_relative_to_b = np.array_equal(official_permute(a.data.copy(), n_head, ref_n_head_kv), b.data)
+        b_is_raw_relative_to_a = np.array_equal(official_permute(b.data.copy(), n_head, ref_n_head_kv), a.data)
+    except ValueError as ex:
+        return "PERMUTE_RESHAPE_ERROR", f"official_permute() reshape failed: {ex!r}"
 
     hits = [h for h, flag in (("DIRECT", direct_match), ("A_RAW_REL_B", a_is_raw_relative_to_b),
                               ("B_RAW_REL_A", b_is_raw_relative_to_a)) if flag]
@@ -592,6 +673,19 @@ def layer3_qk_dialect(profile_data: dict, evidence: list, ambiguities: list,
     qk["per_layer_consistent"] = True
 
     if winning == "A_RAW_REL_B":
+        # Artifact is RAW relative to the reference -> the reference
+        # itself is CANONICAL. If the operator declared the reference
+        # as "raw", that directly CONTRADICTS this numerical finding --
+        # round-3 remediation (Gate 3): never silently ignore
+        # contradictory operator evidence.
+        if reference_layout_declared == "raw":
+            qk["classification"] = "AMBIGUOUS"
+            qk["confidence"] = "AMBIGUOUS"
+            ambiguities.append(f"CONTRADICTION: operator declared --reference-layout=raw, but the numerical "
+                               f"permutation proof shows the reference is CANONICAL relative to this "
+                               f"artifact (permute(artifact) == reference) -- refusing to silently prefer "
+                               f"either the declaration or the numerical evidence")
+            return
         qk["classification"] = "RAW_HF"
         qk["confidence"] = "NUMERICALLY_VERIFIED"
         evidence.append(f"Q/K fingerprint matches RAW_HF convention: permute(this artifact's Q/K) == "
@@ -600,6 +694,17 @@ def layer3_qk_dialect(profile_data: dict, evidence: list, ambiguities: list,
                         f"{checked}/{total} tensors ({layers_with_full_qk}/{n_layers} layers)")
         return
     if winning == "B_RAW_REL_A":
+        # Reference is RAW relative to the artifact -> the artifact
+        # itself is CANONICAL. If the operator declared the reference
+        # as "canonical", that contradicts this numerical finding.
+        if reference_layout_declared == "canonical":
+            qk["classification"] = "AMBIGUOUS"
+            qk["confidence"] = "AMBIGUOUS"
+            ambiguities.append(f"CONTRADICTION: operator declared --reference-layout=canonical, but the "
+                               f"numerical permutation proof shows the reference is RAW relative to this "
+                               f"artifact (permute(reference) == artifact) -- refusing to silently prefer "
+                               f"either the declaration or the numerical evidence")
+            return
         qk["classification"] = "CANONICAL_LLAMA_CPP"
         qk["confidence"] = "NUMERICALLY_VERIFIED"
         evidence.append(f"Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: permute(reference "
@@ -660,12 +765,69 @@ def layer_output_weight_semantics(profile_data: dict, evidence: list, ambiguitie
 # underlying model, independent of the Q/K relationship itself?
 # ---------------------------------------------------------------------
 
+def _tied_output_proof(reader: GGUFReader, label: str) -> tuple[bool, str]:
+    """Gate 1B: tests whether ONE side's `output.weight` (when the OTHER
+    side lacks it) is provably a physical duplicate of THAT SIDE's own
+    `token_embd.weight` -- same type, same logical shape, byte-identical
+    contents. Returns (proven, evidence_string). This does NOT itself
+    confirm the two ARTIFACTS' embeddings match each other -- the caller
+    must separately confirm token_embd.weight already passed pair
+    identity before treating an asymmetric output.weight as safe."""
+    out_w = _tensor_by_name(reader, "output.weight")
+    emb_w = _tensor_by_name(reader, "token_embd.weight")
+    if out_w is None or emb_w is None:
+        return False, f"{label}: output.weight or token_embd.weight missing, cannot prove tied duplication"
+    if out_w.tensor_type.name != emb_w.tensor_type.name:
+        return False, (f"{label}: output.weight type {out_w.tensor_type.name} != "
+                       f"token_embd.weight type {emb_w.tensor_type.name}")
+    if logical_shape(out_w) != logical_shape(emb_w):
+        return False, (f"{label}: output.weight shape {logical_shape(out_w)} != "
+                       f"token_embd.weight shape {logical_shape(emb_w)}")
+    if not np.array_equal(out_w.data, emb_w.data):
+        return False, f"{label}: output.weight is NOT byte-identical to token_embd.weight"
+    return True, (f"{label}: output.weight proven byte-for-byte physically-duplicated from this side's own "
+                  f"token_embd.weight (same type {out_w.tensor_type.name}, same shape {logical_shape(out_w)})")
+
+
+def _diff_metadata_dict(a: dict[str, bytes], b: dict[str, bytes], required_keys: tuple[str, ...],
+                        optional_keys: tuple[str, ...] = ()) -> list[str]:
+    """Compares two key->encoded-bytes dicts. Required keys must be
+    present and byte-equal on both sides. Optional keys must be
+    byte-equal on both sides ONLY if present on at least one side.
+    Returns a list of human-readable defect strings (empty = no defect)."""
+    defects = []
+    for key in required_keys:
+        av, bv = a.get(key), b.get(key)
+        if av is None or bv is None:
+            defects.append(f"{key}: required execution metadata missing on "
+                           f"{'artifact' if av is None else 'reference'} side")
+        elif av != bv:
+            defects.append(f"{key}: differs between artifact and reference")
+    for key in optional_keys:
+        av, bv = a.get(key), b.get(key)
+        if av is None and bv is None:
+            continue
+        if av is None or bv is None:
+            defects.append(f"{key}: present on only one side ({'reference' if av is None else 'artifact'})")
+        elif av != bv:
+            defects.append(f"{key}: differs between artifact and reference")
+    return defects
+
+
 def verify_pair_identity(artifact_v: ArtifactValidation, reference_v: ArtifactValidation) -> dict:
     """Compares every NON-Q/K tensor (V, attention-output, norms, FFN,
-    embedding, output head) between the artifact and reference. A
-    tampered V/norm/FFN/embedding tensor must NOT retain a "verified"
-    pair identity even if Q/K still matches -- that is exactly the
-    attack this check exists to catch."""
+    embedding, output head) AND every execution-affecting/tokenizer
+    metadata field between the artifact and reference. A tampered
+    V/norm/FFN/embedding tensor, an execution-metadata mismatch, or a
+    tokenizer-metadata mismatch must NOT retain a "verified" pair
+    identity even if Q/K still matches -- that is exactly the attack
+    this check exists to catch. Round-3 remediation: the non-Q/K
+    tensor inventory is now built from the UNION of both sides' tensor
+    names (not just the primary side's expected-name list), so an
+    unexpected extra tensor on either side is caught rather than
+    silently ignored; `output.weight` present on exactly one side is
+    UNVERIFIED unless narrowly proven tied to that side's own,
+    already-matched `token_embd.weight` (Gate 1B)."""
     result = {"status": "UNVERIFIED", "evidence": []}
 
     a_reader, b_reader = artifact_v.reader, reference_v.reader
@@ -687,42 +849,89 @@ def verify_pair_identity(artifact_v: ArtifactValidation, reference_v: ArtifactVa
             f"head_kv={reference_v.n_head_kv},hidden={reference_v.hidden})")
         return result
 
-    a_types = {t.tensor_type.name for t in a_reader.tensors}
-    b_types = {t.tensor_type.name for t in b_reader.tensors}
-    if a_types != b_types:
-        result["evidence"].append(f"different tensor encodings present ({sorted(a_types)} vs "
-                                  f"{sorted(b_types)}) -- byte comparison of non-Q/K tensors cannot "
-                                  f"prove identity across encodings, and no provenance/hash chain was "
-                                  f"supplied to bind them another way -- pair identity left UNVERIFIED")
+    # --- Gate 1C: execution-affecting metadata ---
+    exec_defects = _diff_metadata_dict(artifact_v.execution_metadata, reference_v.execution_metadata,
+                                       _EXECUTION_METADATA_REQUIRED_KEYS, _EXECUTION_METADATA_OPTIONAL_KEYS)
+    if exec_defects:
+        result["evidence"].append(f"execution-affecting metadata mismatch: {exec_defects}")
         return result
 
-    names_to_check = list(REQUIRED_LLAMA_GLOBAL_TENSORS)
-    for i in range(artifact_v.n_layers):
-        for suffix in NON_QK_LAYER_SUFFIXES:
-            names_to_check.append(f"blk.{i}.{suffix}")
-    # output.weight is optional (tied models omit it) -- check it too
-    # when present on both sides.
-    if _tensor_by_name(a_reader, "output.weight") is not None and \
-       _tensor_by_name(b_reader, "output.weight") is not None:
-        names_to_check.append("output.weight")
+    # Redundant-but-execution-related keys: when present, cross-check
+    # the VALUE against already-independently-verified facts (head_dim,
+    # embedding row count) rather than requiring symmetric presence --
+    # the real canonical converter declares these, the real custom
+    # converter does not, and both are correct restatements of facts
+    # this profiler already verifies another way.
+    head_dim = artifact_v.hidden // artifact_v.n_head
+    emb = _tensor_by_name(a_reader, "token_embd.weight")
+    vocab_rows = logical_shape(emb)[0] if emb is not None else None
+    for label, reader_v in (("artifact", artifact_v), ("reference", reference_v)):
+        kl = reader_v.execution_metadata.get("llama.attention.key_length")
+        vl = reader_v.execution_metadata.get("llama.attention.value_length")
+        vs = reader_v.execution_metadata.get("llama.vocab_size")
+        # These are compared via their DECODED integer value, not raw
+        # bytes -- _encode_field_value's byte form is not meant for
+        # cross-field arithmetic comparison, so re-read the field.
+        reader_obj = a_reader if label == "artifact" else b_reader
+        if kl is not None:
+            actual = int(reader_obj.fields["llama.attention.key_length"].contents())
+            if actual != head_dim:
+                result["evidence"].append(f"{label}: declared llama.attention.key_length={actual} "
+                                          f"contradicts independently-verified head_dim={head_dim}")
+                return result
+        if vl is not None:
+            actual = int(reader_obj.fields["llama.attention.value_length"].contents())
+            if actual != head_dim:
+                result["evidence"].append(f"{label}: declared llama.attention.value_length={actual} "
+                                          f"contradicts independently-verified head_dim={head_dim}")
+                return result
+        if vs is not None and vocab_rows is not None:
+            actual = int(reader_obj.fields["llama.vocab_size"].contents())
+            if actual != vocab_rows:
+                result["evidence"].append(f"{label}: declared llama.vocab_size={actual} contradicts "
+                                          f"independently-verified token_embd.weight row count={vocab_rows}")
+                return result
 
-    mismatches, missing = [], []
-    for name in names_to_check:
+    # --- Gate 1C: tokenizer-affecting metadata (whole tokenizer.* namespace) ---
+    tok_a_keys, tok_b_keys = set(artifact_v.tokenizer_fields), set(reference_v.tokenizer_fields)
+    if tok_a_keys != tok_b_keys:
+        only_a = sorted(tok_a_keys - tok_b_keys)
+        only_b = sorted(tok_b_keys - tok_a_keys)
+        result["evidence"].append(f"tokenizer metadata key sets differ: only on artifact={only_a}, "
+                                  f"only on reference={only_b}")
+        return result
+    tok_defects = [k for k in tok_a_keys if artifact_v.tokenizer_fields[k] != reference_v.tokenizer_fields[k]]
+    if tok_defects:
+        result["evidence"].append(f"tokenizer metadata value(s) differ: {sorted(tok_defects)}")
+        return result
+
+    # --- Gate 1A: complete non-Q/K tensor inventory, built from the
+    # UNION of both sides' actual tensor names (not just the expected-
+    # name list), excluding Q/K (Layer 3's job) and output.weight
+    # (handled separately below, Gate 1B). ---
+    qk_names = {f"blk.{i}.{kind}.weight" for i in range(artifact_v.n_layers) for kind in ("attn_q", "attn_k")}
+    a_names = {t.name for t in a_reader.tensors} - qk_names - {"output.weight"}
+    b_names = {t.name for t in b_reader.tensors} - qk_names - {"output.weight"}
+
+    only_a = sorted(a_names - b_names)
+    only_b = sorted(b_names - a_names)
+    if only_a or only_b:
+        result["evidence"].append(f"non-Q/K tensor inventory differs: only on artifact={only_a[:10]}, "
+                                  f"only on reference={only_b[:10]}")
+        return result
+
+    mismatches = []
+    for name in sorted(a_names):
         a = _tensor_by_name(a_reader, name)
         b = _tensor_by_name(b_reader, name)
-        if a is None or b is None:
-            missing.append(name)
+        if a.tensor_type.name != b.tensor_type.name:
+            mismatches.append((name, "TYPE_MISMATCH", a.tensor_type.name, b.tensor_type.name))
             continue
         if logical_shape(a) != logical_shape(b):
-            mismatches.append((name, "SHAPE_MISMATCH"))
+            mismatches.append((name, "SHAPE_MISMATCH", logical_shape(a), logical_shape(b)))
             continue
         if not np.array_equal(a.data, b.data):
             mismatches.append((name, "VALUE_MISMATCH"))
-
-    if missing:
-        result["evidence"].append(f"non-Q/K tensor(s) missing on one side: {missing[:10]}"
-                                  f"{'...' if len(missing) > 10 else ''}")
-        return result
     if mismatches:
         result["evidence"].append(f"{len(mismatches)} non-Q/K tensor(s) differ between artifact and "
                                   f"reference (V/attn_output/norm/FFN/embedding) -- these must be "
@@ -730,11 +939,57 @@ def verify_pair_identity(artifact_v: ArtifactValidation, reference_v: ArtifactVa
                                   f"ONLY in Q/K layout: {mismatches[:5]}{'...' if len(mismatches) > 5 else ''}")
         return result
 
+    checked_names = sorted(a_names)
+
+    # --- Gate 1B: output.weight, handled explicitly, never silently
+    # skipped regardless of which side(s) have it. ---
+    a_out = _tensor_by_name(a_reader, "output.weight")
+    b_out = _tensor_by_name(b_reader, "output.weight")
+    output_evidence = None
+    if a_out is None and b_out is None:
+        output_evidence = "output.weight absent on both sides -- shared tied representation"
+    elif a_out is not None and b_out is not None:
+        if a_out.tensor_type.name != b_out.tensor_type.name:
+            result["evidence"].append(f"output.weight type mismatch: artifact={a_out.tensor_type.name} "
+                                      f"reference={b_out.tensor_type.name}")
+            return result
+        if logical_shape(a_out) != logical_shape(b_out):
+            result["evidence"].append(f"output.weight shape mismatch: artifact={logical_shape(a_out)} "
+                                      f"reference={logical_shape(b_out)}")
+            return result
+        if not np.array_equal(a_out.data, b_out.data):
+            result["evidence"].append("output.weight present on both sides but VALUE_MISMATCH")
+            return result
+        output_evidence = "output.weight present on both sides and byte-identical"
+    else:
+        # Present on exactly one side -- the dangerous asymmetric case
+        # (Grok round-2 finding). Safe ONLY if narrowly proven tied to
+        # THAT side's own token_embd.weight, AND token_embd.weight has
+        # already passed pair identity above (it's in `checked_names`,
+        # so if we reached here, it did).
+        present_side_reader = a_reader if a_out is not None else b_reader
+        present_side_label = "artifact" if a_out is not None else "reference"
+        if "token_embd.weight" not in checked_names:
+            result["evidence"].append(f"output.weight present only on {present_side_label}, and "
+                                      f"token_embd.weight itself did not pass pair identity -- cannot "
+                                      f"prove tied duplication, pair identity UNVERIFIED")
+            return result
+        proven, evidence_str = _tied_output_proof(present_side_reader, present_side_label)
+        if not proven:
+            result["evidence"].append(f"output.weight present only on {present_side_label} and NOT "
+                                      f"provably tied to its own token_embd.weight -- {evidence_str} -- "
+                                      f"pair identity UNVERIFIED (asymmetric untied output head is exactly "
+                                      f"the attack this check exists to catch)")
+            return result
+        output_evidence = (f"output.weight present only on {present_side_label}; proven tied-duplicate: "
+                           f"{evidence_str}; the OTHER side's tied head is materialized from its own "
+                           f"(already-verified-identical) token_embd.weight at runtime instead")
+
     result["status"] = "VERIFIED"
-    result["evidence"].append(f"all {len(names_to_check)} non-Q/K tensors (V, attention-output, norms, "
-                              f"FFN, embedding{', output head' if 'output.weight' in names_to_check else ''}) "
-                              f"byte-identical between artifact and reference -- same underlying model, "
-                              f"differing (if at all) only in Q/K layout")
+    result["evidence"].append(f"all {len(checked_names)} non-Q/K tensors (V, attention-output, norms, FFN, "
+                              f"embedding) byte-identical between artifact and reference; {output_evidence}; "
+                              f"execution-affecting metadata and the complete tokenizer.* namespace agree -- "
+                              f"same underlying executable model, differing (if at all) only in Q/K layout")
     return result
 
 
@@ -756,6 +1011,20 @@ def layer5_decision(profile_data: dict, target: str, artifact_terminal_result: s
         profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
     elif reference_present and pair_identity_status != "VERIFIED":
         profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+    elif qk["confidence"] == "DECLARED":
+        # Round-3 remediation (Gate 3): a direct-match label derived
+        # from --reference-layout is DECLARED evidence, not numerical
+        # proof. execution_authorization was already correctly false
+        # for this case, but VERIFIED_COMPATIBLE/a successful CLI exit
+        # overstated declaration-only evidence as if it were a cleared
+        # compatibility verdict. Declaration-only labels never resolve
+        # to VERIFIED_COMPATIBLE or VERIFIED_NORMALIZATION_REQUIRED --
+        # they remain AMBIGUOUS until numerically confirmed.
+        profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+        profile_data["unresolved_ambiguities"].append(
+            f"Q/K classification {qk['classification']!r} is DECLARED (operator-asserted), not "
+            f"NUMERICALLY_VERIFIED -- a runtime compatibility verdict requires numerical proof, not a "
+            f"declaration alone")
     elif target == "canonical-llama.cpp":
         if qk["classification"] == "CANONICAL_LLAMA_CPP":
             profile_data["runtime_compatibility"]["result"] = "VERIFIED_COMPATIBLE"

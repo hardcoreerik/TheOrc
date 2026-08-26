@@ -73,27 +73,50 @@ def write_llama_fixture(path: str, spec: FixtureSpec, seed: int, permute_qk: boo
                         layers_to_write: int | None = None,
                         tamper: dict[str, np.ndarray] | None = None,
                         skip_tensors: tuple[str, ...] = (),
-                        quantize_token_embd: bool = False) -> None:
+                        quantize_token_embd: bool = False,
+                        name: str = "fl08-synthetic-test-fixture",
+                        rms_eps: float = 1e-5,
+                        rope_freq_base: float = 10000.0,
+                        context_length: int = 64,
+                        tokenizer_fields: dict | None = None,
+                        extra_non_qk_tensor: tuple[str, tuple[int, ...]] | None = None,
+                        include_output_weight: str | None = None) -> None:
     """Writes a small, valid-by-default synthetic llama-architecture
     GGUF. `tamper` overrides specific tensor arrays post-generation
     (before any encoding pass) to construct adversarial references.
     `skip_tensors` omits named tensors entirely (structural defects).
     `layers_to_write` (if less than spec.n_layers) constructs the
     classic layer-count contradiction. `declared_block_count` lets the
-    metadata lie independently of what's actually written."""
+    metadata lie independently of what's actually written. `rms_eps`/
+    `rope_freq_base`/`context_length` let a caller construct a genuine
+    execution-metadata-only difference (no tensor content changed).
+    `tokenizer_fields` is an optional {key: str_or_int_value} dict
+    written as tokenizer.ggml.* string/int fields (round-3 Gate 1C
+    adversarial tokenizer-metadata tests). `extra_non_qk_tensor` adds
+    one additional, unexpected non-Q/K tensor (name, shape) (round-3
+    Gate 1A "extra unknown tensor on one side" test)."""
     writer = GGUFWriter(path, arch="llama")
-    writer.add_name("fl08-synthetic-test-fixture")
-    writer.add_context_length(64)
+    writer.add_name(name)
+    writer.add_context_length(context_length)
     writer.add_embedding_length(spec.hidden)
     writer.add_block_count(declared_block_count if declared_block_count is not None else spec.n_layers)
     writer.add_feed_forward_length(spec.intermediate)
     writer.add_head_count(spec.n_head)
     writer.add_head_count_kv(spec.n_head_kv)
-    writer.add_layer_norm_rms_eps(1e-5)
+    writer.add_layer_norm_rms_eps(rms_eps)
     if not omit_rope_metadata:
         writer.add_rope_dimension_count(spec.head_dim)
-        writer.add_rope_freq_base(10000.0)
+        writer.add_rope_freq_base(rope_freq_base)
     writer.add_file_type(0)
+    for key, value in (tokenizer_fields or {}).items():
+        if isinstance(value, str):
+            writer.add_string(key, value)
+        elif isinstance(value, int):
+            writer.add_uint32(key, value)
+        elif isinstance(value, list):
+            writer.add_array(key, value)
+        else:
+            raise TypeError(f"unsupported tokenizer field value type for {key!r}: {type(value)}")
 
     rng = np.random.default_rng(seed=seed)
     tamper = tamper or {}
@@ -124,8 +147,20 @@ def write_llama_fixture(path: str, spec: FixtureSpec, seed: int, permute_qk: boo
         else:
             writer.add_tensor(name, arr)
 
-    write("token_embd.weight", make("token_embd.weight", spec.vocab, spec.hidden))
+    token_embd = make("token_embd.weight", spec.vocab, spec.hidden)
+    write("token_embd.weight", token_embd)
     write("output_norm.weight", make("output_norm.weight", spec.hidden))
+
+    if "output.weight" in tamper:
+        write("output.weight", tamper["output.weight"])
+    elif include_output_weight == "tied":
+        write("output.weight", token_embd.copy())
+    elif include_output_weight == "untied":
+        write("output.weight", rng.standard_normal((spec.vocab, spec.hidden)).astype(np.float32))
+
+    if extra_non_qk_tensor is not None:
+        extra_name, extra_shape = extra_non_qk_tensor
+        writer.add_tensor(extra_name, rng.standard_normal(extra_shape).astype(np.float32))
 
     n_layers_to_write = spec.n_layers if layers_to_write is None else layers_to_write
     for i in range(n_layers_to_write):
@@ -218,11 +253,18 @@ class TestGate1DirectMatchNeverAbsolute(_PairedFixtureCase):
         write_llama_fixture(raw_p, degenerate_spec, seed=7, permute_qk=False)
         write_llama_fixture(canon_p, degenerate_spec, seed=7, permute_qk=True)
         profile = fl08.profile_artifact(raw_p, canon_p, "canonical-llama.cpp")
-        # Either AMBIGUOUS (multiple hypotheses collide) or a genuinely
-        # resolved single hypothesis is acceptable -- what must NEVER
-        # happen is a silent authorize on a degenerate geometry.
-        if profile["qk_layout"]["classification"] not in ("RAW_HF", "CANONICAL_LLAMA_CPP"):
-            self.assertFalse(profile["execution_authorization"])
+        # Round-3 remediation (Grok finding #2): this assertion was
+        # previously conditional ("only check non-authorization IF
+        # classification isn't absolute"), which would not have caught
+        # a regression where a degenerate geometry DID produce an
+        # absolute label. Unconditional now: this specific geometry is
+        # confirmed (above) to hit MULTIPLE simultaneous hypotheses,
+        # which must ALWAYS resolve to AMBIGUOUS/AMBIGUOUS and NEVER
+        # authorize.
+        self.assertEqual(profile["qk_layout"]["classification"], "AMBIGUOUS")
+        self.assertEqual(profile["qk_layout"]["confidence"], "AMBIGUOUS")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "AMBIGUOUS")
+        self.assertFalse(profile["execution_authorization"])
 
     def test_raw_to_canonical_directional_case_still_works(self):
         profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
@@ -311,14 +353,14 @@ class TestGate2ReferenceValidationAndPairIdentity(_PairedFixtureCase):
         self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
         self.assertFalse(profile["execution_authorization"])
 
-    def test_reference_with_different_tokenizer_metadata_documented_behavior(self):
-        # Tokenizer/general metadata is NOT a tensor -- pair identity in
-        # this experiment is proven from tensor content, not metadata.
-        # This test documents (not silently assumes) that behavior: a
-        # tokenizer-metadata-only difference does not, by itself, flip
-        # pair identity, because the model's actual WEIGHTS are still
-        # provably identical. This is a disclosed scope boundary, not a
-        # gap -- see EXPERIMENT.md's round-2 section.
+    def test_no_tokenizer_metadata_on_either_side_is_trivially_equal(self):
+        # Round-3 correction: this test previously claimed to document
+        # "tokenizer metadata differences don't block pair identity,"
+        # but never actually varied any tokenizer field -- both sides
+        # simply had NO tokenizer.* metadata at all, so the comparison
+        # was vacuously equal. That claim was never actually true; see
+        # TestRound3TokenizerMetadata below for the REAL (now strict)
+        # behavior when tokenizer metadata actually differs.
         path_a = os.path.join(self.tmpdir, "tok_a.gguf")
         path_b = os.path.join(self.tmpdir, "tok_b.gguf")
         write_llama_fixture(path_a, self.spec, seed=1, permute_qk=False)
@@ -336,6 +378,256 @@ class TestGate2ReferenceValidationAndPairIdentity(_PairedFixtureCase):
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
         self.assertTrue(profile["execution_authorization"])
+
+
+# ---------------------------------------------------------------------
+# Round 3 (Codex authority review + independent Grok Double Check):
+# Gate 1B -- asymmetric output.weight must fail closed unless narrowly
+# proven tied to the present side's own token_embd.weight.
+# ---------------------------------------------------------------------
+
+class TestRound3OutputWeightTiedProof(_PairedFixtureCase):
+    def test_artifact_only_untied_output_weight_denied(self):
+        # THE Grok round-2 finding, directly reproduced: artifact has an
+        # output.weight the reference lacks, and it is NOT tied to
+        # artifact's own token_embd.weight (random/untied) -- must be
+        # UNVERIFIED, never silently skipped.
+        malicious_path = os.path.join(self.tmpdir, "malicious_untied_artifact.gguf")
+        write_llama_fixture(malicious_path, self.spec, seed=1, permute_qk=False,
+                            include_output_weight="untied")
+        profile = fl08.profile_artifact(malicious_path, self.canonical_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_reference_only_untied_output_weight_denied(self):
+        malicious_ref_path = os.path.join(self.tmpdir, "malicious_untied_reference.gguf")
+        write_llama_fixture(malicious_ref_path, self.spec, seed=1, permute_qk=True,
+                            include_output_weight="untied")
+        profile = fl08.profile_artifact(self.raw_path, malicious_ref_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_output_present_both_sides_but_different_denied(self):
+        # Both sides use the SAME seed for every other tensor (so V/FFN/
+        # norms/embedding genuinely match), but output.weight is
+        # supplied explicitly via `tamper` with two DIFFERENT arrays --
+        # `include_output_weight="untied"` alone would draw from
+        # identical RNG state on both sides (same seed, same draw
+        # order) and accidentally produce byte-identical "different"
+        # tensors, which would not exercise this test's actual point.
+        a_path = os.path.join(self.tmpdir, "out_a.gguf")
+        b_path = os.path.join(self.tmpdir, "out_b.gguf")
+        out_a = np.full((self.spec.vocab, self.spec.hidden), 1.0, dtype=np.float32)
+        out_b = np.full((self.spec.vocab, self.spec.hidden), 2.0, dtype=np.float32)
+        write_llama_fixture(a_path, self.spec, seed=1, permute_qk=False, tamper={"output.weight": out_a},
+                            include_output_weight="untied")
+        write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True, tamper={"output.weight": out_b},
+                            include_output_weight="untied")
+        profile = fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_output_absent_both_sides_verified(self):
+        # Baseline (already exercised by other tests, pinned explicitly
+        # here): neither side has output.weight -- shared tied
+        # representation, does not block pair identity.
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+
+    def test_one_sided_output_genuinely_tied_is_verified_and_can_authorize(self):
+        # The narrow, PROVEN-safe case: reference's output.weight is
+        # present and byte-identical to the REFERENCE's own
+        # token_embd.weight (a real tied-duplicate), artifact has none.
+        # token_embd.weight itself already matches between the two
+        # (same seed=1). This must NOT block pair identity -- it is
+        # exactly the real Phase 6 Case A/B situation.
+        tied_ref_path = os.path.join(self.tmpdir, "tied_reference.gguf")
+        write_llama_fixture(tied_ref_path, self.spec, seed=1, permute_qk=True, include_output_weight="tied")
+        # self.raw_path is RAW relative to tied_ref_path (canonical) --
+        # against target=canonical-llama.cpp that's VERIFIED_NORMALIZATION_
+        # REQUIRED (correctly non-authorizing, unrelated to this test's
+        # point). Use target=orcengine-current, where RAW_HF IS what the
+        # current loader expects as-is, so authorization is reachable
+        # -- isolating the tied-output-proof's effect on pair identity.
+        profile = fl08.profile_artifact(self.raw_path, tied_ref_path, "orcengine-current")
+        self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+        self.assertTrue(profile["execution_authorization"])
+        self.assertTrue(any("tied" in e.lower() for e in profile["evidence"]))
+
+    def test_output_weight_tied_proof_fails_if_token_embd_itself_unverified(self):
+        # A doubly-malicious case: token_embd.weight is ALSO tampered,
+        # so even a genuinely-tied output.weight cannot be trusted --
+        # the tied-proof precondition ("token_embd.weight already
+        # passed pair identity") must not be skipped.
+        rng = np.random.default_rng(4242)
+        tampered_embd = rng.standard_normal((self.spec.vocab, self.spec.hidden)).astype(np.float32)
+        tamper = {"token_embd.weight": tampered_embd}
+        tricky_path = os.path.join(self.tmpdir, "tricky.gguf")
+        write_llama_fixture(tricky_path, self.spec, seed=1, permute_qk=True, tamper=tamper,
+                            include_output_weight="tied")
+        profile = fl08.profile_artifact(self.raw_path, tricky_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+
+class TestRound3NonQkInventoryCompleteness(_PairedFixtureCase):
+    def test_corresponding_non_qk_tensor_type_mismatch_denied(self):
+        # Same shape/content-if-decoded, but a DIFFERENT GGML tensor
+        # type for the exact same tensor name -- must be caught by
+        # per-name type comparison, not an aggregate encoding-set check.
+        mismatched_path = os.path.join(self.tmpdir, "type_mismatch.gguf")
+        write_llama_fixture(mismatched_path, self.spec, seed=1, permute_qk=True, encoding="Q8_0")
+        profile = fl08.profile_artifact(self.raw_path, mismatched_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_extra_unknown_non_qk_tensor_on_one_side_denied(self):
+        extra_path = os.path.join(self.tmpdir, "extra_tensor.gguf")
+        write_llama_fixture(extra_path, self.spec, seed=1, permute_qk=True,
+                            extra_non_qk_tensor=("blk.0.mystery_adapter.weight", (self.spec.hidden, 4)))
+        profile = fl08.profile_artifact(self.raw_path, extra_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("inventory differs" in e for e in profile["pair_identity"]["evidence"]))
+
+
+# ---------------------------------------------------------------------
+# Round 3, Gate 1C: execution-affecting and tokenizer-affecting
+# metadata must reject a mismatch or one-sided value; benign
+# provenance/name-only differences must NOT block pair identity.
+# ---------------------------------------------------------------------
+
+class TestRound3ExecutionAndTokenizerMetadata(_PairedFixtureCase):
+    def test_changed_rope_freq_base_denied(self):
+        changed_path = os.path.join(self.tmpdir, "changed_rope.gguf")
+        write_llama_fixture(changed_path, self.spec, seed=1, permute_qk=True, rope_freq_base=99999.0)
+        profile = fl08.profile_artifact(self.raw_path, changed_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_changed_rms_norm_eps_denied(self):
+        changed_path = os.path.join(self.tmpdir, "changed_eps.gguf")
+        write_llama_fixture(changed_path, self.spec, seed=1, permute_qk=True, rms_eps=1e-3)
+        profile = fl08.profile_artifact(self.raw_path, changed_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_changed_feed_forward_metadata_denied(self):
+        # A different intermediate size is normally also a tensor-shape
+        # contradiction (Gate 2 would already reject it structurally at
+        # Layer 2) -- construct this via a spec with a genuinely
+        # different (but internally consistent) feed_forward_length so
+        # it passes Layer 2 as a STANDALONE artifact and is caught by
+        # Gate 1C's pair-identity metadata check instead.
+        different_ffn_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=48, vocab=32, n_layers=2)
+        changed_path = os.path.join(self.tmpdir, "changed_ffn.gguf")
+        write_llama_fixture(changed_path, different_ffn_spec, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(self.raw_path, changed_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_changed_context_length_denied(self):
+        changed_path = os.path.join(self.tmpdir, "changed_ctx.gguf")
+        write_llama_fixture(changed_path, self.spec, seed=1, permute_qk=True, context_length=128)
+        profile = fl08.profile_artifact(self.raw_path, changed_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_changed_tokenizer_metadata_denied(self):
+        a_path = os.path.join(self.tmpdir, "tok_real_a.gguf")
+        b_path = os.path.join(self.tmpdir, "tok_real_b.gguf")
+        write_llama_fixture(a_path, self.spec, seed=1, permute_qk=False,
+                            tokenizer_fields={"tokenizer.ggml.model": "gpt2", "tokenizer.ggml.bos_token_id": 1})
+        write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True,
+                            tokenizer_fields={"tokenizer.ggml.model": "gpt2", "tokenizer.ggml.bos_token_id": 2})
+        profile = fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_one_sided_tokenizer_field_denied(self):
+        # Reproduces the exact real-artifact asymmetry Phase 6 found
+        # (custom has tokenizer.ggml.add_eos_token, canonical does not).
+        a_path = os.path.join(self.tmpdir, "tok_onesided_a.gguf")
+        b_path = os.path.join(self.tmpdir, "tok_onesided_b.gguf")
+        write_llama_fixture(a_path, self.spec, seed=1, permute_qk=False,
+                            tokenizer_fields={"tokenizer.ggml.add_eos_token": 0})
+        write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True, tokenizer_fields={})
+        profile = fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_benign_name_only_difference_does_not_block_pair_identity(self):
+        # general.name is classified BENIGN provenance/bookkeeping --
+        # matches this profiler's real-artifact policy (Phase 6's
+        # custom vs. canonical artifacts differ in general.name and
+        # this is explicitly NOT treated as an execution-relevant
+        # mismatch).
+        a_path = os.path.join(self.tmpdir, "name_a.gguf")
+        b_path = os.path.join(self.tmpdir, "name_b.gguf")
+        write_llama_fixture(a_path, self.spec, seed=1, permute_qk=False, name="SmolLM2-135M")
+        write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True, name="Smollm2 135m")
+        profile = fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+
+
+# ---------------------------------------------------------------------
+# Round 3, Gate 3: DECLARED confidence must never resolve to
+# VERIFIED_COMPATIBLE, and a contradictory --reference-layout
+# declaration must fail closed rather than being silently ignored.
+# ---------------------------------------------------------------------
+
+class TestRound3DeclarationVsVerification(_PairedFixtureCase):
+    def test_declaration_only_compatibility_is_ambiguous_not_verified_compatible(self):
+        identical_path = os.path.join(self.tmpdir, "identical_for_decl.gguf")
+        write_llama_fixture(identical_path, self.spec, seed=1, permute_qk=False)
+        profile = fl08.profile_artifact(self.raw_path, identical_path, "canonical-llama.cpp",
+                                        reference_layout_declared="raw")
+        self.assertEqual(profile["qk_layout"]["confidence"], "DECLARED")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "AMBIGUOUS")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_declaration_only_cli_exit_is_nonzero(self):
+        import subprocess
+        import sys as _sys
+        identical_path = os.path.join(self.tmpdir, "identical_for_cli.gguf")
+        write_llama_fixture(identical_path, self.spec, seed=1, permute_qk=False)
+        profiler_path = os.path.join(os.path.dirname(__file__), "profiler.py")
+        result = subprocess.run(
+            [_sys.executable, profiler_path, self.raw_path, "--reference", identical_path,
+             "--reference-layout", "raw", "--target", "canonical-llama.cpp"],
+            capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_contradictory_declaration_on_raw_relative_match_fails_closed(self):
+        # Numerically, self.raw_path is RAW relative to self.canonical_path
+        # (permute(raw) == canonical) -- so the reference is CANONICAL.
+        # Declaring --reference-layout=raw directly contradicts that.
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp",
+                                        reference_layout_declared="raw")
+        self.assertEqual(profile["qk_layout"]["classification"], "AMBIGUOUS")
+        self.assertTrue(any("CONTRADICTION" in a for a in profile["unresolved_ambiguities"]))
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_contradictory_declaration_on_canonical_relative_match_fails_closed(self):
+        # self.canonical_path is CANONICAL relative to self.raw_path
+        # (permute(reference) == artifact) -- the reference (raw_path)
+        # is RAW. Declaring --reference-layout=canonical contradicts.
+        profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp",
+                                        reference_layout_declared="canonical")
+        self.assertEqual(profile["qk_layout"]["classification"], "AMBIGUOUS")
+        self.assertTrue(any("CONTRADICTION" in a for a in profile["unresolved_ambiguities"]))
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_agreeing_declaration_on_directional_match_does_not_break_it(self):
+        # A declaration that AGREES with the numerical finding must not
+        # be treated as a contradiction -- classification stays
+        # NUMERICALLY_VERIFIED via the normal directional path.
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp",
+                                        reference_layout_declared="canonical")
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+        self.assertEqual(profile["qk_layout"]["confidence"], "NUMERICALLY_VERIFIED")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
 
 
 # ---------------------------------------------------------------------
@@ -460,6 +752,138 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         writer.close()
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
         self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_UNSUPPORTED")
+        self.assertFalse(profile["execution_authorization"])
+
+    # -------------------------------------------------------------
+    # Round 3 (Codex authority review): correct ROWS but WRONG INPUT
+    # WIDTH (last/column dimension) previously passed silently -- the
+    # round-2 checks validated only the output-row axis.
+    # -------------------------------------------------------------
+
+    def test_odd_head_dim_returns_structured_invalid_not_a_crash(self):
+        # Codex ODD_HEAD_DIM_CRASH probe, reproduced directly: hidden=18,
+        # n_head=2 -> head_dim=9 (odd). official_permute()'s reshape
+        # would previously raise ValueError uncaught mid-comparison.
+        odd_spec = FixtureSpec(hidden=18, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
+        path = os.path.join(self.tmpdir, "odd_head_dim.gguf")
+        write_llama_fixture(path, odd_spec, seed=1)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("odd" in a.lower() for a in profile["unresolved_ambiguities"]))
+
+    def test_qk_input_width_wrong_rows_correct_is_invalid(self):
+        # THE exact Codex WRONG_QK_INPUT_WIDTH probe: Q/K's ROW count is
+        # correct (matches head geometry) but the INPUT width (last
+        # dim) is hidden+2, not hidden.
+        path = os.path.join(self.tmpdir, "wrong_qk_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.attn_q.weight": rng.standard_normal((SPEC.q_rows, SPEC.hidden + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_k_input_width_wrong_rows_correct_is_invalid(self):
+        path = os.path.join(self.tmpdir, "wrong_k_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.attn_k.weight": rng.standard_normal((SPEC.kv_rows, SPEC.hidden + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_v_input_width_wrong_rows_correct_is_invalid(self):
+        path = os.path.join(self.tmpdir, "wrong_v_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.attn_v.weight": rng.standard_normal((SPEC.kv_rows, SPEC.hidden + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_attn_output_input_width_wrong_rows_correct_is_invalid(self):
+        path = os.path.join(self.tmpdir, "wrong_attn_out_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.attn_output.weight": rng.standard_normal((SPEC.hidden, SPEC.q_rows + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_ffn_gate_input_width_wrong_rows_correct_is_invalid(self):
+        path = os.path.join(self.tmpdir, "wrong_gate_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.ffn_gate.weight": rng.standard_normal((SPEC.intermediate, SPEC.hidden + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_ffn_up_input_width_wrong_rows_correct_is_invalid(self):
+        path = os.path.join(self.tmpdir, "wrong_up_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.ffn_up.weight": rng.standard_normal((SPEC.intermediate, SPEC.hidden + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_ffn_down_intermediate_input_width_wrong_is_invalid(self):
+        path = os.path.join(self.tmpdir, "wrong_down_width.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.ffn_down.weight": rng.standard_normal((SPEC.hidden, SPEC.intermediate + 2)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_two_dimensional_norm_with_superficially_correct_first_dim_is_invalid(self):
+        # A norm tensor stored as rank-2 (hidden, 1) instead of rank-1
+        # (hidden,) -- shape[0] is superficially "correct" but this is
+        # not the expected 1-D norm vector.
+        path = os.path.join(self.tmpdir, "rank2_norm.gguf")
+        rng = np.random.default_rng(5)
+        tamper = {"blk.0.attn_norm.weight": rng.standard_normal((SPEC.hidden, 1)).astype(np.float32)}
+        write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_malformed_q8_0_width_in_non_qk_tensor_is_invalid(self):
+        # A non-Q/K tensor (ffn_gate.weight) packed with the wrong Q8_0
+        # byte width -- Gate 2's dimension check must catch this for
+        # EVERY quantized 2-D tensor, not only Q/K.
+        q8_spec = FixtureSpec(hidden=64, n_head=4, n_head_kv=2, intermediate=64, vocab=32, n_layers=1)
+        path = os.path.join(self.tmpdir, "bad_ffn_q8.gguf")
+        w = GGUFWriter(path, arch="llama")
+        w.add_name("bad-ffn-q8")
+        w.add_context_length(64)
+        w.add_embedding_length(q8_spec.hidden)
+        w.add_block_count(1)
+        w.add_feed_forward_length(q8_spec.intermediate)
+        w.add_head_count(q8_spec.n_head)
+        w.add_head_count_kv(q8_spec.n_head_kv)
+        w.add_layer_norm_rms_eps(1e-5)
+        w.add_rope_dimension_count(q8_spec.head_dim)
+        w.add_rope_freq_base(10000.0)
+        rng = np.random.default_rng(1)
+        w.add_tensor("token_embd.weight", rng.standard_normal((q8_spec.vocab, q8_spec.hidden)).astype(np.float32))
+        w.add_tensor("output_norm.weight", rng.standard_normal((q8_spec.hidden,)).astype(np.float32))
+        w.add_tensor("blk.0.attn_norm.weight", rng.standard_normal((q8_spec.hidden,)).astype(np.float32))
+        w.add_tensor("blk.0.attn_q.weight", rng.standard_normal((q8_spec.q_rows, q8_spec.hidden)).astype(np.float32))
+        w.add_tensor("blk.0.attn_k.weight", rng.standard_normal((q8_spec.kv_rows, q8_spec.hidden)).astype(np.float32))
+        w.add_tensor("blk.0.attn_v.weight", rng.standard_normal((q8_spec.kv_rows, q8_spec.hidden)).astype(np.float32))
+        w.add_tensor("blk.0.attn_output.weight",
+                    rng.standard_normal((q8_spec.hidden, q8_spec.q_rows)).astype(np.float32))
+        w.add_tensor("blk.0.ffn_norm.weight", rng.standard_normal((q8_spec.hidden,)).astype(np.float32))
+        # Malformed: packed as if 32 "fake" input elements (34 bytes)
+        # instead of the real hidden=64 (should be 68 bytes).
+        bad_gate = pack_q8_0(rng.standard_normal((q8_spec.intermediate, 32)).astype(np.float32))
+        w.add_tensor("blk.0.ffn_gate.weight", bad_gate, raw_dtype=GGMLQuantizationType.Q8_0)
+        w.add_tensor("blk.0.ffn_up.weight",
+                    rng.standard_normal((q8_spec.intermediate, q8_spec.hidden)).astype(np.float32))
+        w.add_tensor("blk.0.ffn_down.weight",
+                    rng.standard_normal((q8_spec.hidden, q8_spec.intermediate)).astype(np.float32))
+        w.write_header_to_file()
+        w.write_kv_data_to_file()
+        w.write_tensors_to_file()
+        w.close()
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
 
@@ -654,7 +1078,13 @@ class TestGate5PackedQ80Validation(unittest.TestCase):
         profile = fl08.profile_artifact(bad_a, bad_b, "canonical-llama.cpp")
         self.assertFalse(profile["execution_authorization"])
         self.assertNotIn(profile["qk_layout"]["classification"], ("RAW_HF", "CANONICAL_LLAMA_CPP"))
-        self.assertTrue(any("Q8_0" in a or "q8_0" in a.lower() or "block" in a.lower()
+        # Round-3 remediation: Gate 2's complete-dimension check (using
+        # logical_last_dim(), which decodes packed Q8_0 width) now
+        # catches this at Layer 2 structural validation -- BEFORE Layer
+        # 3's dedicated Q8_0 geometry check would even run -- so the
+        # artifact is INVALID, not merely AMBIGUOUS at the Q/K layer.
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertTrue(any("shape" in a.lower() or "dim" in a.lower()
                             for a in profile["unresolved_ambiguities"]))
 
     def test_mixed_tensor_types_rejected(self):
@@ -798,6 +1228,37 @@ class TestGate7NormalizationPlan(_PairedFixtureCase):
         profile["qk_layout"]["layers_total"] = 0
         plan, reason = fl08_plan.build_plan(profile)
         self.assertIsNone(plan)
+
+    def test_one_checked_tensor_zero_checked_layers_refused(self):
+        # Round-3 remediation (Gate 4): an internally-inconsistent
+        # profile claiming qk_tensors_checked=1 but layers_checked=0
+        # must never emit a plan.
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
+        profile["qk_layout"]["qk_tensors_checked"] = 1
+        profile["qk_layout"]["layers_checked"] = 0
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_malformed_nested_field_type_refused_not_raised(self):
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
+        profile["qk_layout"]["layers_total"] = "not-an-int"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_missing_nested_field_refused_not_raised(self):
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
+        del profile["qk_layout"]["qk_tensors_checked"]
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_null_reference_refused(self):
+        profile = fl08.profile_artifact(self.raw_path, None, "canonical-llama.cpp")
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
 
     def test_unauthorized_but_compatible_input_profile_yields_no_plan(self):
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp")
