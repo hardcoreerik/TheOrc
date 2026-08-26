@@ -596,3 +596,212 @@ round-3 `test_output_weight_tied_proof_fails_if_token_embd_itself_
 unverified` renamed to `test_embedding_mismatch_denied_before_tied_
 output_proof_is_ever_reached`, counted as one removal + one addition)
 -- net **+41**, `93 + 41 = 134`, matching the executed count exactly.
+
+## Round 5 remediation: results and conclusions
+
+Triggered by a combined Codex authority review and an independent
+Grok Double Check of the round-4 remediation (per direct user
+reconciliation). **FL-08 was NOT closed after round 4** due to the
+findings below -- round 4's own findings (semantic metadata
+validation, GQA geometry, normalization-plan hardening, tied-output
+guard documentation) remain closed and unaffected by this round's
+work; the items below are a new, separate defect class discovered
+during round-4's own authority review, not a regression in round 4's
+fixes.
+
+### GGUF metadata type confusion (Gate 1, BLOCKER)
+
+**Claim under test** (Codex, round-4 authority review): round 4's
+semantic checks (`int(field.contents())`/`float(field.contents())`)
+never verified `field.types[0]` against the declared GGUF value type
+before conversion. Two consequences, both reproduced exactly as
+claimed before this round's fix:
+
+1. A STRING-typed field holding a numeric-looking value (e.g.
+   `llama.attention.layer_norm_rms_epsilon` written as the GGUF
+   string `"0.00001"`, or `llama.rope.dimension_count` written as the
+   GGUF string `"8"`) passed every downstream semantic check, because
+   Python's own `float("0.00001")` / `int("8")` coercion silently
+   succeeds on a string GGUF field's decoded `str` contents --
+   reaching `VERIFIED_COMPATIBLE`/`execution_authorization=true` on a
+   metadata value whose ACTUAL on-disk type the runtime's real GGUF
+   parser would never accept as numeric in the first place.
+2. A STRING-typed field holding a non-numeric value (e.g.
+   `layer_norm_rms_epsilon` = `"not-a-number"`) raised an UNCAUGHT
+   `ValueError` from `float()`, violating the profiler's own
+   never-raise/always-structured-`INVALID` contract.
+
+Both reproductions are now closed. Root cause fixed once, at a single
+shared boundary (`_read_typed_scalar()` in `profiler.py`), not via
+scattered per-call `try/except`: every scalar metadata read in
+`validate_artifact()` (`GGUF.version`, `general.architecture`, the 6
+integer geometry fields, `layer_norm_rms_epsilon`,
+`rope.dimension_count`, `rope.freq_base`, `rope.scaling.type`,
+`rope.scaling.factor`, `attention.sliding_window`) and the 3
+redundant-key cross-checks in `verify_pair_identity()`
+(`key_length`, `value_length`, `vocab_size`) now go through one of
+three typed wrappers (`_read_int_field`/`_read_float_field`/
+`_read_string_field`), each of which:
+
+- Checks `field.types[0]` against an explicit allow-list of GGUF
+  value types for that family BEFORE calling `field.contents()` --
+  the integer family accepts all of `UINT8`/`INT8`/`UINT16`/`INT16`/
+  `UINT32`/`INT32`/`UINT64`/`INT64` (not only the `UINT32` width real
+  Phase 6 artifacts happen to use, since a narrower allow-list would
+  be an unjustified additional restriction the GGUF spec does not
+  impose); the float family accepts `FLOAT32`/`FLOAT64`; the string
+  family accepts `STRING` only.
+- Rejects a wrong-type field with a structured evidence string naming
+  the exact key, its actual GGUF type (name and numeric value), and
+  the expected type family -- never trusts Python's own coercion even
+  when it would silently succeed.
+- Catches any exception from `field.contents()` itself (a malformed
+  low-level content, distinct from a wrong-but-decodable type) inside
+  the shared boundary, returning it as the same kind of structured
+  error rather than letting it escape.
+- Additionally rejects `bool` wherever `int` is expected (the same
+  bool-is-int-subtype guard round 4 added to
+  `normalization_plan.py`'s `_get()`, applied here too for
+  consistency, since a `BOOL`-typed GGUF field is a distinct GGUF
+  value type from any integer type and must not silently coerce).
+
+Every caller checks the returned error before using the value and
+fails closed to `INVALID` with that evidence, matching the existing
+tuple-return-and-check-at-call-site idiom already used throughout
+`validate_artifact()` (no new exception-based control flow
+introduced).
+
+Confirmed by 18 new tests in `TestRound5MetadataTypeValidation`,
+built against GENUINE malformed-type GGUF fixtures constructed via a
+new `raw_metadata_overrides` parameter on `write_llama_fixture()`
+(writes the field via an arbitrary `GGUFWriter` method instead of
+its normal typed one -- not a mutated in-memory profile dict):
+numeric-string RMS epsilon (both paired artifacts matching, proving
+equality of a wrong-typed value still cannot authorize), nonnumeric-
+string RMS epsilon (proving no exception escapes), numeric-string
+RoPE dimension (paired), numeric- and nonnumeric-string RoPE
+freq_base, numeric-string head_count and block_count, a scalar field
+(RMS epsilon, embedding_length) stored as a GGUF ARRAY, RoPE scaling
+factor as a string, sliding-window as a string, all 3 redundant keys
+(`key_length`/`value_length`/`vocab_size`) under the wrong type on a
+paired profile (asserting `pair_identity.status == "UNVERIFIED"`,
+not merely overall non-authorization), and controls proving the
+fix is not over-strict: a properly-typed pair still authorizes, a
+non-`UINT32` integer family member (`INT32`) is accepted, a
+`FLOAT64` RMS epsilon is accepted, and the real Phase 6 artifact's
+actual on-disk metadata types produce zero "GGUF type is" ambiguities
+(skipped if the artifact is not present on the running machine).
+
+### RoPE `scaling.type`/`scaling.factor` coupling audit (Gate 2)
+
+Audited, not changed. Question: does the profiler's INDEPENDENT
+validation of `rope.scaling.type` and `rope.scaling.factor` (each
+checked for its own semantic validity regardless of whether the
+other key is present) correctly reflect the documented GGUF/llama.cpp
+default semantics for an ABSENT key, or does it risk either false-
+denying a legitimate default-only artifact or false-authorizing an
+artifact whose true effective scaling is non-identity?
+
+Verified directly against the real consumer source at the pinned
+llama.cpp commit `6fed9f6ff7a603b124cb8c5864fca6ea879f9f99`
+(`src/llama-model.cpp`, GGUF-key-loading section):
+
+```c++
+std::string rope_scaling("linear");
+ml.get_key(LLM_KV_ROPE_SCALING_TYPE, rope_scaling, false);
+hparams.rope_scaling_type_train = llama_rope_scaling_type_from_string(rope_scaling);
+...
+float ropescale = 0.0f;
+if (!ml.get_key(LLM_KV_ROPE_SCALING_FACTOR, ropescale, false)) {
+    ml.get_key(LLM_KV_ROPE_SCALE_LINEAR, ropescale, false);
+}
+hparams.rope_freq_scale_train = ropescale == 0.0f ? 1.0f : 1.0f/ropescale;
+```
+
+Findings:
+
+- If `rope.scaling.type` is ABSENT, the real loader defaults it to
+  the STRING `"linear"` (not `"none"` as the struct's compile-time
+  default in `llama-hparams.h` might suggest in isolation -- that
+  default is overwritten by this loading code whenever the file is
+  parsed).
+- If `rope.scaling.factor` is ABSENT, `ropescale` stays `0.0f`, and
+  the ternary maps that to `rope_freq_scale_train = 1.0f` -- an
+  IDENTITY (no-op) scale, independent of whatever `rope_scaling_type`
+  resolved to.
+- Consequently: type-absent + factor-absent is always a no-op
+  (`"linear"` at factor `1.0`, indistinguishable from `"none"`);
+  type-absent + factor-present-and-non-1.0 is NOT a no-op (the
+  absent-defaulting-to-"linear" type combines with a real,
+  execution-affecting factor).
+
+This exactly matches the profiler's existing (round-4) independent-
+field behavior: each field's ambiguity/rejection check only fires
+when that field is PRESENT (`if scaling_type_val is not None: ...`,
+`if factor_val is not None: ...`), so absence of either field alone
+never triggers a false denial, while a present non-1.0 factor is
+rejected regardless of whether `scaling.type` happens to be present
+alongside it -- correctly closing the exact "type absent, factor
+present and non-identity" case the source confirms is NOT a no-op.
+No code change was needed; the round-4 decision is confirmed correct
+against the real consumer's documented default semantics, not merely
+assumed safe. The exact coupling case (factor present and non-1.0
+with `scaling.type` left absent) was already covered by round 4's
+`test_non_identity_rope_scaling_factor_denied` (which sets only
+`rope_scaling_factor=2.0`, leaving `rope_scaling_type` unset) --
+satisfying this round's "add only the smallest regression needed"
+instruction with zero new tests, since an equivalent one already
+exists and re-passes unchanged.
+
+### SHA-256 exact-match regex defect (Gate 3, FIX BEFORE FREEZE)
+
+`normalization_plan.py`'s `_valid_sha256()` used
+`_SHA256_HEX_RE.match(value)` with a `^[0-9a-fA-F]{64}$`-anchored
+pattern. Python's `re.match()` with a trailing `$` anchor matches
+immediately BEFORE a trailing `"\n"` -- so a 64-hex-char value
+followed by exactly one newline (`("a"*64) + "\n"`) satisfied
+`.match()` despite not being a bare 64-character hex string. Fixed
+by switching to `.fullmatch()`, which has no such exception; the
+64-hex-character acceptance criterion itself (including case-
+insensitive/uppercase acceptance, per round 4) is unchanged.
+
+Confirmed by 7 new tests appended to `TestGate7NormalizationPlan`:
+trailing newline (the exact defect) on the artifact hash and,
+separately, on the reference hash; an embedded newline mid-string;
+leading and trailing whitespace; a `"sha256:"` prefix; and a
+`".gguf"` suffix -- all now correctly refused (`build_plan()` returns
+`(None, reason)`, never a plan).
+
+### Final test count (this round)
+
+`python -m unittest test_profiler` (executed, not estimated): **159
+tests, 159 passing.** Up from round 4's 134: **+18**
+(`TestRound5MetadataTypeValidation`, Gate 1) **+7**
+(SHA-256 hostile regressions appended to `TestGate7
+NormalizationPlan`, Gate 3) = **+25**, `134 + 25 = 159`, matching the
+executed count exactly. Independently cross-checked via
+`grep -c "    def test_" test_profiler.py`.
+
+### Real-artifact fixture regeneration (Cases A-E, no-reference case)
+
+All 6 committed real-Phase-6-artifact outputs
+(`fixtures_results/case_{a,b,c,d,e}.{json,txt}` and
+`no_reference_ambiguous.{json,txt}`) were regenerated this round by
+re-running the exact same CLI invocations (same artifact/reference
+paths, same `--target`) against the round-5 code and diffed byte-
+for-byte against the committed files: **all 6 are byte-identical,
+zero diff.** This is expected and correct -- the real Phase 6
+artifacts' on-disk metadata is entirely well-typed (confirmed by
+`test_real_phase6_artifact_type_tags_accepted`, which asserts zero
+"GGUF type is" ambiguities against the real custom artifact), so the
+round-5 type-validation boundary changes what happens to a
+WRONG-typed field, not the result for any field that was already
+correctly typed. Per this round's instruction not to unnecessarily
+rewrite unchanged fixtures, none of the 6 files were touched.
+
+### FL-08 status after round 5
+
+Not closed. The two round-5 findings above (metadata type confusion,
+SHA-256 exact-match) are fixed and regression-tested this round;
+stopping here for Codex review before any further remediation,
+merge, promotion, or freeze, per standing constraint.
