@@ -4,9 +4,33 @@
     "path": "F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf",
     "sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac"
   },
-  "confidence_level": "NUMERICALLY_VERIFIED",
+  "authorization_conditions": {
+    "architecture_valid": true,
+    "container_valid": true,
+    "encoding_supported": true,
+    "matches_target_as_is": false,
+    "no_unresolved_ambiguity": true,
+    "normalization_not_required": false,
+    "pair_identity_verified": true,
+    "per_layer_consistent": true,
+    "qk_numerically_verified": true,
+    "qk_tensors_nonzero_and_complete": true,
+    "reference_valid": true
+  },
+  "confidence": {
+    "architecture": "STRUCTURALLY_VERIFIED",
+    "container": "STRUCTURALLY_VERIFIED",
+    "pair_identity": "NUMERICALLY_VERIFIED",
+    "qk_dialect": "NUMERICALLY_VERIFIED",
+    "reference": "STRUCTURALLY_VERIFIED"
+  },
+  "confidence_level": "STRUCTURALLY_VERIFIED",
   "container": {
-    "evidence": [],
+    "evidence": [
+      "artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+      "container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates",
+      "architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)"
+    ],
     "type": "GGUF",
     "valid": true,
     "version": 3
@@ -15,37 +39,70 @@
   "evidence": [
     "artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
     "container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates",
-    "architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3",
+    "architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)",
     "output.weight present and byte-identical to token_embd.weight (logically tied, physically duplicated)",
-    "Q/K fingerprint matches RAW_HF convention: permute(this artifact's Q/K) == reference 'F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf''s Q/K, verified on 60/60 tensors (30/30 layers)"
+    "[pair-identity] all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout",
+    "Q/K fingerprint matches RAW_HF convention: permute(this artifact's Q/K) == reference 'F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf''s Q/K (this artifact is raw relative to the reference, per the externally-fixed permute() direction), verified on 60/60 tensors (30/30 layers)"
   ],
   "execution_authorization": false,
   "known_normalization_requirements": [
     "Q/K RoPE-layout permutation required (raw-HF -> canonical llama.cpp interleaving)"
   ],
-  "metadata_fingerprint": "0fe1164e4735dfffa621a9e695be9ca37ed188dd4ac9493855f6c2aef7d9007d",
+  "metadata_fingerprint": "22d9b8bdc0f47726abfd235ae79e01c3131ac52bc03605e52a7f17f8c2ce78df",
   "output_weight_semantics": "TIED_PHYSICALLY_DUPLICATED",
-  "provenance": {
-    "known": false,
-    "producer": null,
-    "source": "UNKNOWN"
+  "pair_identity": {
+    "evidence": [
+      "all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout"
+    ],
+    "status": "VERIFIED"
   },
   "qk_layout": {
     "classification": "RAW_HF",
     "confidence": "NUMERICALLY_VERIFIED",
-    "layers_checked": 60,
-    "layers_total": 60,
-    "per_layer_consistent": true
+    "layers_checked": 30,
+    "layers_total": 30,
+    "per_layer_consistent": true,
+    "qk_tensors_checked": 60,
+    "qk_tensors_total": 60
   },
   "quantization_formats": [
     "F32"
   ],
+  "reference": {
+    "container": {
+      "evidence": [
+        "artifact sha256=aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7",
+        "container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates",
+        "architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)"
+      ],
+      "type": "GGUF",
+      "valid": true,
+      "version": 3
+    },
+    "declared_architecture": "llama",
+    "file_size_bytes": 539845216,
+    "metadata_fingerprint": "bf98ecbd30f76e82c5dd9db5ef38df87c3a784accae948d306d870b5588e7208",
+    "pair_identity": {
+      "evidence": [
+        "all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout"
+      ],
+      "status": "VERIFIED"
+    },
+    "path": "F:/Ai/OrchestratorIDE-phase6-quantization/.orc/gate2-canonical-diagnostic/smollm2-135m-canonical-f32.gguf",
+    "quantization_formats": [
+      "F32"
+    ],
+    "sha256": "aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7",
+    "tensor_inventory_fingerprint": "c47461d8991fb3d297c76e34d57e700d6500e39b3c04c1a66a2feaa560d7187f",
+    "terminal_result": null,
+    "tokenizer_fingerprint": "f694e0dec7bbf6d052a61b022cb010861f132025c3dcc64f2de4dd3c2d620af1"
+  },
   "runtime_compatibility": {
     "result": "VERIFIED_NORMALIZATION_REQUIRED",
     "target": "canonical-llama.cpp"
   },
-  "schema_version": 1,
-  "tensor_inventory_fingerprint": "08bb0fd35e0417cffb8ea6d05d4d4d32f683d0ab397b2dc5f949406f11201163",
-  "tokenizer_fingerprint": "8c5e3d9c62f4d8b4595190aa13eaaf0ed411772c85211f481403233d97f5dcbd",
+  "schema_version": 2,
+  "tensor_inventory_fingerprint": "7ae7e4ebe358e161d678ae8eaaed29f7e3e90f267a6638a39cb4b3e6b7ca858b",
+  "tokenizer_fingerprint": "b3dc951d19443a91ef6d10d4f59f2544d8e46d64e83fec06ea43419996cc49b9",
   "unresolved_ambiguities": []
 }

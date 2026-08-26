@@ -3,14 +3,15 @@
   "execution_authorized": false,
   "modifies_source_artifact": false,
   "produces_new_artifact": true,
+  "reference_artifact_sha256": "aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7",
   "required_operations": [
     {
-      "evidence": "Q/K fingerprint check verified on 60/60 tensors (NUMERICALLY_VERIFIED)",
+      "evidence": "Q/K fingerprint check verified on 60/60 tensors, 30/30 layers (NUMERICALLY_VERIFIED); pair identity VERIFIED against reference",
       "layers": "0-29",
       "operation": "permute_q_projection"
     },
     {
-      "evidence": "Q/K fingerprint check verified on 60/60 tensors (NUMERICALLY_VERIFIED)",
+      "evidence": "Q/K fingerprint check verified on 60/60 tensors, 30/30 layers (NUMERICALLY_VERIFIED); pair identity VERIFIED against reference",
       "layers": "0-29",
       "operation": "permute_k_projection"
     }

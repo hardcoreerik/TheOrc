@@ -34,8 +34,18 @@ bounded, honest pass sufficient to ground a differentiation claim.
   for a different problem -- establishes that "explicit states over
   guessing" is already a house convention, not a new idea being
   introduced here for the first time.
-- **Phase 6 round 7's own `phase6_gate2_canonical_layout_check.py`,
-  `phase6_gate3_qk_isolation.py`.** These ARE, in effect, narrow,
+- **Phase 6 round 7's `phase6_gate2_canonical_layout_check.py` and
+  `phase6_gate3_qk_isolation.py`.** > **CORRECTED (round 2, independent
+  Grok Double Check finding):** these files live on the SEPARATE
+  `feat/orcengine-phase6-quantization` branch, in the separate
+  `OrchestratorIDE-phase6-quantization` worktree -- they are NOT
+  present in this FL-08 tree (`research/orcengine-fl08-model-compat-
+  profiler`, based on `orcengine-phase5c-freeze`, which predates Phase
+  6 entirely). The original wording below implied in-tree evidence;
+  this is cross-worktree/session knowledge from the same overall
+  working session, not something this repository state can itself
+  reproduce or freeze as evidence. Read on the other worktree's disk
+  directly, not cited from memory. They ARE, in effect, narrow,
   single-purpose, throwaway compatibility probes for exactly the Q/K
   question -- they hash-verify artifacts, apply the pinned permutation
   formula, and report agree/disagree. They are NOT reusable,
@@ -127,4 +137,5 @@ claim is NOT supported and must not be made.**
 - [GGUF format guide, layout/schema drift across llama.cpp versions](https://www.datacamp.com/tutorial/gguf-format-a-complete-guide)
 - [ggml/gguf.md spec](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md)
 - [GGUF architecture-mismatch failure reports (various)](https://runaihome.com/blog/unknown-model-architecture-gguf-ollama-llama-cpp-fix-2026/)
-- Direct repository inspection: `Tools/OrcEnginePhase2/tools/gguf_inspect.cpp`, `training_pit/MODEL_COMPATIBILITY.md`, `training_pit/scripts/check_model_compatibility.py`, Phase 6's `phase6_gate2_canonical_layout_check.py`/`phase6_gate3_qk_isolation.py` (own prior work, same session)
+- Direct repository inspection, IN THIS TREE: `Tools/OrcEnginePhase2/tools/gguf_inspect.cpp`, `training_pit/MODEL_COMPATIBILITY.md`, `training_pit/scripts/check_model_compatibility.py`
+- Cross-worktree session knowledge, NOT in this tree (see the round-2 correction above): Phase 6's `phase6_gate2_canonical_layout_check.py`/`phase6_gate3_qk_isolation.py`, read directly on the separate `OrchestratorIDE-phase6-quantization` worktree/`feat/orcengine-phase6-quantization` branch during the same overall working session

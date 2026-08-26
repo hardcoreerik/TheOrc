@@ -1,7 +1,8 @@
 Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): UNKNOWN
-Runtime target: None
+Pair identity: UNVERIFIED
+Runtime target: canonical-llama.cpp
 Compatibility: INVALID
 Evidence:
   - artifact sha256=cbdd39760d8b18551408f663b45e7aaf4fef95173730dbbe240be41389faf078

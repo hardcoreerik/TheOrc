@@ -136,7 +136,10 @@ tensor names or file naming conventions.
 
 This is a real, disclosed scope limitation, not silently omitted:
 single-artifact (unpaired) layout inference is explicitly OUT OF SCOPE
-for FL-08 and named as a limitation in the final report.
+for FL-08 -- see EXPERIMENT.md's "Round 2 remediation: results and
+conclusions" section, this experiment's durable results/limitations
+record (round-2 correction: no separate "final report" file exists;
+the original wording here implied one did).
 
 ### Layer 4: numerical conformance probe
 

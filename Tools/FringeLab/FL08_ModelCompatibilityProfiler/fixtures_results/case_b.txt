@@ -1,13 +1,15 @@
 Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): CANONICAL_LLAMA_CPP
+Pair identity: VERIFIED
 Runtime target: canonical-llama.cpp
 Compatibility: VERIFIED_COMPATIBLE
 Evidence:
   - artifact sha256=aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7
   - container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates
-  - architecture 'llama' validated: 30 layers, all required tensors present, Q/K shapes consistent with head_count=9/head_count_kv=3
+  - architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)
   - output.weight tensor absent -- tied head materialized from token_embd.weight at runtime (canonical-converter convention)
-  - Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: this artifact's Q/K == reference 'F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf''s Q/K directly, verified on 60/60 tensors (30/30 layers)
-Confidence: NUMERICALLY_VERIFIED
+  - [pair-identity] all 212 non-Q/K tensors (V, attention-output, norms, FFN, embedding) byte-identical between artifact and reference -- same underlying model, differing (if at all) only in Q/K layout
+  - Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: permute(reference 'F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf''s Q/K) == this artifact's Q/K (the reference is raw relative to this artifact, per the externally-fixed permute() direction), verified on 60/60 tensors (30/30 layers)
+Confidence: STRUCTURALLY_VERIFIED
 Execution authorization: granted

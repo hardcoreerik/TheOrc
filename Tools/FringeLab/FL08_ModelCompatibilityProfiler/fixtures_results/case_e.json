@@ -4,9 +4,32 @@
     "path": "fixtures/tampered_ambiguous.gguf",
     "sha256": "cbdd39760d8b18551408f663b45e7aaf4fef95173730dbbe240be41389faf078"
   },
+  "authorization_conditions": {
+    "architecture_valid": false,
+    "container_valid": true,
+    "encoding_supported": true,
+    "matches_target_as_is": false,
+    "no_unresolved_ambiguity": false,
+    "normalization_not_required": true,
+    "pair_identity_verified": false,
+    "per_layer_consistent": false,
+    "qk_numerically_verified": false,
+    "qk_tensors_nonzero_and_complete": false,
+    "reference_valid": false
+  },
+  "confidence": {
+    "architecture": "AMBIGUOUS",
+    "container": "STRUCTURALLY_VERIFIED",
+    "pair_identity": "AMBIGUOUS",
+    "qk_dialect": "AMBIGUOUS",
+    "reference": "AMBIGUOUS"
+  },
   "confidence_level": "AMBIGUOUS",
   "container": {
-    "evidence": [],
+    "evidence": [
+      "artifact sha256=cbdd39760d8b18551408f663b45e7aaf4fef95173730dbbe240be41389faf078",
+      "container valid: GGUF v3, 11 tensors, 0 out-of-bounds, 0 duplicates"
+    ],
     "type": "GGUF",
     "valid": true,
     "version": 3
@@ -20,26 +43,28 @@
   "known_normalization_requirements": [],
   "metadata_fingerprint": null,
   "output_weight_semantics": "UNKNOWN",
-  "provenance": {
-    "known": false,
-    "producer": null,
-    "source": "UNKNOWN"
+  "pair_identity": {
+    "evidence": [],
+    "status": "UNVERIFIED"
   },
   "qk_layout": {
     "classification": "UNKNOWN",
     "confidence": "AMBIGUOUS",
     "layers_checked": 0,
     "layers_total": 0,
-    "per_layer_consistent": false
+    "per_layer_consistent": false,
+    "qk_tensors_checked": 0,
+    "qk_tensors_total": 0
   },
   "quantization_formats": [
     "F32"
   ],
+  "reference": null,
   "runtime_compatibility": {
     "result": "INVALID",
-    "target": null
+    "target": "canonical-llama.cpp"
   },
-  "schema_version": 1,
+  "schema_version": 2,
   "tensor_inventory_fingerprint": null,
   "tokenizer_fingerprint": null,
   "unresolved_ambiguities": [
