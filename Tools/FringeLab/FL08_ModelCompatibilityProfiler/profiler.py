@@ -54,9 +54,28 @@ import os
 import sys
 
 import numpy as np
-from gguf import GGUFReader
+from gguf import GGUFReader, GGUFValueType
 
 SCHEMA_VERSION = 2
+
+# Round-5 remediation (Gate 1, Codex authority review): the GGUF scalar
+# type families this profiler accepts for the metadata fields it reads
+# integer/float/string values from. Corroborated against the real
+# Phase 6 artifacts (both use UINT32 for every integer-geometry field
+# and FLOAT32 for both rms_epsilon and rope.freq_base -- confirmed by
+# direct inspection, not assumed) and against the official GGUF
+# metadata schema, which defines these fields as "an integer" / "a
+# float" / "a string" without mandating one specific bit width -- so
+# the FAMILY of GGUF integer/float types is accepted, not only the one
+# width this project's own fixtures happen to use, while STRING/ARRAY/
+# BOOL are never silently accepted where a number is required (and
+# vice versa) even though Python could coerce a numeric-looking string.
+_INT_GGUF_TYPES = frozenset({
+    GGUFValueType.UINT8, GGUFValueType.UINT16, GGUFValueType.UINT32, GGUFValueType.UINT64,
+    GGUFValueType.INT8, GGUFValueType.INT16, GGUFValueType.INT32, GGUFValueType.INT64,
+})
+_FLOAT_GGUF_TYPES = frozenset({GGUFValueType.FLOAT32, GGUFValueType.FLOAT64})
+_STRING_GGUF_TYPES = frozenset({GGUFValueType.STRING})
 
 KNOWN_ENCODINGS = {"F32", "F16", "Q8_0"}
 Q8_0_BLOCK_ELEMENTS = 32
@@ -233,9 +252,74 @@ def _fingerprint_tokenizer(reader: GGUFReader) -> str | None:
     return h.hexdigest()
 
 
-def _meta_int(reader: GGUFReader, key: str) -> int | None:
-    f = reader.fields.get(key)
-    return int(f.contents()) if f else None
+def _read_typed_scalar(reader: GGUFReader, key: str, allowed_types: frozenset, family_label: str):
+    """The ONE shared, type-aware metadata boundary every scalar field
+    this profiler consumes must go through (round-5 remediation, Gate
+    1). Returns `(value, error)`: `error is None` and `value is None`
+    means the field is legitimately ABSENT (not a defect -- callers
+    decide whether absence itself matters). `error` set means the
+    field IS present but either its declared GGUF type is not in
+    `allowed_types`, or its content unexpectedly failed to decode --
+    in both cases `value` is `None` and the caller must treat this as
+    a structured `INVALID` result, never call `int()`/`float()` on the
+    raw contents itself. This is the fix for Codex's reproduced
+    fail-open: a `layer_norm_rms_epsilon` field stored with GGUF type
+    STRING and content `"0.00001"` previously passed straight through
+    `float(field.contents())` -- Python's `float("0.00001")` succeeds
+    even though the FIELD's declared type is wrong -- and a
+    `"not-a-number"` STRING value raised an uncaught `ValueError` from
+    deep inside `validate_artifact()`. Neither can happen once every
+    caller reads through this function instead of calling
+    `field.contents()` and coercing it directly."""
+    field = reader.fields.get(key)
+    if field is None:
+        return None, None
+    actual_type = field.types[0]
+    if actual_type not in allowed_types:
+        return None, (f"{key}: GGUF type is {actual_type.name} ({actual_type.value}), expected one of "
+                      f"{sorted(t.name for t in allowed_types)} (a {family_label} scalar) -- refusing to "
+                      f"trust a value read from a field of the wrong declared type, even though Python "
+                      f"could coerce its contents (e.g. int('8') or float('0.00001') would silently "
+                      f"succeed on a malformed STRING-typed field)")
+    try:
+        value = field.contents()
+    except Exception as ex:  # noqa: BLE001 -- any decode failure becomes a structured error, never a crash
+        return None, f"{key}: GGUF type {actual_type.name} but content failed to decode: {ex!r}"
+    return value, None
+
+
+def _read_int_field(reader: GGUFReader, key: str) -> tuple[int | None, str | None]:
+    """Returns `(value, error)` -- see `_read_typed_scalar`. `value` is
+    a native Python `int` (never a `bool`, never a string coerced via
+    `int()`) whenever `error` is `None` and the field is present."""
+    value, error = _read_typed_scalar(reader, key, _INT_GGUF_TYPES, "integer")
+    if error:
+        return None, error
+    if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+        return None, f"{key}: decoded value {value!r} is not a native Python int despite an integer GGUF type"
+    return value, None
+
+
+def _read_float_field(reader: GGUFReader, key: str) -> tuple[float | None, str | None]:
+    value, error = _read_typed_scalar(reader, key, _FLOAT_GGUF_TYPES, "float")
+    if error:
+        return None, error
+    if value is None:
+        return None, None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None, f"{key}: decoded value {value!r} is not numeric despite a float GGUF type"
+    return float(value), None
+
+
+def _read_string_field(reader: GGUFReader, key: str) -> tuple[str | None, str | None]:
+    value, error = _read_typed_scalar(reader, key, _STRING_GGUF_TYPES, "string")
+    if error:
+        return None, error
+    if value is not None and not isinstance(value, str):
+        return None, f"{key}: decoded value {value!r} is not a native Python str despite a string GGUF type"
+    return value, None
+
+
 
 
 class ArtifactValidation:
@@ -309,7 +393,11 @@ def validate_artifact(path: str) -> ArtifactValidation:
         v.terminal_result = "INVALID"
         return v
 
-    version = _meta_int(reader, "GGUF.version")
+    version, err = _read_int_field(reader, "GGUF.version")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
     v.container_version = version
     if version not in (2, 3):
         v.ambiguities.append(f"unrecognized GGUF version {version!r} (this profiler only classifies v2/v3)")
@@ -344,20 +432,29 @@ def validate_artifact(path: str) -> ArtifactValidation:
     v.reader = reader
 
     # --- Layer 2: architecture validation ---
-    arch = reader.fields.get("general.architecture")
-    v.declared_architecture = arch.contents() if arch else None
+    declared_architecture, err = _read_string_field(reader, "general.architecture")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    v.declared_architecture = declared_architecture
     if v.declared_architecture != "llama":
         v.ambiguities.append(f"declared architecture {v.declared_architecture!r} is not 'llama' -- "
                              f"this experiment's Layer 3 (Q/K dialect) only supports llama")
         v.terminal_result = "VERIFIED_UNSUPPORTED"
         return v
 
-    n_layers = _meta_int(reader, "llama.block_count")
-    n_head = _meta_int(reader, "llama.attention.head_count")
-    n_head_kv = _meta_int(reader, "llama.attention.head_count_kv")
-    hidden = _meta_int(reader, "llama.embedding_length")
-    ffn_length = _meta_int(reader, "llama.feed_forward_length")
-    context_length = _meta_int(reader, "llama.context_length")
+    n_layers, err_layers = _read_int_field(reader, "llama.block_count")
+    n_head, err_head = _read_int_field(reader, "llama.attention.head_count")
+    n_head_kv, err_head_kv = _read_int_field(reader, "llama.attention.head_count_kv")
+    hidden, err_hidden = _read_int_field(reader, "llama.embedding_length")
+    ffn_length, err_ffn = _read_int_field(reader, "llama.feed_forward_length")
+    context_length, err_ctx = _read_int_field(reader, "llama.context_length")
+    geometry_type_errors = [e for e in (err_layers, err_head, err_head_kv, err_hidden, err_ffn, err_ctx) if e]
+    if geometry_type_errors:
+        v.ambiguities.append(f"required geometry metadata type validation failed: {geometry_type_errors}")
+        v.terminal_result = "INVALID"
+        return v
 
     if None in (n_layers, n_head, n_head_kv, hidden, ffn_length, context_length):
         v.ambiguities.append("required llama.* metadata missing "
@@ -404,9 +501,12 @@ def validate_artifact(path: str) -> ArtifactValidation:
         v.terminal_result = "INVALID"
         return v
 
-    rms_eps_field = reader.fields.get("llama.attention.layer_norm_rms_epsilon")
-    if rms_eps_field is not None:
-        rms_eps_val = float(rms_eps_field.contents())
+    rms_eps_val, err = _read_float_field(reader, "llama.attention.layer_norm_rms_epsilon")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    if rms_eps_val is not None:
         if not math.isfinite(rms_eps_val) or rms_eps_val <= 0:
             # Round-4 remediation (Gate 1, Codex-reproduced false
             # authorization): TWO artifacts with the SAME invalid
@@ -419,9 +519,23 @@ def validate_artifact(path: str) -> ArtifactValidation:
             v.terminal_result = "INVALID"
             return v
 
-    rope_dim = reader.fields.get("llama.rope.dimension_count")
-    rope_freq = reader.fields.get("llama.rope.freq_base")
-    if rope_dim is None or rope_freq is None:
+    rope_dim_val, err_dim = _read_int_field(reader, "llama.rope.dimension_count")
+    rope_freq_val, err_freq = _read_float_field(reader, "llama.rope.freq_base")
+    rope_type_errors = [e for e in (err_dim, err_freq) if e]
+    if rope_type_errors:
+        # Round-5 remediation (Gate 1, Codex-reproduced fail-open):
+        # a STRING-typed llama.rope.dimension_count="8" or
+        # llama.rope.freq_base="0.00001" previously passed straight
+        # through int()/float() coercion (Python accepts numeric-
+        # looking strings) or, for a non-numeric string, raised an
+        # UNCAUGHT ValueError from inside this function. Both are
+        # closed by routing through _read_int_field/_read_float_field,
+        # which check field.types[0] BEFORE ever calling .contents()
+        # for arithmetic use.
+        v.ambiguities.append(f"RoPE metadata type validation failed: {rope_type_errors}")
+        v.terminal_result = "INVALID"
+        return v
+    if rope_dim_val is None or rope_freq_val is None:
         v.ambiguities.append("llama.rope.dimension_count / llama.rope.freq_base metadata missing -- "
                              "RoPE application semantics cannot be fully corroborated")
         # Recorded as an ambiguity, not INVALID -- some real artifacts
@@ -438,13 +552,11 @@ def validate_artifact(path: str) -> ArtifactValidation:
         # not modified). Two artifacts sharing the SAME invalid value
         # (e.g. freq_base=-10000.0, or dimension_count=999) previously
         # passed pair identity's equality check alone.
-        rope_freq_val = float(rope_freq.contents())
         if not math.isfinite(rope_freq_val) or rope_freq_val <= 0:
             v.ambiguities.append(f"llama.rope.freq_base={rope_freq_val!r} is not finite and > 0 -- not a "
                                  f"value OrcEngine's frozen RoPE application can execute")
             v.terminal_result = "INVALID"
             return v
-        rope_dim_val = int(rope_dim.contents())
         if rope_dim_val != head_dim:
             v.ambiguities.append(f"llama.rope.dimension_count={rope_dim_val} != head_dim={head_dim} -- "
                                  f"OrcEngine's frozen RoPE implementation only supports FULL-HEAD rotation "
@@ -453,9 +565,12 @@ def validate_artifact(path: str) -> ArtifactValidation:
             v.terminal_result = "INVALID"
             return v
 
-    rope_scaling_type = reader.fields.get("llama.rope.scaling.type")
-    if rope_scaling_type is not None:
-        scaling_type_val = rope_scaling_type.contents()
+    scaling_type_val, err = _read_string_field(reader, "llama.rope.scaling.type")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    if scaling_type_val is not None:
         if scaling_type_val not in ("none", "linear"):
             # OrcEngine's frozen runtime implements no RoPE scaling
             # variant at all (grep-confirmed: zero occurrences of
@@ -469,9 +584,12 @@ def validate_artifact(path: str) -> ArtifactValidation:
                                  f"Tools/OrcEngine* at all) -- an unsupported execution-affecting mode")
             v.terminal_result = "INVALID"
             return v
-    rope_scaling_factor = reader.fields.get("llama.rope.scaling.factor")
-    if rope_scaling_factor is not None:
-        factor_val = float(rope_scaling_factor.contents())
+    factor_val, err = _read_float_field(reader, "llama.rope.scaling.factor")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    if factor_val is not None:
         if not math.isfinite(factor_val) or factor_val <= 0:
             v.ambiguities.append(f"llama.rope.scaling.factor={factor_val!r} is not finite and > 0")
             v.terminal_result = "INVALID"
@@ -483,9 +601,12 @@ def validate_artifact(path: str) -> ArtifactValidation:
             v.terminal_result = "INVALID"
             return v
 
-    sliding_window = reader.fields.get("llama.attention.sliding_window")
-    if sliding_window is not None:
-        sliding_window_val = int(sliding_window.contents())
+    sliding_window_val, err = _read_int_field(reader, "llama.attention.sliding_window")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    if sliding_window_val is not None:
         if sliding_window_val != 0:
             # OrcEngine's frozen runtime implements no sliding-window
             # attention at all (grep-confirmed, same scope as above).
@@ -963,29 +1084,33 @@ def verify_pair_identity(artifact_v: ArtifactValidation, reference_v: ArtifactVa
     emb = _tensor_by_name(a_reader, "token_embd.weight")
     vocab_rows = logical_shape(emb)[0] if emb is not None else None
     for label, reader_v in (("artifact", artifact_v), ("reference", reference_v)):
-        kl = reader_v.execution_metadata.get("llama.attention.key_length")
-        vl = reader_v.execution_metadata.get("llama.attention.value_length")
-        vs = reader_v.execution_metadata.get("llama.vocab_size")
-        # These are compared via their DECODED integer value, not raw
-        # bytes -- _encode_field_value's byte form is not meant for
-        # cross-field arithmetic comparison, so re-read the field.
+        # Round-5 remediation (Gate 1 audit): these redundant keys were
+        # previously read via a raw `int(...contents())` call with no
+        # type check -- the SAME fail-open/fail-closed defects the
+        # required/optional keys had. Routed through the shared
+        # type-aware boundary like every other scalar field.
         reader_obj = a_reader if label == "artifact" else b_reader
+        kl, err_kl = _read_int_field(reader_obj, "llama.attention.key_length")
+        vl, err_vl = _read_int_field(reader_obj, "llama.attention.value_length")
+        vs, err_vs = _read_int_field(reader_obj, "llama.vocab_size")
+        redundant_type_errors = [f"{label}: {e}" for e in (err_kl, err_vl, err_vs) if e]
+        if redundant_type_errors:
+            result["evidence"].append(f"redundant-key metadata type validation failed: "
+                                      f"{redundant_type_errors}")
+            return result
         if kl is not None:
-            actual = int(reader_obj.fields["llama.attention.key_length"].contents())
-            if actual != head_dim:
-                result["evidence"].append(f"{label}: declared llama.attention.key_length={actual} "
+            if kl != head_dim:
+                result["evidence"].append(f"{label}: declared llama.attention.key_length={kl} "
                                           f"contradicts independently-verified head_dim={head_dim}")
                 return result
         if vl is not None:
-            actual = int(reader_obj.fields["llama.attention.value_length"].contents())
-            if actual != head_dim:
-                result["evidence"].append(f"{label}: declared llama.attention.value_length={actual} "
+            if vl != head_dim:
+                result["evidence"].append(f"{label}: declared llama.attention.value_length={vl} "
                                           f"contradicts independently-verified head_dim={head_dim}")
                 return result
         if vs is not None and vocab_rows is not None:
-            actual = int(reader_obj.fields["llama.vocab_size"].contents())
-            if actual != vocab_rows:
-                result["evidence"].append(f"{label}: declared llama.vocab_size={actual} contradicts "
+            if vs != vocab_rows:
+                result["evidence"].append(f"{label}: declared llama.vocab_size={vs} contradicts "
                                           f"independently-verified token_embd.weight row count={vocab_rows}")
                 return result
 

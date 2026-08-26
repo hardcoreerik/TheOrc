@@ -90,7 +90,11 @@ def _get(d, key, expected_type=None):
 
 
 def _valid_sha256(value) -> bool:
-    return isinstance(value, str) and bool(_SHA256_HEX_RE.match(value))
+    # Round 5: `.match()` with `^...$` anchors is NOT an exact-length
+    # check -- Python's `$` matches immediately before a trailing
+    # "\n", so `.match()` accepts 64 hex chars followed by a newline.
+    # `.fullmatch()` has no such exception.
+    return isinstance(value, str) and bool(_SHA256_HEX_RE.fullmatch(value))
 
 
 def _validate_artifact_record(record, label: str) -> str | None:

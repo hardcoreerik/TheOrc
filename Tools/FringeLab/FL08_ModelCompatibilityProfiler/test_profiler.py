@@ -84,7 +84,8 @@ def write_llama_fixture(path: str, spec: FixtureSpec, seed: int, permute_qk: boo
                         rope_dim_override: int | None = None,
                         rope_scaling_type: str | None = None,
                         rope_scaling_factor: float | None = None,
-                        sliding_window: int | None = None) -> None:
+                        sliding_window: int | None = None,
+                        raw_metadata_overrides: dict[str, tuple] | None = None) -> None:
     """Writes a small, valid-by-default synthetic llama-architecture
     GGUF. `tamper` overrides specific tensor arrays post-generation
     (before any encoding pass) to construct adversarial references.
@@ -98,25 +99,76 @@ def write_llama_fixture(path: str, spec: FixtureSpec, seed: int, permute_qk: boo
     written as tokenizer.ggml.* string/int fields (round-3 Gate 1C
     adversarial tokenizer-metadata tests). `extra_non_qk_tensor` adds
     one additional, unexpected non-Q/K tensor (name, shape) (round-3
-    Gate 1A "extra unknown tensor on one side" test)."""
+    Gate 1A "extra unknown tensor on one side" test).
+
+    `raw_metadata_overrides` (round-5 Gate 1) is `{gguf_key: (writer_
+    method_name, value)}` -- writes the GENUINE GGUF field for that key
+    using an ARBITRARY GGUFWriter method (e.g. `("add_string", "8")` to
+    store an integer-looking value under GGUF type STRING, or
+    `("add_array", [1, 2])` to store a scalar-expected field as an
+    ARRAY), constructing a REAL malformed-type field on disk -- not a
+    mutated in-memory profile dict. Any key present here is written
+    ONLY via the override (the normal typed write for that key is
+    skipped, since GGUFWriter rejects duplicate keys)."""
+    raw_metadata_overrides = raw_metadata_overrides or {}
+
+    def scalar(normal_method_name: str, key: str, *args) -> None:
+        """Writes `key` via its normal typed method (which takes the
+        VALUE only -- the key is implicit in the method name, e.g.
+        `add_context_length(64)`) UNLESS an override is registered for
+        it, in which case the override's GENERIC writer method (which
+        DOES take the key explicitly, e.g. `add_string(key, value)`) is
+        used instead -- never both, since GGUFWriter rejects duplicate
+        keys."""
+        if key in raw_metadata_overrides:
+            method_name, value = raw_metadata_overrides[key]
+            getattr(writer, method_name)(key, value)
+        else:
+            getattr(writer, normal_method_name)(*args)
+
     writer = GGUFWriter(path, arch="llama")
     writer.add_name(name)
-    writer.add_context_length(context_length)
-    writer.add_embedding_length(spec.hidden)
-    writer.add_block_count(declared_block_count if declared_block_count is not None else spec.n_layers)
-    writer.add_feed_forward_length(spec.intermediate)
-    writer.add_head_count(spec.n_head)
-    writer.add_head_count_kv(spec.n_head_kv)
-    writer.add_layer_norm_rms_eps(rms_eps)
-    if not omit_rope_metadata:
-        writer.add_rope_dimension_count(rope_dim_override if rope_dim_override is not None else spec.head_dim)
-        writer.add_rope_freq_base(rope_freq_base)
-    if rope_scaling_type is not None:
-        writer.add_string("llama.rope.scaling.type", rope_scaling_type)
-    if rope_scaling_factor is not None:
-        writer.add_float32("llama.rope.scaling.factor", rope_scaling_factor)
-    if sliding_window is not None:
-        writer.add_uint32("llama.attention.sliding_window", sliding_window)
+    scalar("add_context_length", "llama.context_length", context_length)
+    scalar("add_embedding_length", "llama.embedding_length", spec.hidden)
+    scalar("add_block_count", "llama.block_count",
+          declared_block_count if declared_block_count is not None else spec.n_layers)
+    scalar("add_feed_forward_length", "llama.feed_forward_length", spec.intermediate)
+    scalar("add_head_count", "llama.attention.head_count", spec.n_head)
+    scalar("add_head_count_kv", "llama.attention.head_count_kv", spec.n_head_kv)
+    scalar("add_layer_norm_rms_eps", "llama.attention.layer_norm_rms_epsilon", rms_eps)
+    if not omit_rope_metadata or "llama.rope.dimension_count" in raw_metadata_overrides:
+        scalar("add_rope_dimension_count", "llama.rope.dimension_count",
+              rope_dim_override if rope_dim_override is not None else spec.head_dim)
+    if not omit_rope_metadata or "llama.rope.freq_base" in raw_metadata_overrides:
+        scalar("add_rope_freq_base", "llama.rope.freq_base", rope_freq_base)
+    def generic_scalar(normal_method_name: str, key: str, normal_value) -> None:
+        """Like `scalar()`, but for fields with no DEDICATED typed
+        writer method -- both the normal path and the override path use
+        a generic `(key, value)`-taking method, so `key` is always
+        passed explicitly."""
+        if key in raw_metadata_overrides:
+            method_name, value = raw_metadata_overrides[key]
+        else:
+            method_name, value = normal_method_name, normal_value
+        getattr(writer, method_name)(key, value)
+
+    if rope_scaling_type is not None or "llama.rope.scaling.type" in raw_metadata_overrides:
+        generic_scalar("add_string", "llama.rope.scaling.type", rope_scaling_type)
+    if rope_scaling_factor is not None or "llama.rope.scaling.factor" in raw_metadata_overrides:
+        generic_scalar("add_float32", "llama.rope.scaling.factor", rope_scaling_factor)
+    if sliding_window is not None or "llama.attention.sliding_window" in raw_metadata_overrides:
+        generic_scalar("add_uint32", "llama.attention.sliding_window", sliding_window)
+    for key, (method_name, value) in raw_metadata_overrides.items():
+        if key not in ("llama.context_length", "llama.embedding_length", "llama.block_count",
+                      "llama.feed_forward_length", "llama.attention.head_count",
+                      "llama.attention.head_count_kv", "llama.attention.layer_norm_rms_epsilon",
+                      "llama.rope.dimension_count", "llama.rope.freq_base", "llama.rope.scaling.type",
+                      "llama.rope.scaling.factor", "llama.attention.sliding_window"):
+            # A key not in the "normal" fixed-field list above (e.g. the
+            # redundant llama.attention.key_length/value_length/
+            # llama.vocab_size keys, which this fixture writer never
+            # writes by default) -- write it directly.
+            getattr(writer, method_name)(key, value)
     writer.add_file_type(0)
     for key, value in (tokenizer_fields or {}).items():
         if isinstance(value, str):
@@ -611,6 +663,177 @@ class TestRound3ExecutionAndTokenizerMetadata(_PairedFixtureCase):
         write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True, name="Smollm2 135m")
         profile = fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+
+
+# ---------------------------------------------------------------------
+# Round 5 (Codex authority review): GGUF metadata VALUE TYPES were
+# never validated before Python coercion (int()/float()) -- a field
+# stored with the WRONG GGUF type (e.g. STRING instead of FLOAT32)
+# could silently pass if its string content happened to look numeric,
+# or raise an UNCAUGHT exception if it didn't. These construct REAL
+# malformed-type GGUF fields on disk via `raw_metadata_overrides`, not
+# mutated in-memory profile dicts. Gate 1.
+# ---------------------------------------------------------------------
+
+class TestRound5MetadataTypeValidation(unittest.TestCase):
+    spec = SPEC
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write(self, overrides, seed=1, **kwargs):
+        path = os.path.join(self.tmpdir, f"malformed_{seed}_{len(overrides)}_{id(overrides)}.gguf")
+        write_llama_fixture(path, self.spec, seed=seed, raw_metadata_overrides=overrides, **kwargs)
+        return path
+
+    def _assert_invalid_no_raise(self, path, expected_substring):
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")  # must not raise
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
+                        f"expected an ambiguity containing {expected_substring!r}, got "
+                        f"{profile['unresolved_ambiguities']}")
+        return profile
+
+    # 1. RMS epsilon stored as a numeric string, both paired artifacts.
+    def test_rms_epsilon_numeric_string_matching_both_sides_denied(self):
+        overrides = {"llama.attention.layer_norm_rms_epsilon": ("add_string", "0.00001")}
+        a = self._write(overrides, seed=1)
+        b = self._write(overrides, seed=1)
+        # Same seed on both -> identical Q/K too, but that's irrelevant
+        # here: type validation must reject BEFORE Q/K/pair-identity
+        # logic ever runs, proving equality-of-a-malformed-type cannot
+        # authorize.
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("layer_norm_rms_epsilon" in x and "GGUF type is STRING" in x
+                            for x in profile["unresolved_ambiguities"]))
+
+    # 2. RMS epsilon stored as a NONnumeric string -- must not raise.
+    def test_rms_epsilon_nonnumeric_string_does_not_raise(self):
+        path = self._write({"llama.attention.layer_norm_rms_epsilon": ("add_string", "not-a-number")})
+        self._assert_invalid_no_raise(path, "layer_norm_rms_epsilon")
+
+    # 3. RoPE dimension stored as a numeric string, both artifacts.
+    def test_rope_dimension_numeric_string_matching_both_sides_denied(self):
+        overrides = {"llama.rope.dimension_count": ("add_string", str(self.spec.head_dim))}
+        a = self._write(overrides, seed=1)
+        b = self._write(overrides, seed=1)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("rope.dimension_count" in x and "GGUF type is STRING" in x
+                            for x in profile["unresolved_ambiguities"]))
+
+    # 4. RoPE frequency base stored as a numeric string.
+    def test_rope_freq_base_numeric_string_denied(self):
+        path = self._write({"llama.rope.freq_base": ("add_string", "10000.0")})
+        self._assert_invalid_no_raise(path, "rope.freq_base")
+
+    def test_rope_freq_base_nonnumeric_string_does_not_raise(self):
+        path = self._write({"llama.rope.freq_base": ("add_string", "banana")})
+        self._assert_invalid_no_raise(path, "rope.freq_base")
+
+    # 5. Required geometry (head count / block count) stored as a
+    #    numeric string.
+    def test_head_count_numeric_string_denied(self):
+        path = self._write({"llama.attention.head_count": ("add_string", str(self.spec.n_head))})
+        self._assert_invalid_no_raise(path, "head_count")
+
+    def test_block_count_numeric_string_denied(self):
+        path = self._write({"llama.block_count": ("add_string", str(self.spec.n_layers))})
+        self._assert_invalid_no_raise(path, "block_count")
+
+    # 6. A scalar execution field stored as an ARRAY.
+    def test_rms_epsilon_stored_as_array_denied(self):
+        path = self._write({"llama.attention.layer_norm_rms_epsilon": ("add_array", [1.0, 2.0])})
+        self._assert_invalid_no_raise(path, "layer_norm_rms_epsilon")
+
+    def test_embedding_length_stored_as_array_denied(self):
+        path = self._write({"llama.embedding_length": ("add_array", [self.spec.hidden])})
+        self._assert_invalid_no_raise(path, "embedding_length")
+
+    # 7. RoPE scaling factor stored as a string.
+    def test_rope_scaling_factor_string_denied(self):
+        path = self._write({"llama.rope.scaling.factor": ("add_string", "1.0")}, rope_scaling_factor=1.0)
+        self._assert_invalid_no_raise(path, "rope.scaling.factor")
+
+    # 8. Sliding-window metadata stored as a string.
+    def test_sliding_window_string_denied(self):
+        path = self._write({"llama.attention.sliding_window": ("add_string", "0")}, sliding_window=0)
+        self._assert_invalid_no_raise(path, "sliding_window")
+
+    # 9. Redundant key metadata (key_length/value_length/vocab_size)
+    #    stored under the wrong type -- exercised via the PAIRED path
+    #    since these keys are only consulted in verify_pair_identity().
+    def test_redundant_key_length_wrong_type_denied(self):
+        overrides = {"llama.attention.key_length": ("add_string", str(self.spec.head_dim))}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("key_length" in e and "GGUF type is STRING" in e
+                            for e in profile["pair_identity"]["evidence"]))
+
+    def test_redundant_value_length_wrong_type_denied(self):
+        overrides = {"llama.attention.value_length": ("add_string", str(self.spec.head_dim))}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_redundant_vocab_size_wrong_type_denied(self):
+        overrides = {"llama.vocab_size": ("add_string", str(self.spec.vocab))}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+
+    # 10. Properly-typed controls -- every accepted scalar family must
+    #     still work; these checks must not be over-strict.
+    def test_properly_typed_control_case_still_authorizes(self):
+        a = self._write({}, seed=1, permute_qk=False)
+        b = self._write({}, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        # Not the target of this test -- only confirming that properly
+        # typed metadata never gets flagged by the new type-validation
+        # boundary (no "GGUF type is" ambiguity), regardless of which
+        # Q/K dialect classification the pair happens to resolve to.
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(any("GGUF type is" in a for a in profile["unresolved_ambiguities"]))
+
+    def test_int8_geometry_type_family_member_accepted(self):
+        # The integer FAMILY (not only UINT32) is accepted -- construct
+        # a field using a different, still-valid integer width.
+        path = self._write({"llama.rope.dimension_count": ("add_int32", self.spec.head_dim)})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(any("dimension_count" in a and "GGUF type is" in a
+                             for a in profile["unresolved_ambiguities"]))
+
+    def test_float64_family_member_accepted_for_rms_epsilon(self):
+        path = self._write({"llama.attention.layer_norm_rms_epsilon": ("add_float64", 1e-5)})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_real_phase6_artifact_type_tags_accepted(self):
+        # The real custom Phase 6 artifact's actual on-disk metadata
+        # types (UINT32 for all integer geometry, FLOAT32 for
+        # rms_epsilon/freq_base -- confirmed by direct inspection
+        # before writing this validator) must be accepted without any
+        # type-validation ambiguity.
+        custom_f32 = "F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf"
+        if not os.path.isfile(custom_f32):
+            self.skipTest("real Phase 6 artifact not present on this machine")
+        profile = fl08.profile_artifact(custom_f32, None, "canonical-llama.cpp")
+        self.assertFalse(any("GGUF type is" in a for a in profile["unresolved_ambiguities"]))
 
 
 # ---------------------------------------------------------------------
@@ -1623,6 +1846,58 @@ class TestGate7NormalizationPlan(_PairedFixtureCase):
         profile["reference"]["sha256"] = profile["reference"]["sha256"].upper()
         plan, reason = fl08_plan.build_plan(profile)
         self.assertIsNotNone(plan)
+
+    # Round 5 (Codex authority review): `_SHA256_HEX_RE.match()` with
+    # `^...$` anchors is not an exact-length check -- Python's `$`
+    # matches immediately before a trailing "\n". Gate 3.
+    def test_trailing_newline_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = ("a" * 64) + "\n"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_embedded_newline_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = ("a" * 32) + "\n" + ("a" * 32)
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_leading_whitespace_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = " " + ("a" * 63)
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_trailing_whitespace_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = ("a" * 63) + " "
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_prefixed_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = "sha256:" + ("a" * 64)
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_suffixed_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = ("a" * 64) + ".gguf"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_trailing_newline_reference_hash_refused(self):
+        profile = self._valid_profile()
+        profile["reference"]["sha256"] = ("b" * 64) + "\n"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
 
     def test_valid_profile_still_produces_the_same_bounded_proposal(self):
         profile = self._valid_profile()
