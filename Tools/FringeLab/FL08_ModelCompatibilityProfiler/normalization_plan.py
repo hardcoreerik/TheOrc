@@ -30,6 +30,23 @@ qk_tensors_total == layers_total * 2) -- before trusting it, rather
 than assuming a well-shaped dict. A malformed nested value returns
 `(None, reason)`, never an uncaught exception.
 
+Round-4 remediation (Codex authority review): three gaps in the
+round-3 validator were found and closed:
+  1. Python `bool` is a subtype of `int`, so `isinstance(True, int)`
+     is True -- `layers_total=True`/`layers_checked=True` previously
+     passed integer-type validation. `_get()` now rejects `bool` values
+     wherever `int` is the expected type.
+  2. A reference whose `container.valid` is `False` (or whose declared
+     architecture is unsupported) but whose `terminal_result` happens
+     to be `null` could previously still produce a plan -- validity was
+     checked via `terminal_result` alone. Both the primary artifact's
+     and the reference's `container.valid`/`declared_architecture` are
+     now explicitly checked.
+  3. `artifact.sha256`/`reference.sha256` were only checked for
+     "non-empty string" -- an arbitrary string like `"x"` passed. Both
+     are now required to match the exact SHA-256 hex-digest shape
+     (64 hex characters).
+
 Usage:
     python normalization_plan.py PROFILE.json [--out PLAN.json]
 """
@@ -37,28 +54,65 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 
 SUPPORTED_PROFILE_SCHEMA_VERSIONS = (2,)
 
 _REQUIRED_TOP_LEVEL_FIELDS = (
-    "schema_version", "artifact", "qk_layout", "pair_identity", "reference", "runtime_compatibility",
-    "confidence_level", "unresolved_ambiguities", "execution_authorization",
+    "schema_version", "artifact", "container", "declared_architecture", "qk_layout", "pair_identity",
+    "reference", "runtime_compatibility", "confidence_level", "unresolved_ambiguities",
+    "execution_authorization",
 )
+
+_SHA256_HEX_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 def _get(d, key, expected_type=None):
     """Safe nested-field accessor: returns (value, error). Never
     raises on a missing key, wrong container type, or wrong value
-    type -- every malformed-profile path this module must handle."""
+    type -- every malformed-profile path this module must handle.
+    `bool` is REJECTED whenever `expected_type` is `int` (or a tuple
+    containing `int` but not `bool`) -- `bool` is a Python subtype of
+    `int`, so `isinstance(True, int)` is otherwise silently True."""
     if not isinstance(d, dict):
         return None, f"expected a JSON object, got {type(d).__name__}"
     if key not in d:
         return None, f"missing required field {key!r}"
     value = d[key]
-    if expected_type is not None and not isinstance(value, expected_type):
-        return None, f"field {key!r} has type {type(value).__name__}, expected {expected_type}"
+    if expected_type is not None:
+        types = expected_type if isinstance(expected_type, tuple) else (expected_type,)
+        if int in types and bool not in types and isinstance(value, bool):
+            return None, f"field {key!r} is a bool, not an int (bool is a Python int subtype -- rejected)"
+        if not isinstance(value, expected_type):
+            return None, f"field {key!r} has type {type(value).__name__}, expected {expected_type}"
     return value, None
+
+
+def _valid_sha256(value) -> bool:
+    return isinstance(value, str) and bool(_SHA256_HEX_RE.match(value))
+
+
+def _validate_artifact_record(record, label: str) -> str | None:
+    """Shared check for BOTH the primary artifact's top-level profile
+    dict and the nested `reference` dict: container must be valid, and
+    the declared architecture must be the one this experiment supports
+    -- checked directly, not inferred from `terminal_result` alone
+    (round-4 remediation, gap 2)."""
+    container, err = _get(record, "container", dict)
+    if err:
+        return f"{label}.container: {err}"
+    valid, err = _get(container, "valid", bool)
+    if err:
+        return f"{label}.container.valid: {err}"
+    if not valid:
+        return f"{label}.container.valid is False -- not a structurally valid GGUF container"
+    arch, err = _get(record, "declared_architecture", str)
+    if err:
+        return f"{label}.declared_architecture: {err}"
+    if arch != "llama":
+        return f"{label}.declared_architecture={arch!r} -- this experiment only supports 'llama'"
+    return None
 
 
 def validate_profile(profile: dict) -> str | None:
@@ -84,9 +138,13 @@ def validate_profile(profile: dict) -> str | None:
     if err:
         return f"artifact: {err}"
     sha, err = _get(artifact, "sha256", str)
-    if err or not sha:
-        return "profile's artifact.sha256 is missing/empty/malformed -- cannot bind a plan to an " \
-               "unidentified artifact"
+    if err or not _valid_sha256(sha):
+        return (f"profile's artifact.sha256={sha!r} is not a well-formed 64-character hex SHA-256 digest "
+                f"-- cannot bind a plan to an unidentified artifact")
+
+    artifact_err = _validate_artifact_record(profile, "profile")
+    if artifact_err:
+        return artifact_err
 
     qk, err = _get(profile, "qk_layout", dict)
     if err:
@@ -111,13 +169,17 @@ def validate_profile(profile: dict) -> str | None:
     if reference is None:
         return "profile.reference is null -- a normalization plan requires a validated paired reference"
     ref_sha, err = _get(reference, "sha256", str)
-    if err or not ref_sha:
-        return "profile's reference.sha256 is missing/empty/malformed"
+    if err or not _valid_sha256(ref_sha):
+        return (f"profile's reference.sha256={ref_sha!r} is not a well-formed 64-character hex SHA-256 "
+                f"digest")
     ref_terminal, err = _get(reference, "terminal_result")
     if err:
         return f"reference.terminal_result: {err}"
     if ref_terminal is not None:
         return f"reference failed validation (terminal_result={ref_terminal!r}) -- not structurally valid"
+    reference_err = _validate_artifact_record(reference, "reference")
+    if reference_err:
+        return reference_err
 
     runtime, err = _get(profile, "runtime_compatibility", dict)
     if err:

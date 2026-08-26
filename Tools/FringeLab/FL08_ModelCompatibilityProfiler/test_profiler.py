@@ -80,7 +80,11 @@ def write_llama_fixture(path: str, spec: FixtureSpec, seed: int, permute_qk: boo
                         context_length: int = 64,
                         tokenizer_fields: dict | None = None,
                         extra_non_qk_tensor: tuple[str, tuple[int, ...]] | None = None,
-                        include_output_weight: str | None = None) -> None:
+                        include_output_weight: str | None = None,
+                        rope_dim_override: int | None = None,
+                        rope_scaling_type: str | None = None,
+                        rope_scaling_factor: float | None = None,
+                        sliding_window: int | None = None) -> None:
     """Writes a small, valid-by-default synthetic llama-architecture
     GGUF. `tamper` overrides specific tensor arrays post-generation
     (before any encoding pass) to construct adversarial references.
@@ -105,8 +109,14 @@ def write_llama_fixture(path: str, spec: FixtureSpec, seed: int, permute_qk: boo
     writer.add_head_count_kv(spec.n_head_kv)
     writer.add_layer_norm_rms_eps(rms_eps)
     if not omit_rope_metadata:
-        writer.add_rope_dimension_count(spec.head_dim)
+        writer.add_rope_dimension_count(rope_dim_override if rope_dim_override is not None else spec.head_dim)
         writer.add_rope_freq_base(rope_freq_base)
+    if rope_scaling_type is not None:
+        writer.add_string("llama.rope.scaling.type", rope_scaling_type)
+    if rope_scaling_factor is not None:
+        writer.add_float32("llama.rope.scaling.factor", rope_scaling_factor)
+    if sliding_window is not None:
+        writer.add_uint32("llama.attention.sliding_window", sliding_window)
     writer.add_file_type(0)
     for key, value in (tokenizer_fields or {}).items():
         if isinstance(value, str):
@@ -454,11 +464,19 @@ class TestRound3OutputWeightTiedProof(_PairedFixtureCase):
         self.assertTrue(profile["execution_authorization"])
         self.assertTrue(any("tied" in e.lower() for e in profile["evidence"]))
 
-    def test_output_weight_tied_proof_fails_if_token_embd_itself_unverified(self):
-        # A doubly-malicious case: token_embd.weight is ALSO tampered,
-        # so even a genuinely-tied output.weight cannot be trusted --
-        # the tied-proof precondition ("token_embd.weight already
-        # passed pair identity") must not be skipped.
+    def test_embedding_mismatch_denied_before_tied_output_proof_is_ever_reached(self):
+        # Round-4 correction (Grok round-3 review, finding #4): this
+        # test was previously named/described as proving the
+        # `"token_embd.weight" not in checked_names` guard inside Gate
+        # 1B (`_tied_output_proof`'s precondition) catches a doubly-
+        # malicious case. It does NOT -- a value-mismatched
+        # `token_embd.weight` is caught by the EARLIER, separate
+        # `mismatches` check in `verify_pair_identity()` (the same path
+        # that catches a tampered V/FFN/norm tensor), which returns
+        # BEFORE Gate 1B or `_tied_output_proof()` is ever reached. This
+        # test now asserts exactly that path and cites the specific
+        # evidence it produces, rather than a generic UNVERIFIED/
+        # non-authorization pair that could be explained by either path.
         rng = np.random.default_rng(4242)
         tampered_embd = rng.standard_normal((self.spec.vocab, self.spec.hidden)).astype(np.float32)
         tamper = {"token_embd.weight": tampered_embd}
@@ -468,6 +486,31 @@ class TestRound3OutputWeightTiedProof(_PairedFixtureCase):
         profile = fl08.profile_artifact(self.raw_path, tricky_path, "canonical-llama.cpp")
         self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
         self.assertFalse(profile["execution_authorization"])
+        # Specific evidence naming the non-Q/K tensor mismatch path
+        # (the "N non-Q/K tensor(s) differ..." string from the
+        # `mismatches` branch) -- NOT the Gate 1B "did not pass pair
+        # identity" wording, which this attack never reaches.
+        self.assertTrue(any("non-Q/K tensor(s) differ" in e for e in profile["pair_identity"]["evidence"]),
+                        f"expected the early non-Q/K mismatch evidence, got "
+                        f"{profile['pair_identity']['evidence']}")
+        self.assertFalse(any("did not pass pair identity" in e for e in profile["pair_identity"]["evidence"]),
+                         "this attack must be caught by the EARLIER mismatches path, not Gate 1B's "
+                         "checked_names guard -- if this assertion fails, the code path changed and the "
+                         "comment/test above needs re-verification")
+
+    # NOTE (round 4, Grok round-3 review finding #4): the
+    # `"token_embd.weight" not in checked_names` guard inside Gate 1B
+    # is UNREACHABLE as false via any structurally-valid profile pair --
+    # token_embd.weight is a REQUIRED tensor (an artifact lacking it is
+    # already INVALID before verify_pair_identity() is ever called), and
+    # the earlier `mismatches` check (exercised by the test above)
+    # already returns before Gate 1B for any differing non-Q/K tensor,
+    # including token_embd.weight itself. Kept in profiler.py as a
+    # documented internal invariant / defense-in-depth against a future
+    # refactor, per this round's explicit instruction not to construct
+    # an artificial production path merely to make an unreachable guard
+    # testable. See the comment at that guard's call site in
+    # verify_pair_identity() for the full reachability argument.
 
 
 class TestRound3NonQkInventoryCompleteness(_PairedFixtureCase):
@@ -568,6 +611,194 @@ class TestRound3ExecutionAndTokenizerMetadata(_PairedFixtureCase):
         write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True, name="Smollm2 135m")
         profile = fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+
+
+# ---------------------------------------------------------------------
+# Round 4 (Codex authority review): equality between two artifacts is
+# NOT semantic validity -- two artifacts sharing the SAME invalid
+# execution-metadata value must not authorize. Gate 1.
+# ---------------------------------------------------------------------
+
+class TestRound4SemanticMetadataValidation(unittest.TestCase):
+    spec = SPEC
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _paired_invalid(self, **kwargs):
+        """Writes two artifacts (one raw, one canonical-permuted, same
+        seed) that BOTH carry the given invalid metadata override --
+        proving equality between artifact and reference cannot convert
+        an invalid value into authorization."""
+        a_path = os.path.join(self.tmpdir, "invalid_a.gguf")
+        b_path = os.path.join(self.tmpdir, "invalid_b.gguf")
+        write_llama_fixture(a_path, self.spec, seed=1, permute_qk=False, **kwargs)
+        write_llama_fixture(b_path, self.spec, seed=1, permute_qk=True, **kwargs)
+        return fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
+
+    def _assert_invalid(self, profile, expected_substring):
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
+                        f"expected an ambiguity containing {expected_substring!r}, got "
+                        f"{profile['unresolved_ambiguities']}")
+
+    # --- RMSNorm epsilon ---
+
+    def test_negative_rms_epsilon_matching_both_sides_denied(self):
+        self._assert_invalid(self._paired_invalid(rms_eps=-1.0), "layer_norm_rms_epsilon")
+
+    def test_zero_rms_epsilon_denied(self):
+        path = os.path.join(self.tmpdir, "zero_eps.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rms_eps=0.0)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "layer_norm_rms_epsilon")
+
+    def test_nan_rms_epsilon_denied(self):
+        self._assert_invalid(self._paired_invalid(rms_eps=float("nan")), "layer_norm_rms_epsilon")
+
+    def test_infinite_rms_epsilon_denied(self):
+        self._assert_invalid(self._paired_invalid(rms_eps=float("inf")), "layer_norm_rms_epsilon")
+
+    # --- RoPE freq_base ---
+
+    def test_negative_rope_freq_base_matching_both_sides_denied(self):
+        self._assert_invalid(self._paired_invalid(rope_freq_base=-10000.0), "rope.freq_base")
+
+    def test_zero_rope_freq_base_denied(self):
+        path = os.path.join(self.tmpdir, "zero_freq.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_freq_base=0.0)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "rope.freq_base")
+
+    def test_nan_rope_freq_base_denied(self):
+        self._assert_invalid(self._paired_invalid(rope_freq_base=float("nan")), "rope.freq_base")
+
+    def test_infinite_rope_freq_base_denied(self):
+        self._assert_invalid(self._paired_invalid(rope_freq_base=float("inf")), "rope.freq_base")
+
+    # --- RoPE dimension_count ---
+
+    def test_rope_dimension_999_matching_both_sides_denied(self):
+        # The exact Codex-reproduced probe.
+        self._assert_invalid(self._paired_invalid(rope_dim_override=999), "rope.dimension_count")
+
+    def test_rope_dimension_zero_denied(self):
+        path = os.path.join(self.tmpdir, "zero_rope_dim.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_dim_override=0)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "rope.dimension_count")
+
+    def test_rope_dimension_odd_denied(self):
+        path = os.path.join(self.tmpdir, "odd_rope_dim.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_dim_override=self.spec.head_dim - 1)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "rope.dimension_count")
+
+    def test_rope_dimension_greater_than_head_dim_denied(self):
+        path = os.path.join(self.tmpdir, "big_rope_dim.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_dim_override=self.spec.head_dim + 2)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "rope.dimension_count")
+
+    # --- RoPE scaling / sliding window (OrcEngine implements neither) ---
+
+    def test_unsupported_rope_scaling_type_denied(self):
+        path = os.path.join(self.tmpdir, "yarn.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_scaling_type="yarn")
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "rope.scaling.type")
+
+    def test_non_identity_rope_scaling_factor_denied(self):
+        path = os.path.join(self.tmpdir, "scaled.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_scaling_factor=2.0)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "rope.scaling.factor")
+
+    def test_nonzero_sliding_window_denied(self):
+        path = os.path.join(self.tmpdir, "swa.gguf")
+        write_llama_fixture(path, self.spec, seed=1, sliding_window=128)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self._assert_invalid(profile, "sliding_window")
+
+    # --- valid boundary/control cases must still proceed ---
+
+    def test_valid_rope_scaling_none_proceeds(self):
+        path = os.path.join(self.tmpdir, "scaling_none.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_scaling_type="none")
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_valid_identity_rope_scaling_factor_proceeds(self):
+        path = os.path.join(self.tmpdir, "scaling_1.gguf")
+        write_llama_fixture(path, self.spec, seed=1, rope_scaling_factor=1.0)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_valid_zero_sliding_window_proceeds(self):
+        path = os.path.join(self.tmpdir, "swa_zero.gguf")
+        write_llama_fixture(path, self.spec, seed=1, sliding_window=0)
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_valid_metadata_control_case_still_authorizes(self):
+        # A genuinely valid pair with correct metadata must still be
+        # able to reach authorization -- these checks must not be so
+        # strict they break the already-proven-correct path.
+        profile = self._paired_invalid()  # no overrides -- all-default-valid
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+
+# ---------------------------------------------------------------------
+# Round 4 (Codex authority review): n_head % n_head_kv == 0 is the
+# defining grouped-query-attention invariant, previously unchecked.
+# Gate 2.
+# ---------------------------------------------------------------------
+
+class TestRound4GQAGeometry(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _profile_pair(self, spec):
+        a_path = os.path.join(self.tmpdir, "gqa_a.gguf")
+        b_path = os.path.join(self.tmpdir, "gqa_b.gguf")
+        write_llama_fixture(a_path, spec, seed=1, permute_qk=False)
+        write_llama_fixture(b_path, spec, seed=1, permute_qk=True)
+        return fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
+
+    def test_small_invalid_gqa_geometry_denied(self):
+        bad_spec = FixtureSpec(hidden=6, n_head=3, n_head_kv=2, intermediate=16, vocab=16, n_layers=1)
+        profile = self._profile_pair(bad_spec)
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("head_count_kv" in a for a in profile["unresolved_ambiguities"]))
+
+    def test_nondegenerate_invalid_gqa_geometry_previously_authorizing_denied(self):
+        # The exact Codex-reproduced probe: hidden=24, n_head=3, n_head_kv=2.
+        bad_spec = FixtureSpec(hidden=24, n_head=3, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
+        profile = self._profile_pair(bad_spec)
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertNotIn(profile["qk_layout"]["classification"], ("RAW_HF", "CANONICAL_LLAMA_CPP"))
+
+    def test_valid_mha_geometry_proceeds(self):
+        mha_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
+        profile = self._profile_pair(mha_spec)
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+
+    def test_valid_gqa_geometry_proceeds(self):
+        gqa_spec = FixtureSpec(hidden=32, n_head=4, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
+        profile = self._profile_pair(gqa_spec)
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
 
 
 # ---------------------------------------------------------------------
@@ -1256,6 +1487,158 @@ class TestGate7NormalizationPlan(_PairedFixtureCase):
 
     def test_null_reference_refused(self):
         profile = fl08.profile_artifact(self.raw_path, None, "canonical-llama.cpp")
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    # -------------------------------------------------------------
+    # Round 4 (Codex authority review): three gaps found in the
+    # round-3 validator -- bool-as-int, reference container.valid not
+    # checked independent of terminal_result, and hash format
+    # unvalidated.
+    # -------------------------------------------------------------
+
+    def _valid_profile(self):
+        import copy
+        return copy.deepcopy(fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp"))
+
+    def test_boolean_layers_total_refused(self):
+        profile = self._valid_profile()
+        profile["qk_layout"]["layers_total"] = True
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIn("bool", reason.lower())
+
+    def test_boolean_layers_checked_refused(self):
+        profile = self._valid_profile()
+        profile["qk_layout"]["layers_checked"] = True
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIn("bool", reason.lower())
+
+    def test_negative_layers_total_refused(self):
+        profile = self._valid_profile()
+        profile["qk_layout"]["layers_total"] = -2
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_invalid_reference_container_refused(self):
+        profile = self._valid_profile()
+        profile["reference"]["container"]["valid"] = False
+        # terminal_result stays None -- the exact gap this round closes:
+        # invalidity must be caught via container.valid directly, not
+        # only inferred from terminal_result.
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIn("container.valid", reason)
+
+    def test_invalid_primary_container_refused(self):
+        profile = self._valid_profile()
+        profile["container"]["valid"] = False
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIn("container.valid", reason)
+
+    def test_unsupported_reference_architecture_refused(self):
+        profile = self._valid_profile()
+        profile["reference"]["declared_architecture"] = "gemma"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIn("declared_architecture", reason)
+
+    def test_unsupported_primary_architecture_refused(self):
+        profile = self._valid_profile()
+        profile["declared_architecture"] = "gemma"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIn("declared_architecture", reason)
+
+    def test_empty_artifact_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = ""
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_short_artifact_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = "abc123"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_long_artifact_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = "a" * 65
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_nonhex_artifact_hash_refused(self):
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = "g" * 64  # 'g' is not a hex digit
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_arbitrary_string_hash_refused(self):
+        # The exact defect: "x"/"y" previously satisfied "non-empty string".
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = "x"
+        profile["reference"]["sha256"] = "y"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_short_reference_hash_refused(self):
+        profile = self._valid_profile()
+        profile["reference"]["sha256"] = "deadbeef"
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_present_null_layers_total_refused(self):
+        profile = self._valid_profile()
+        profile["qk_layout"]["layers_total"] = None
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_present_null_pair_identity_status_refused(self):
+        profile = self._valid_profile()
+        profile["pair_identity"]["status"] = None
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+
+    def test_uppercase_hash_accepted(self):
+        # This schema's sha256 fields are lowercase hex by construction
+        # (Python's hashlib.hexdigest()) -- uppercase hex is still a
+        # well-formed 64-character SHA-256 digest shape, so it is
+        # intentionally accepted (no case-normalization is silently
+        # performed; the REGEX itself is case-insensitive by design).
+        profile = self._valid_profile()
+        profile["artifact"]["sha256"] = profile["artifact"]["sha256"].upper()
+        profile["reference"]["sha256"] = profile["reference"]["sha256"].upper()
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNotNone(plan)
+
+    def test_valid_profile_still_produces_the_same_bounded_proposal(self):
+        profile = self._valid_profile()
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNotNone(plan)
+        self.assertIsNone(reason)
+        self.assertEqual(plan["source_layout"], "hf_raw_rotate_half")
+        self.assertFalse(plan["destructive"])
+        self.assertFalse(plan["execution_authorized"])
+
+    def test_incomplete_counts_plan_case_remains_closed(self):
+        # The original round-3 INCOMPLETE_COUNTS_PLAN regression,
+        # reconfirmed still closed after this round's validator changes.
+        profile = self._valid_profile()
+        profile["qk_layout"]["qk_tensors_checked"] = 1
+        profile["qk_layout"]["layers_checked"] = 0
         plan, reason = fl08_plan.build_plan(profile)
         self.assertIsNone(plan)
         self.assertIsNotNone(reason)

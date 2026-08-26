@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 
@@ -375,6 +376,19 @@ def validate_artifact(path: str) -> ArtifactValidation:
         v.ambiguities.append(f"embedding_length={hidden} not evenly divisible by head_count={n_head}")
         v.terminal_result = "INVALID"
         return v
+    if n_head % n_head_kv != 0:
+        # Round-4 remediation (Gate 2, Codex-reproduced false
+        # authorization): the frozen OrcEngine model layout requires
+        # every Q head to map onto a whole number of shared KV heads
+        # (grouped-query attention's defining invariant) -- a geometry
+        # like hidden=24/n_head=3/n_head_kv=2 is not a valid GQA
+        # configuration for ANY known attention-head grouping scheme
+        # and was previously able to reach VERIFIED_COMPATIBLE.
+        v.ambiguities.append(f"head_count={n_head} not evenly divisible by head_count_kv={n_head_kv} -- "
+                             f"not a valid grouped-query-attention geometry (every Q head must map onto a "
+                             f"whole number of shared KV heads)")
+        v.terminal_result = "INVALID"
+        return v
     head_dim = hidden // n_head
     if head_dim % 2 != 0:
         # Round-3 remediation (Gate 2, Codex ODD_HEAD_DIM_CRASH probe):
@@ -390,6 +404,21 @@ def validate_artifact(path: str) -> ArtifactValidation:
         v.terminal_result = "INVALID"
         return v
 
+    rms_eps_field = reader.fields.get("llama.attention.layer_norm_rms_epsilon")
+    if rms_eps_field is not None:
+        rms_eps_val = float(rms_eps_field.contents())
+        if not math.isfinite(rms_eps_val) or rms_eps_val <= 0:
+            # Round-4 remediation (Gate 1, Codex-reproduced false
+            # authorization): TWO artifacts with the SAME invalid
+            # rms_epsilon (e.g. -1.0) previously passed pair identity's
+            # equality check and could reach VERIFIED_COMPATIBLE --
+            # equality alone does not prove the shared value is a
+            # value OrcEngine's frozen RMSNorm can actually execute.
+            v.ambiguities.append(f"llama.attention.layer_norm_rms_epsilon={rms_eps_val!r} is not finite "
+                                 f"and > 0 -- not a value OrcEngine's frozen RMSNorm can execute")
+            v.terminal_result = "INVALID"
+            return v
+
     rope_dim = reader.fields.get("llama.rope.dimension_count")
     rope_freq = reader.fields.get("llama.rope.freq_base")
     if rope_dim is None or rope_freq is None:
@@ -400,6 +429,74 @@ def validate_artifact(path: str) -> ArtifactValidation:
         # experiment's own design, missing-but-not-contradictory
         # optional metadata proceeds with the ambiguity recorded, not
         # silently passed.
+    else:
+        # Round-4 remediation (Gate 1): semantic validation of PRESENT
+        # RoPE metadata, mirroring the frozen runtime's actual, proven
+        # contract (Tools/OrcEnginePhase1/include/orcengine/ops.hpp:
+        # "Full-rotation (rotary_dim == head_dim) non-interleaved Llama
+        # RoPE ... Phase 1 has no partial rotary factor" -- inspected,
+        # not modified). Two artifacts sharing the SAME invalid value
+        # (e.g. freq_base=-10000.0, or dimension_count=999) previously
+        # passed pair identity's equality check alone.
+        rope_freq_val = float(rope_freq.contents())
+        if not math.isfinite(rope_freq_val) or rope_freq_val <= 0:
+            v.ambiguities.append(f"llama.rope.freq_base={rope_freq_val!r} is not finite and > 0 -- not a "
+                                 f"value OrcEngine's frozen RoPE application can execute")
+            v.terminal_result = "INVALID"
+            return v
+        rope_dim_val = int(rope_dim.contents())
+        if rope_dim_val != head_dim:
+            v.ambiguities.append(f"llama.rope.dimension_count={rope_dim_val} != head_dim={head_dim} -- "
+                                 f"OrcEngine's frozen RoPE implementation only supports FULL-HEAD rotation "
+                                 f"(rotary_dim == head_dim, no partial rotary factor); a narrower or wider "
+                                 f"declared RoPE dimension cannot be executed by the current runtime")
+            v.terminal_result = "INVALID"
+            return v
+
+    rope_scaling_type = reader.fields.get("llama.rope.scaling.type")
+    if rope_scaling_type is not None:
+        scaling_type_val = rope_scaling_type.contents()
+        if scaling_type_val not in ("none", "linear"):
+            # OrcEngine's frozen runtime implements no RoPE scaling
+            # variant at all (grep-confirmed: zero occurrences of
+            # "rope_scaling"/"yarn"/"ntk" anywhere in Tools/OrcEngine*).
+            # "linear" with factor=1.0 is the one no-op case worth
+            # tolerating rather than rejecting outright; anything else
+            # (yarn, dynamic, longrope, ...) is an execution-affecting
+            # mode this runtime cannot apply.
+            v.ambiguities.append(f"llama.rope.scaling.type={scaling_type_val!r} is not a scaling mode "
+                                 f"OrcEngine's frozen runtime implements (no rope-scaling code exists in "
+                                 f"Tools/OrcEngine* at all) -- an unsupported execution-affecting mode")
+            v.terminal_result = "INVALID"
+            return v
+    rope_scaling_factor = reader.fields.get("llama.rope.scaling.factor")
+    if rope_scaling_factor is not None:
+        factor_val = float(rope_scaling_factor.contents())
+        if not math.isfinite(factor_val) or factor_val <= 0:
+            v.ambiguities.append(f"llama.rope.scaling.factor={factor_val!r} is not finite and > 0")
+            v.terminal_result = "INVALID"
+            return v
+        if factor_val != 1.0:
+            v.ambiguities.append(f"llama.rope.scaling.factor={factor_val!r} != 1.0 -- OrcEngine's frozen "
+                                 f"runtime applies no RoPE scaling, so any non-identity factor is an "
+                                 f"execution-affecting mode this runtime cannot apply")
+            v.terminal_result = "INVALID"
+            return v
+
+    sliding_window = reader.fields.get("llama.attention.sliding_window")
+    if sliding_window is not None:
+        sliding_window_val = int(sliding_window.contents())
+        if sliding_window_val != 0:
+            # OrcEngine's frozen runtime implements no sliding-window
+            # attention at all (grep-confirmed, same scope as above).
+            # 0 is the conventional GGUF "no window / full attention"
+            # value; any other declared value requests windowed
+            # attention this runtime cannot execute.
+            v.ambiguities.append(f"llama.attention.sliding_window={sliding_window_val} is a nonzero "
+                                 f"windowed-attention request -- OrcEngine's frozen runtime implements no "
+                                 f"sliding-window attention at all")
+            v.terminal_result = "INVALID"
+            return v
 
     highest_layer_seen = -1
     for t in reader.tensors:
@@ -965,8 +1062,28 @@ def verify_pair_identity(artifact_v: ArtifactValidation, reference_v: ArtifactVa
         # Present on exactly one side -- the dangerous asymmetric case
         # (Grok round-2 finding). Safe ONLY if narrowly proven tied to
         # THAT side's own token_embd.weight, AND token_embd.weight has
-        # already passed pair identity above (it's in `checked_names`,
-        # so if we reached here, it did).
+        # already passed pair identity above.
+        #
+        # Round-4 remediation (Grok round-3 review, finding #4):
+        # documenting this guard's ACTUAL reachability honestly, not
+        # overclaiming what it catches. `token_embd.weight` is a
+        # REQUIRED tensor (Layer 2/`validate_artifact()` already made
+        # BOTH sides `INVALID` before `verify_pair_identity()` is ever
+        # called if either lacks it), and `checked_names` is only
+        # reached AFTER the mismatches check above already returned
+        # early for ANY differing non-Q/K tensor -- including
+        # `token_embd.weight` itself. So a mismatched embedding is
+        # caught by the EARLIER `mismatches` return, not by this guard;
+        # by the time execution reaches here, `token_embd.weight` is
+        # unconditionally present in `checked_names`. This specific
+        # `if` is therefore UNREACHABLE as false under the current code
+        # structure -- kept as an explicit internal invariant / defense
+        # in depth against a future refactor that decouples the
+        # embedding check from this one, not because it currently
+        # blocks a real attack path. See
+        # `test_embedding_mismatch_denied_before_tied_output_proof_is_ever_reached`
+        # in test_profiler.py for the actual attack this protects
+        # against (via the earlier `mismatches` path, not this guard).
         present_side_reader = a_reader if a_out is not None else b_reader
         present_side_label = "artifact" if a_out is not None else "reference"
         if "token_embd.weight" not in checked_names:
