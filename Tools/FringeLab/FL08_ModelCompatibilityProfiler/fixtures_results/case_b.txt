@@ -2,8 +2,9 @@ Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): CANONICAL_LLAMA_CPP
 Pair identity: UNVERIFIED
-Runtime target: canonical-llama.cpp
-Compatibility: AMBIGUOUS
+Layout target: canonical-llama.cpp
+Layout compatibility: AMBIGUOUS
+Runtime admission: NOT_EVALUATED (this research prototype has no loader/runtime seam to evaluate admission; this is always NOT_EVALUATED)
 Evidence:
   - artifact sha256=aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7
   - container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates
@@ -14,4 +15,4 @@ Evidence:
 Unresolved ambiguities:
   - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']
 Confidence: AMBIGUOUS
-Execution authorization: denied
+Execution authorization: denied (layout compatibility alone never grants this -- runtime admission is required and is never verified by this prototype)

@@ -7,7 +7,7 @@
   "authorization_conditions": {
     "architecture_valid": true,
     "container_valid": true,
-    "encoding_supported": true,
+    "encoding_structurally_known": true,
     "matches_target_as_is": false,
     "no_unresolved_ambiguity": false,
     "normalization_not_required": true,
@@ -15,7 +15,8 @@
     "per_layer_consistent": true,
     "qk_numerically_verified": true,
     "qk_tensors_nonzero_and_complete": true,
-    "reference_valid": true
+    "reference_valid": true,
+    "runtime_admission_verified": false
   },
   "confidence": {
     "architecture": "STRUCTURALLY_VERIFIED",
@@ -46,6 +47,10 @@
   ],
   "execution_authorization": false,
   "known_normalization_requirements": [],
+  "layout_compatibility": {
+    "result": "AMBIGUOUS",
+    "target": "orcengine-current"
+  },
   "metadata_fingerprint": "635fb808d114a2f8522d6bbb70c25f40f8958d9ea622e10d668774149884f114",
   "output_weight_semantics": "TIED_PHYSICALLY_DUPLICATED",
   "pair_identity": {
@@ -97,11 +102,12 @@
     "terminal_result": null,
     "tokenizer_fingerprint": "f694e0dec7bbf6d052a61b022cb010861f132025c3dcc64f2de4dd3c2d620af1"
   },
-  "runtime_compatibility": {
-    "result": "AMBIGUOUS",
-    "target": "orcengine-current"
+  "runtime_admission": {
+    "authority": null,
+    "evidence": [],
+    "status": "NOT_EVALUATED"
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "tensor_inventory_fingerprint": "4749a3c1d60958f4800509c4f14f7e14ffa8d4d96eed6f6d4eb8a9296b2c21b7",
   "tokenizer_fingerprint": "b3dc951d19443a91ef6d10d4f59f2544d8e46d64e83fec06ea43419996cc49b9",
   "unresolved_ambiguities": [

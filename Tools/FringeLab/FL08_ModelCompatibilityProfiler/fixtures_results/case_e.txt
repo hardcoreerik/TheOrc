@@ -2,12 +2,13 @@ Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): UNKNOWN
 Pair identity: UNVERIFIED
-Runtime target: canonical-llama.cpp
-Compatibility: INVALID
+Layout target: canonical-llama.cpp
+Layout compatibility: INVALID
+Runtime admission: NOT_EVALUATED (this research prototype has no loader/runtime seam to evaluate admission; this is always NOT_EVALUATED)
 Evidence:
   - artifact sha256=cbdd39760d8b18551408f663b45e7aaf4fef95173730dbbe240be41389faf078
   - container valid: GGUF v3, 11 tensors, 0 out-of-bounds, 0 duplicates
 Unresolved ambiguities:
   - declared block_count=2 but highest blk.N.* index seen is 0 (1 layers present)
 Confidence: AMBIGUOUS
-Execution authorization: denied
+Execution authorization: denied (layout compatibility alone never grants this -- runtime admission is required and is never verified by this prototype)

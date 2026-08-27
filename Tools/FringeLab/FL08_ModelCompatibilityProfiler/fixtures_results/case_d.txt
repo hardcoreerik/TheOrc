@@ -2,8 +2,9 @@ Architecture: llama
 Container: GGUF v3
 Artifact dialect (Q/K): CANONICAL_LLAMA_CPP
 Pair identity: UNVERIFIED
-Runtime target: orcengine-current
-Compatibility: AMBIGUOUS
+Layout target: orcengine-current
+Layout compatibility: AMBIGUOUS
+Runtime admission: NOT_EVALUATED (this research prototype has no loader/runtime seam to evaluate admission; this is always NOT_EVALUATED)
 Evidence:
   - artifact sha256=dbf0d1f31d3afd0864bb02a916b7e3762728fd616eebd34bd6021c7497def219
   - container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates
@@ -14,4 +15,4 @@ Evidence:
 Unresolved ambiguities:
   - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']
 Confidence: AMBIGUOUS
-Execution authorization: denied
+Execution authorization: denied (layout compatibility alone never grants this -- runtime admission is required and is never verified by this prototype)

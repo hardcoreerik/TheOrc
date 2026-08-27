@@ -7,7 +7,7 @@
   "authorization_conditions": {
     "architecture_valid": false,
     "container_valid": true,
-    "encoding_supported": true,
+    "encoding_structurally_known": true,
     "matches_target_as_is": false,
     "no_unresolved_ambiguity": false,
     "normalization_not_required": true,
@@ -15,7 +15,8 @@
     "per_layer_consistent": false,
     "qk_numerically_verified": false,
     "qk_tensors_nonzero_and_complete": false,
-    "reference_valid": false
+    "reference_valid": false,
+    "runtime_admission_verified": false
   },
   "confidence": {
     "architecture": "AMBIGUOUS",
@@ -41,6 +42,10 @@
   ],
   "execution_authorization": false,
   "known_normalization_requirements": [],
+  "layout_compatibility": {
+    "result": "INVALID",
+    "target": "canonical-llama.cpp"
+  },
   "metadata_fingerprint": null,
   "output_weight_semantics": "UNKNOWN",
   "pair_identity": {
@@ -60,11 +65,12 @@
     "F32"
   ],
   "reference": null,
-  "runtime_compatibility": {
-    "result": "INVALID",
-    "target": "canonical-llama.cpp"
+  "runtime_admission": {
+    "authority": null,
+    "evidence": [],
+    "status": "NOT_EVALUATED"
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "tensor_inventory_fingerprint": null,
   "tokenizer_fingerprint": null,
   "unresolved_ambiguities": [

@@ -1037,12 +1037,23 @@ cross-checked via `grep -c "    def test_" test_profiler.py`.
 Not closed. All three round-6 findings (signed-integer false
 authorization, omitted `tensor_data_layout`/`expert_count` policy,
 the overclaiming authorization-control test) are fixed and
-regression-tested. A real-artifact authorization result DOES exist
-after these corrections: the real custom-vs-canonical Phase 6
-artifact pairs (Cases A-D) remain non-authorizing for the same
+regression-tested.
+
+**Correction (round 7)**: the sentence that previously stood here --
+"A real-artifact authorization result DOES exist after these
+corrections" -- was self-contradictory as written (it was immediately
+followed by "Cases A-D remain non-authorizing") and is corrected by
+round 7's own closeout finding below: **no real artifact ever reached
+genuine execution authorization at any point in this experiment's
+history**, round 6 included. What round 6 actually established is
+narrower and still correctly stated: the real custom-vs-canonical
+Phase 6 artifact pairs (Cases A-D) remain non-authorizing for the same
 disclosed reason established in round 3/4 (genuine tokenizer.*
-key-set asymmetry) -- this round's fixes do not change that outcome
-for any real artifact, only for adversarially constructed ones.
+key-set asymmetry) -- round 6's fixes did not change that outcome for
+any real artifact, only for adversarially constructed ones. See
+round 7's "Corrected disposition of real-artifact evidence" section
+below for the complete, non-contradictory statement.
+
 Limitations still genuinely open and NOT addressed this round:
 tokenizer policy (no override mechanism), single-artifact inference
 without a paired reference remains `AMBIGUOUS`-capped, no reverse
@@ -1050,3 +1061,308 @@ normalization-plan support, and the GGUF-header-version-2-vs-3
 discrepancy newly recorded in the audit table above. Stopping here
 for Codex review before any further remediation, merge, promotion,
 or freeze, per standing constraint.
+
+## Round 7 remediation (FL-08 closeout): results and conclusions
+
+This round's purpose is explicitly different from rounds 2-6: not
+another loader-key patching pass, but separating what FL-08 actually
+proves (artifact structure and Q/K layout) from full runtime
+admission, which it never proved and, as a research prototype with no
+attached loader/runtime, structurally cannot prove.
+
+### The remaining false authorization (Gate 1)
+
+**Reproduced before any fix** (raw-HF primary, canonical-permuted
+reference, same model identity, target `orcengine-current`, Q8_0
+encoding):
+
+```
+quantization_formats: ['F32', 'Q8_0']
+qk_layout.classification: RAW_HF
+pair_identity.status: VERIFIED
+runtime_compatibility.result: VERIFIED_COMPATIBLE
+execution_authorization: True
+```
+
+Compared directly against this worktree's actual runtime contract --
+`Tools/OrcEnginePhase2/src/gguf.cpp`, inspected, not modified:
+
+```c++
+bool gguf_encoding_materializable(GgufTensorEncoding encoding) {
+    return encoding == GgufTensorEncoding::F32 || encoding == GgufTensorEncoding::F16;
+}
+```
+
+`materialize_gguf_tensor()`/`materialize_gguf_tensor_rows()` both
+throw `GgufError` for any non-materializable encoding, and
+`manifest.materializable` is set `false` whenever ANY tensor's
+encoding fails `gguf_encoding_materializable()` -- Q8_0 is INDEXED
+successfully by the loader (structurally understood) but CANNOT be
+materialized (executed). The root cause, exactly as diagnosed: this
+profiler's `authorization_conditions["encoding_supported"]` equated
+"understood by the profiler" (Q8_0 is in `KNOWN_ENCODINGS`) with
+"executable by the selected runtime" (which Q8_0 is not, for
+`orcengine-current`). No `if target == "orcengine-current" and Q8_0`
+special case was added -- see Gate 2 below for the structural fix.
+
+**Reproduced after the fix** (identical inputs):
+
+```
+quantization_formats: ['F32', 'Q8_0']
+qk_layout.classification: RAW_HF
+pair_identity.status: VERIFIED
+layout_compatibility.result: VERIFIED_LAYOUT_COMPATIBLE
+runtime_admission: {'status': 'NOT_EVALUATED', 'authority': None, 'evidence': []}
+execution_authorization: False
+```
+
+Layout evidence is UNCHANGED (still `RAW_HF`/`VERIFIED`/layout-
+compatible -- this profiler's actual proof is preserved exactly).
+Only the false authorization is closed.
+
+### Schema separation: layout, admission, authorization (Gate 2)
+
+`SCHEMA_VERSION` bumped `2 -> 3` (a genuine output-contract break,
+not a compatible extension -- old-shape profiles are correctly
+refused by `normalization_plan.py`, which now only accepts
+`schema_version == 3`).
+
+- **`runtime_compatibility` renamed `layout_compatibility`** (same
+  `{target, result}` shape). Its result vocabulary is now explicitly
+  layout-scoped: `VERIFIED_LAYOUT_COMPATIBLE` (was
+  `VERIFIED_COMPATIBLE`), `VERIFIED_LAYOUT_NORMALIZATION_REQUIRED`
+  (was `VERIFIED_NORMALIZATION_REQUIRED`), `AMBIGUOUS` (unchanged),
+  `INVALID`, `UNSUPPORTED` (was `VERIFIED_UNSUPPORTED` -- see Gate 4).
+- **New `runtime_admission` axis**: `{"status": "NOT_EVALUATED",
+  "authority": null, "evidence": []}`. This is a FIXED, unconditional
+  literal written once per `layer5_decision()` call -- never inferred
+  from Q/K evidence, encoding checks, container validity, or any other
+  Python-side rule. This research prototype has no loader/runtime seam
+  capable of actually attesting materializability or any other form of
+  runtime admission, so it makes no claim about it beyond "not
+  evaluated."
+- **`authorization_conditions`** gained a new, DOMINANT condition:
+  `"runtime_admission_verified": profile_data["runtime_admission"]
+  ["status"] == "VERIFIED"`. Since `runtime_admission.status` is
+  always `NOT_EVALUATED`, this condition is always `False`, which
+  makes `execution_authorization` (`all(authorization_conditions.
+  values())`) unconditionally `False` for every artifact this
+  prototype profiles -- by construction, not by enumerating every
+  encoding/target combination a real runtime would reject (the exact
+  key-by-key pattern this round is meant to end). The old
+  `"encoding_supported"` condition is renamed
+  `"encoding_structurally_known"` -- it only ever meant "this profiler
+  recognizes the on-disk encoding tag," and the rename makes that
+  honest rather than implying runtime executability.
+
+Confirmed by `TestRound7RuntimeAdmissionSeparation`
+(`test_runtime_admission_defaults_fail_closed`,
+`test_forged_runtime_admission_in_seed_profile_data_is_overwritten` --
+proves `layer5_decision()` unconditionally overwrites any pre-seeded
+`runtime_admission` value rather than trusting it,
+`test_forged_execution_authorization_in_json_profile_cannot_gain_a_
+plan` -- proves `build_plan()` produces an IDENTICAL decision whether
+or not `execution_authorization`/`runtime_admission` are forged True
+in the input JSON, because `build_plan()` never reads either field)
+plus two new layout-vs-authorization separation tests added to
+`TestGate5PackedQ80Validation`
+(`test_q8_0_layout_compatible_orcengine_current_cannot_authorize_
+without_runtime_admission` -- the exact Gate-1 reproduction, now
+fixed; `test_f32_layout_compatible_cannot_authorize_without_runtime_
+admission` -- proving the SAME rule applies to F32/F16, per Gate 7
+requirement 2, not only to the encoding this runtime happens to
+reject).
+
+### Normalization plan remains advisory, unauthorized by design (Gate 3)
+
+`normalization_plan.py`'s `build_plan()` already gated on
+`runtime_compatibility.result == "VERIFIED_NORMALIZATION_REQUIRED"`
+and `pair_identity.status == "VERIFIED"` -- it never depended on
+`execution_authorization` at all, and its emitted plan already carried
+a hardcoded `"execution_authorized": False`. Only the field/value
+names it reads were renamed (`layout_compatibility`/
+`VERIFIED_LAYOUT_NORMALIZATION_REQUIRED`); no gating logic changed.
+Confirmed by `test_verified_layout_normalization_still_yields_a_
+proposed_never_applied_plan`, which explicitly asserts the input
+profile's `execution_authorization` is `False` while the plan is
+still proposed, and that the plan itself never claims destructiveness,
+source modification, or authorization.
+
+### Unsupported-versus-invalid semantics corrected (Gate 4)
+
+Five semantic-policy-violation branches in `validate_artifact()`
+(well-typed, well-formed values describing a REAL, MEANINGFUL
+configuration this runtime does not implement) were reclassified from
+`INVALID` to `VERIFIED_UNSUPPORTED` (surfaced to
+`layout_compatibility.result` as `UNSUPPORTED`, alongside the existing
+wrong-architecture case): `rope.scaling.type` not in
+`("none","linear")`, `rope.scaling.factor != 1.0`,
+`sliding_window != 0`, `tensor_data_layout != "reference"` (round 6),
+`expert_count != 0` (round 6). Contradictory/impossible values on the
+SAME fields -- non-finite or `<= 0` scaling factor, for example --
+remain `INVALID`, unchanged; only the "this is a real alternate mode
+this runtime doesn't implement" branches moved. Wrong-GGUF-type
+detection for every field (including `tensor_data_layout`/
+`expert_count`) also remains `INVALID`, per Gate 4's explicit
+requirement. No support for any of these modes was added or implied
+-- only their honest classification changed.
+
+Confirmed via a dedicated `_assert_unsupported`/
+`_assert_unsupported_no_raise` helper pattern (mirroring the existing
+`_assert_invalid`/`_assert_invalid_no_raise` helpers) applied to the 5
+reclassified cases, plus a new direct test,
+`test_invalid_and_unsupported_are_distinct_classifications`, proving
+both codes are produced for the same test run and are never equal to
+each other (a wrong-typed `rms_epsilon` -> `INVALID`; a well-typed
+nonzero `expert_count` -> `UNSUPPORTED`).
+
+### Bounded runtime-metadata audit conclusion, corrected (Gate 5)
+
+Round 6's audit table implied FL-08 mirrors OrcEngine's loader rules
+key-by-key. That framing is corrected here, not just its contents:
+FL-08 is a Python SHADOW of `Tools/OrcEnginePhase2`'s loader, built by
+reading its source and re-encoding what it read as Python checks. That
+shadow can drift from the real loader in either direction, and rounds
+5-7 each found a drift:
+
+- **GGUF v2 accepted by FL-08 but rejected by OrcEnginePhase2.**
+  `validate_artifact()` accepts `GGUF.version in (2, 3)`; the real
+  loader's `read_container()` requires `version == 3` exactly (`if
+  (version != 3) throw GgufError(...)`, `Tools/OrcEnginePhase2/src/
+  gguf.cpp` line 366-367, inspected). Recorded in round 6's audit
+  table, deliberately NOT fixed there or here -- fixing it would
+  continue exactly the key-by-key pattern this round exists to stop.
+- **Q8_0 understood by FL-08 but non-materializable by the cited
+  runtime.** This round's Gate-1 finding, above -- the clearest
+  concrete proof that "FL-08 recognizes this" and "the runtime can run
+  this" are different claims, and conflating them is unsafe.
+- **Container/alignment/tensor-bounds parsing is inherited from
+  `GGUFReader` (gguf-py), a third-party library FL-08 depends on but
+  does not audit against OrcEngine's own container-reading code.**
+  FL-08's container validity check (`GGUFReader(path)` parses without
+  raising, tensor bounds fit the file) is a DIFFERENT implementation
+  from `Tools/OrcEnginePhase2/src/gguf.cpp`'s own container/alignment
+  reader -- the two could disagree on a malformed-but-parseable-by-one
+  file, and no round of this experiment has audited that boundary.
+
+**Architectural conclusion** (the negative boundary finding this round
+exists to record, not a implementation gap to close): a compatibility
+profiler built by reading and re-encoding a loader's source, however
+carefully, is a parallel implementation that can silently drift from
+the original -- new metadata keys, new encodings, new version
+requirements, and internal parsing differences will keep surfacing
+new drift indefinitely, as five straight rounds (3 through 7) have now
+demonstrated. A compatibility profiler should classify and explain
+artifacts -- FL-08's actual, durable contribution -- but EXECUTION
+ADMISSION must come from the runtime that will actually execute them,
+or from a capability contract that runtime itself owns and versions,
+not from a hand-maintained shadow of its source. This is why
+`runtime_admission` in the new schema is a fixed `NOT_EVALUATED`
+rather than another Python rule: continuing to patch this profiler's
+own admission logic key-by-key would be exactly the mistake this
+finding identifies, one round after it was already made twice more
+(rounds 5 and 6).
+
+### Corrected disposition of real-artifact evidence (Gate 6)
+
+Correcting round 6's self-contradictory closing statement (see the
+inline correction in round 6's own section above) with the exact,
+non-contradictory truth:
+
+- **No current real-artifact case produces safe execution
+  authorization.** This was true throughout rounds 3-6 (every real
+  Case A-D result was already `AMBIGUOUS`/non-authorizing, for the
+  disclosed tokenizer-asymmetry reason) and remains true after round
+  7's schema change, for the same reason -- `execution_authorization`
+  is now unconditionally `False` for every artifact regardless.
+  Verified directly: all 6 committed real-artifact outputs
+  (`fixtures_results/case_{a,b,c,d,e}.{json,txt}`, `no_reference_
+  ambiguous.{json,txt}`) were regenerated against round-7 code; every
+  one already showed `execution_authorization: denied` before this
+  round (nothing round 7 changed FLIPPED an outcome), and every diff
+  against the previously committed files is the exact same mechanical
+  renaming (`runtime_compatibility` -> `layout_compatibility`,
+  `Compatibility:` -> `Layout compatibility:`, a new `Runtime
+  admission:` line, `schema_version: 2 -> 3`) with zero substantive
+  result changes -- verified by direct diff, not assumed. The updated
+  files are committed this round (see "Regenerated fixture evidence"
+  below); this is a "regenerated, exact changes reported" disposition,
+  not a "byte-identical" one, per this round's explicit instruction.
+- **Synthetic cases proved the Q/K classifier's positive path.** The
+  round-4/5/6/7 synthetic tests that reach `VERIFIED_LAYOUT_COMPATIBLE`
+  (e.g. `test_genuine_orcengine_current_layout_compatibility_control`)
+  prove Q/K layout detection genuinely works on constructed inputs --
+  this is real, demonstrated evidence, not invalidated by this round.
+- **Those synthetic cases proved layout compatibility, not complete
+  runtime executability.** No synthetic OR real case in this
+  experiment's entire history has ever reached genuine execution
+  authorization requiring actual runtime admission, because this
+  prototype has never had a runtime-admission seam to satisfy that
+  requirement with.
+- **Cases A-E remain evidence about detection/classification, not
+  authority to execute.** Unchanged from round 3/4's framing, restated
+  here as the closeout's own explicit position.
+- **Single-artifact inference, tokenizer reconciliation, reverse
+  normalization, broader model families, and runtime admission remain
+  outside this prototype.** Runtime admission is the NEW item on this
+  list, added by this round; the other four were already recorded as
+  open in rounds 3-6 and remain open, unchanged.
+- **FL-08 does not claim universal GGUF compatibility.** Restated
+  explicitly, and narrowed further by round 6's scope pin (every
+  "OrcEngine's real loader" citation is `Tools/OrcEnginePhase2/` in
+  THIS worktree; Phase 6 does not exist here and is never claimed
+  compatible) and this round's audit conclusion (FL-08 is a shadow of
+  that one loader's source, not an authority on it).
+
+### Regenerated fixture evidence
+
+All 6 real-artifact outputs were regenerated against round-7 code
+(same CLI invocations, same artifact/reference paths, same
+`--target`) and diffed against the previously committed files. Every
+file changed; every diff is the exact mechanical schema rename
+described above with no substantive result change (confirmed by
+direct `diff`, listed per-file in the round-7 commit). The regenerated
+files are committed this round, replacing the round-4/5/6 versions.
+
+### Final test count (this round)
+
+`python -m unittest test_profiler`: **187 tests, 187 passing.** Up
+from round 6's 180: **+7** -- 2 new layout-vs-authorization tests in
+`TestGate5PackedQ80Validation` (the Q8_0 reproduction and its F32
+counterpart) and 5 new tests in `TestRound7RuntimeAdmissionSeparation`
+(admission-defaults, forged-seed-data, forged-JSON-cannot-gain-a-plan,
+normalization-plan-still-proposed, invalid-vs-unsupported-distinct) --
+`180 + 7 = 187`, matching the executed count exactly. Independently
+cross-checked via `grep -c "    def test_" test_profiler.py`. No
+existing test was deleted; several were renamed in place (their
+`def test_` count is unchanged by a rename) to remove overclaiming
+names (`..._and_authorizes`/`..._can_authorize`/`..._authorization_
+control` -> `..._and_is_layout_compatible`/`..._but_not_execution_
+authorized`/`..._layout_compatibility_control`, etc.) and their
+assertions corrected from `assertTrue(execution_authorization)` to
+`assertFalse(...)` plus the equivalent positive layout-axis
+assertions, per Gate 7 requirement 3.
+
+### FL-08 final disposition
+
+**Research prototype accepted with bounded conclusions.** Q/K dialect
+detection and proposed forward normalization are demonstrated,
+repeatedly, against both synthetic and real artifacts, across seven
+remediation rounds of adversarial review. Full runtime admission and
+execution authorization are NOT implemented and remain fail-closed by
+construction, not by policy choice that could quietly erode under
+future pressure to "just add the encoding this runtime happens to
+support." This is intended to be the final FL-08 remediation round --
+no further loader-key parity sweep is planned or recommended.
+
+**Recommended (not implemented) production follow-up**: an
+engine-owned compatibility/admission result, produced by the exact
+loader/runtime version that will execute the model, combined with
+FL-08-style layout evidence by an ExecutionPlanner, exposed to
+operators as separate "layout," "runtime support," and "authorization"
+states -- mirroring the three-axis separation this round introduced
+into FL-08's own schema, but backed by the real runtime instead of a
+research prototype's best-effort reading of its source.
+
+Stopping here for Codex review before any merge, tag, freeze, or
+production integration, per standing constraint.
