@@ -246,7 +246,7 @@ def build_plan(profile: dict) -> tuple[dict | None, str | None]:
     if qk["classification"] != "RAW_HF" or layout["target"] != "canonical-llama.cpp" or \
        qk["confidence"] != "NUMERICALLY_VERIFIED":
         return None, (f"no named plan for classification={qk['classification']!r} "
-                      f"target={runtime['target']!r} confidence={qk['confidence']!r} -- fail closed "
+                      f"target={layout['target']!r} confidence={qk['confidence']!r} -- fail closed "
                       f"rather than guess")
 
     if not qk["per_layer_consistent"]:

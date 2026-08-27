@@ -2147,6 +2147,37 @@ class TestGate7NormalizationPlan(_PairedFixtureCase):
         self.assertIsNotNone(reason)
 
     # -------------------------------------------------------------
+    # Round 8 (Codex authority review, pre-freeze correction): round
+    # 7's `runtime` -> `layout` rename left one sibling diagnostic
+    # string still reading the undefined `runtime` name --
+    # `runtime['target']` inside the "no named plan for
+    # classification=... target=..." f-string. Reachable with a
+    # schema-valid but logically inconsistent profile (result claims
+    # VERIFIED_LAYOUT_NORMALIZATION_REQUIRED while classification is
+    # NOT RAW_HF) and previously raised an uncaught NameError, violating
+    # the "malformed/inconsistent profile returns (None, reason), never
+    # raises" contract every other path in this module honors.
+    # -------------------------------------------------------------
+
+    def test_inconsistent_normalization_required_profile_refused_not_raised(self):
+        import copy
+        profile = copy.deepcopy(fl08.profile_artifact(self.raw_path, self.canonical_path,
+                                                       "canonical-llama.cpp"))
+        self.assertEqual(profile["layout_compatibility"]["result"],
+                         "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+        # Manufacture the exact schema-valid-but-inconsistent combination
+        # the mega-prompt described: result claims normalization is
+        # required, but classification is NOT the one this profiler's
+        # only named plan (RAW_HF -> canonical) actually applies to.
+        profile["qk_layout"]["classification"] = "CANONICAL_LLAMA_CPP"
+        plan, reason = fl08_plan.build_plan(profile)  # must not raise
+        self.assertIsNone(plan)
+        self.assertIsNotNone(reason)
+        self.assertIn("CANONICAL_LLAMA_CPP", reason)
+        self.assertIn("canonical-llama.cpp", reason)
+
+    # -------------------------------------------------------------
     # Round 4 (Codex authority review): three gaps found in the
     # round-3 validator -- bool-as-int, reference container.valid not
     # checked independent of terminal_result, and hash format
