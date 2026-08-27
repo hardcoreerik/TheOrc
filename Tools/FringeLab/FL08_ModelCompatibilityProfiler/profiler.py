@@ -38,11 +38,22 @@ Usage:
                         [--target canonical-llama.cpp|orcengine-current]
                         [--json OUT.json]
 
-Exit code: 0 for VERIFIED_COMPATIBLE or VERIFIED_NORMALIZATION_REQUIRED
-(a profile was successfully produced), nonzero for AMBIGUOUS, INVALID,
-or VERIFIED_UNSUPPORTED (a profile was still produced and printed, but
-this artifact must not be treated as safe to execute without further
-evidence or an explicit operator decision).
+Exit code: 0 for VERIFIED_LAYOUT_COMPATIBLE or
+VERIFIED_LAYOUT_NORMALIZATION_REQUIRED (a Q/K LAYOUT verdict was
+successfully produced), nonzero for AMBIGUOUS, INVALID, or UNSUPPORTED
+(a profile was still produced and printed, but this artifact's layout
+could not be classified with sufficient confidence).
+
+Round-7 remediation (FL-08 closeout): exit 0 / a VERIFIED_LAYOUT_*
+layout_compatibility.result NEVER means this artifact is safe to
+execute. It proves Q/K layout evidence only. `execution_authorization`
+is a SEPARATE field that also requires `runtime_admission.status ==
+"VERIFIED"` -- a status this research prototype never produces (it is
+always "NOT_EVALUATED"), because this experiment has no real
+loader/runtime seam to attest materializability or any other form of
+runtime admission. `execution_authorization` is therefore always
+`False` for every artifact this tool profiles. See EXPERIMENT.md's
+"Round 7 remediation" section for the full architectural conclusion.
 """
 from __future__ import annotations
 
@@ -56,7 +67,7 @@ import sys
 import numpy as np
 from gguf import GGUFReader, GGUFValueType
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Round-5 remediation (Gate 1, Codex authority review): the GGUF scalar
 # type families this profiler accepts for the metadata fields it reads
@@ -600,13 +611,21 @@ def validate_artifact(path: str) -> ArtifactValidation:
             # variant at all (grep-confirmed: zero occurrences of
             # "rope_scaling"/"yarn"/"ntk" anywhere in Tools/OrcEngine*).
             # "linear" with factor=1.0 is the one no-op case worth
-            # tolerating rather than rejecting outright; anything else
-            # (yarn, dynamic, longrope, ...) is an execution-affecting
-            # mode this runtime cannot apply.
+            # tolerating rather than rejecting outright.
+            #
+            # Round-7 remediation (Gate 4, FL-08 closeout): a scaling
+            # type like "yarn"/"dynamic"/"longrope" is a well-typed,
+            # well-formed, MEANINGFUL RoPE configuration this runtime
+            # simply does not implement -- not a malformed/contradictory
+            # value. Reclassified VERIFIED_UNSUPPORTED (not INVALID) to
+            # match Gate 4's distinction: structurally valid but outside
+            # this experiment's supported profile. This does not build
+            # any scaling support -- it only names the value honestly.
             v.ambiguities.append(f"llama.rope.scaling.type={scaling_type_val!r} is not a scaling mode "
                                  f"OrcEngine's frozen runtime implements (no rope-scaling code exists in "
-                                 f"Tools/OrcEngine* at all) -- an unsupported execution-affecting mode")
-            v.terminal_result = "INVALID"
+                                 f"Tools/OrcEngine* at all) -- a well-formed but unsupported RoPE "
+                                 f"configuration")
+            v.terminal_result = "VERIFIED_UNSUPPORTED"
             return v
     factor_val, err = _read_float_field(reader, "llama.rope.scaling.factor")
     if err:
@@ -619,10 +638,13 @@ def validate_artifact(path: str) -> ArtifactValidation:
             v.terminal_result = "INVALID"
             return v
         if factor_val != 1.0:
+            # Round-7 remediation (Gate 4): a non-identity factor is a
+            # well-formed alternate scaling configuration, not a
+            # contradictory value -- VERIFIED_UNSUPPORTED, not INVALID.
             v.ambiguities.append(f"llama.rope.scaling.factor={factor_val!r} != 1.0 -- OrcEngine's frozen "
-                                 f"runtime applies no RoPE scaling, so any non-identity factor is an "
-                                 f"execution-affecting mode this runtime cannot apply")
-            v.terminal_result = "INVALID"
+                                 f"runtime applies no RoPE scaling, so any non-identity factor is a "
+                                 f"well-formed but unsupported execution-affecting mode")
+            v.terminal_result = "VERIFIED_UNSUPPORTED"
             return v
 
     sliding_window_val, err = _read_int_field(reader, "llama.attention.sliding_window")
@@ -637,10 +659,14 @@ def validate_artifact(path: str) -> ArtifactValidation:
             # 0 is the conventional GGUF "no window / full attention"
             # value; any other declared value requests windowed
             # attention this runtime cannot execute.
+            #
+            # Round-7 remediation (Gate 4): a nonzero window is a
+            # well-formed alternate attention configuration, not a
+            # contradictory value -- VERIFIED_UNSUPPORTED, not INVALID.
             v.ambiguities.append(f"llama.attention.sliding_window={sliding_window_val} is a nonzero "
                                  f"windowed-attention request -- OrcEngine's frozen runtime implements no "
-                                 f"sliding-window attention at all")
-            v.terminal_result = "INVALID"
+                                 f"sliding-window attention at all (well-formed but unsupported)")
+            v.terminal_result = "VERIFIED_UNSUPPORTED"
             return v
 
     # Round-6 remediation (Gate 2, Codex authority review): OrcEngine's
@@ -655,10 +681,17 @@ def validate_artifact(path: str) -> ArtifactValidation:
         return v
     if tensor_layout_val is not None:
         if tensor_layout_val != "reference":
+            # Round-7 remediation (Gate 4): a non-"reference" layout
+            # value (e.g. "grouped") is well-typed and structurally
+            # readable -- it is REJECTED for policy reasons (outside
+            # this profile's supported dense/reference layout), not
+            # because the value itself is corrupt. VERIFIED_UNSUPPORTED,
+            # not INVALID.
             v.ambiguities.append(f"llama.tensor_data_layout={tensor_layout_val!r} is not 'reference' -- "
                                  f"OrcEngine's real loader (map_llama_model()) throws \"unsupported Llama "
-                                 f"tensor_data_layout\" for any other declared value")
-            v.terminal_result = "INVALID"
+                                 f"tensor_data_layout\" for any other declared value (well-formed but "
+                                 f"unsupported)")
+            v.terminal_result = "VERIFIED_UNSUPPORTED"
             return v
 
     # OrcEngine's real loader throws GgufError("Llama MoE tensors are
@@ -671,10 +704,15 @@ def validate_artifact(path: str) -> ArtifactValidation:
         return v
     if expert_count_val is not None:
         if expert_count_val != 0:
+            # Round-7 remediation (Gate 4): a nonzero expert_count
+            # describes a real, well-formed MoE model -- it is REJECTED
+            # for policy reasons (outside this profile's dense-only
+            # scope), not because the value is corrupt.
+            # VERIFIED_UNSUPPORTED, not INVALID.
             v.ambiguities.append(f"llama.expert_count={expert_count_val} is nonzero -- OrcEngine's real "
                                  f"loader (map_llama_model()) rejects MoE tensors as outside the Phase-2 "
-                                 f"dense-only profile")
-            v.terminal_result = "INVALID"
+                                 f"dense-only profile (well-formed but unsupported)")
+            v.terminal_result = "VERIFIED_UNSUPPORTED"
             return v
 
     highest_layer_seen = -1
@@ -1300,56 +1338,83 @@ def verify_pair_identity(artifact_v: ArtifactValidation, reference_v: ArtifactVa
 def layer5_decision(profile_data: dict, target: str, artifact_terminal_result: str | None,
                     reference_present: bool, reference_terminal_result: str | None,
                     pair_identity_status: str) -> None:
-    profile_data["runtime_compatibility"]["target"] = target
+    """Round-7 remediation (FL-08 closeout, Gates 1-2): this profiler's
+    Q/K-based verdict proves LAYOUT compatibility only -- whether the
+    artifact's Q/K convention matches what a target EXPECTS. It never
+    proved the target's loader/runtime can actually MATERIALIZE the
+    artifact's tensor encodings, or admit it in any other engine-owned
+    sense. Codex reproduced a paired Q8_0 artifact (a real, checked
+    encoding this profiler understands structurally) reaching
+    `VERIFIED_COMPATIBLE`/`execution_authorization=true` under
+    `orcengine-current`, even though OrcEngine's real materialization
+    path (`gguf_encoding_materializable()` in
+    `Tools/OrcEnginePhase2/src/gguf.cpp`, inspected directly) supports
+    ONLY F32/F16 and throws for Q8_0. The root cause was
+    `authorization_conditions["encoding_supported"]` conflating
+    "understood by this profiler" with "executable by the selected
+    runtime" -- those are different claims and this profiler can only
+    honestly make the first one.
+
+    `layout_compatibility` (renamed from `runtime_compatibility`, same
+    {target, result} shape) is now STRICTLY the Q/K-layout verdict.
+    `runtime_admission` is a new, separate axis this PROTOTYPE never
+    evaluates -- it has no real loader/runtime attached to attest
+    materializability, so its `status` is unconditionally
+    `NOT_EVALUATED` and `execution_authorization` is unconditionally
+    `False`. This is not a per-encoding patch (no `if target ==
+    "orcengine-current" and Q8_0` special case was added) -- it is a
+    structural admission that this experiment does not, and should
+    not pretend to, attest runtime executability at all."""
+    profile_data["layout_compatibility"]["target"] = target
     qk = profile_data["qk_layout"]
 
-    if artifact_terminal_result is not None:
-        profile_data["runtime_compatibility"]["result"] = artifact_terminal_result
+    if artifact_terminal_result == "INVALID":
+        profile_data["layout_compatibility"]["result"] = "INVALID"
+    elif artifact_terminal_result == "VERIFIED_UNSUPPORTED":
+        profile_data["layout_compatibility"]["result"] = "UNSUPPORTED"
     elif reference_present and reference_terminal_result is not None:
-        profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+        profile_data["layout_compatibility"]["result"] = "AMBIGUOUS"
     elif qk["classification"] in ("AMBIGUOUS", "UNKNOWN", "SAME_LAYOUT_UNKNOWN"):
-        profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+        profile_data["layout_compatibility"]["result"] = "AMBIGUOUS"
     elif reference_present and pair_identity_status != "VERIFIED":
-        profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+        profile_data["layout_compatibility"]["result"] = "AMBIGUOUS"
     elif qk["confidence"] == "DECLARED":
         # Round-3 remediation (Gate 3): a direct-match label derived
         # from --reference-layout is DECLARED evidence, not numerical
-        # proof. execution_authorization was already correctly false
-        # for this case, but VERIFIED_COMPATIBLE/a successful CLI exit
-        # overstated declaration-only evidence as if it were a cleared
-        # compatibility verdict. Declaration-only labels never resolve
-        # to VERIFIED_COMPATIBLE or VERIFIED_NORMALIZATION_REQUIRED --
-        # they remain AMBIGUOUS until numerically confirmed.
-        profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+        # proof. Declaration-only labels never resolve to
+        # VERIFIED_LAYOUT_COMPATIBLE or
+        # VERIFIED_LAYOUT_NORMALIZATION_REQUIRED -- they remain
+        # AMBIGUOUS until numerically confirmed.
+        profile_data["layout_compatibility"]["result"] = "AMBIGUOUS"
         profile_data["unresolved_ambiguities"].append(
             f"Q/K classification {qk['classification']!r} is DECLARED (operator-asserted), not "
-            f"NUMERICALLY_VERIFIED -- a runtime compatibility verdict requires numerical proof, not a "
+            f"NUMERICALLY_VERIFIED -- a layout compatibility verdict requires numerical proof, not a "
             f"declaration alone")
     elif target == "canonical-llama.cpp":
         if qk["classification"] == "CANONICAL_LLAMA_CPP":
-            profile_data["runtime_compatibility"]["result"] = "VERIFIED_COMPATIBLE"
+            profile_data["layout_compatibility"]["result"] = "VERIFIED_LAYOUT_COMPATIBLE"
         elif qk["classification"] == "RAW_HF":
-            profile_data["runtime_compatibility"]["result"] = "VERIFIED_NORMALIZATION_REQUIRED"
+            profile_data["layout_compatibility"]["result"] = "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED"
             profile_data["known_normalization_requirements"].append(
                 "Q/K RoPE-layout permutation required (raw-HF -> canonical llama.cpp interleaving)")
     elif target == "orcengine-current":
         if qk["classification"] == "RAW_HF":
-            profile_data["runtime_compatibility"]["result"] = "VERIFIED_COMPATIBLE"
+            profile_data["layout_compatibility"]["result"] = "VERIFIED_LAYOUT_COMPATIBLE"
             profile_data["evidence"].append("OrcEngine's CURRENT loader expects raw-HF Q/K layout "
                                             "(Phase 6 round 7 Gate 4 finding, see the separate Phase 6 "
                                             "worktree/branch evidence -- not present in this tree) -- "
                                             "this artifact matches as-is")
         elif qk["classification"] == "CANONICAL_LLAMA_CPP":
-            profile_data["runtime_compatibility"]["result"] = "VERIFIED_NORMALIZATION_REQUIRED"
+            profile_data["layout_compatibility"]["result"] = "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED"
             profile_data["known_normalization_requirements"].append(
                 "Q/K RoPE-layout un-permutation required (canonical llama.cpp -> raw-HF, to match "
                 "OrcEngine's CURRENT loader's undocumented expectation -- see the separate Phase 6 "
                 "worktree/branch evidence, not present in this tree)")
     else:
-        profile_data["unresolved_ambiguities"].append(f"unrecognized runtime_compatibility target {target!r}")
-        profile_data["runtime_compatibility"]["result"] = "AMBIGUOUS"
+        profile_data["unresolved_ambiguities"].append(f"unrecognized layout_compatibility target {target!r}")
+        profile_data["layout_compatibility"]["result"] = "AMBIGUOUS"
 
-    result = profile_data["runtime_compatibility"]["result"]
+    result = profile_data["layout_compatibility"]["result"]
 
     # --- per-axis confidence, Gate 6 ---
     conf = profile_data["confidence"]
@@ -1363,29 +1428,51 @@ def layer5_decision(profile_data: dict, target: str, artifact_terminal_result: s
 
     if result == "INVALID":
         overall = "AMBIGUOUS"
-    elif result == "VERIFIED_UNSUPPORTED":
+    elif result == "UNSUPPORTED":
         overall = "DECLARED"
     else:
         overall = _min_confidence(conf["container"], conf["architecture"], conf["reference"],
                                   conf["pair_identity"], conf["qk_dialect"])
     profile_data["confidence_level"] = overall
 
+    # --- runtime admission, Gate 2 (FL-08 closeout): this prototype has
+    # no loader/runtime seam capable of actually attesting whether the
+    # selected target can load and execute this artifact. Fixed,
+    # unconditional NOT_EVALUATED -- never inferred from Q/K evidence,
+    # encoding checks, or any other Python-side rule. A real admission
+    # result must come from an engine-owned, versioned capability
+    # authority (see EXPERIMENT.md's round-7 architectural conclusion),
+    # not from this research prototype. ---
+    profile_data["runtime_admission"] = {"status": "NOT_EVALUATED", "authority": None, "evidence": []}
+
     # --- authorization invariant, Gate 4: true ONLY when every listed
-    # condition holds; false the instant any one fails. ---
+    # condition holds; false the instant any one fails.
+    #
+    # Round-7 remediation: "encoding_supported" was renamed
+    # "encoding_structurally_known" -- it only ever meant "this
+    # profiler recognizes the on-disk encoding tag," never "the
+    # selected runtime can materialize it" (that conflation was the
+    # Gate-1 root cause). "runtime_admission_verified" is the new
+    # dominant condition: since `runtime_admission.status` above is
+    # always NOT_EVALUATED, this is always False, which makes
+    # execution_authorization unconditionally False for every input in
+    # this prototype -- by construction, not by enumerating every
+    # encoding/target combination a real runtime would reject. ---
     authorization_conditions = {
         "container_valid": profile_data["container"]["valid"],
         "architecture_valid": conf["architecture"] != "AMBIGUOUS",
-        "encoding_supported": not any("encoding(s) not in this profiler's known set" in a
-                                      for a in profile_data["unresolved_ambiguities"]),
+        "encoding_structurally_known": not any("encoding(s) not in this profiler's known set" in a
+                                               for a in profile_data["unresolved_ambiguities"]),
         "reference_valid": reference_present and reference_terminal_result is None,
         "pair_identity_verified": pair_identity_status == "VERIFIED",
         "qk_numerically_verified": qk["confidence"] == "NUMERICALLY_VERIFIED",
         "qk_tensors_nonzero_and_complete": qk["qk_tensors_total"] > 0 and
                                            qk["qk_tensors_checked"] == qk["qk_tensors_total"],
         "per_layer_consistent": qk["per_layer_consistent"],
-        "matches_target_as_is": result == "VERIFIED_COMPATIBLE",
-        "normalization_not_required": result != "VERIFIED_NORMALIZATION_REQUIRED",
+        "matches_target_as_is": result == "VERIFIED_LAYOUT_COMPATIBLE",
+        "normalization_not_required": result != "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED",
         "no_unresolved_ambiguity": len(profile_data["unresolved_ambiguities"]) == 0,
+        "runtime_admission_verified": profile_data["runtime_admission"]["status"] == "VERIFIED",
     }
     profile_data["authorization_conditions"] = authorization_conditions
     profile_data["execution_authorization"] = all(authorization_conditions.values())
@@ -1421,7 +1508,8 @@ def profile_artifact(path: str, reference_path: str | None, target: str,
         "known_normalization_requirements": [],
         "reference": None,
         "pair_identity": {"status": "UNVERIFIED", "evidence": []},
-        "runtime_compatibility": {"target": None, "result": "AMBIGUOUS"},
+        "layout_compatibility": {"target": None, "result": "AMBIGUOUS"},
+        "runtime_admission": {"status": "NOT_EVALUATED", "authority": None, "evidence": []},
         "confidence": {"container": "AMBIGUOUS", "architecture": "AMBIGUOUS", "reference": "AMBIGUOUS",
                       "pair_identity": "AMBIGUOUS", "qk_dialect": "AMBIGUOUS"},
         "confidence_level": "AMBIGUOUS",
@@ -1483,8 +1571,10 @@ def human_readable(profile: dict) -> str:
         f"Container: GGUF v{profile['container']['version']}",
         f"Artifact dialect (Q/K): {profile['qk_layout']['classification']}",
         f"Pair identity: {profile['pair_identity']['status']}",
-        f"Runtime target: {profile['runtime_compatibility']['target']}",
-        f"Compatibility: {profile['runtime_compatibility']['result']}",
+        f"Layout target: {profile['layout_compatibility']['target']}",
+        f"Layout compatibility: {profile['layout_compatibility']['result']}",
+        f"Runtime admission: {profile['runtime_admission']['status']} (this research prototype has no "
+        f"loader/runtime seam to evaluate admission; this is always NOT_EVALUATED)",
     ]
     if profile["known_normalization_requirements"]:
         lines.append("Required transformation:")
@@ -1498,7 +1588,9 @@ def human_readable(profile: dict) -> str:
         for a in profile["unresolved_ambiguities"]:
             lines.append(f"  - {a}")
     lines.append(f"Confidence: {profile['confidence_level']}")
-    lines.append(f"Execution authorization: {'granted' if profile['execution_authorization'] else 'denied'}")
+    lines.append(f"Execution authorization: {'granted' if profile['execution_authorization'] else 'denied'} "
+                 f"(layout compatibility alone never grants this -- runtime admission is required and is "
+                 f"never verified by this prototype)")
     return "\n".join(lines)
 
 
@@ -1522,8 +1614,10 @@ def main() -> int:
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(profile, f, indent=2, sort_keys=True)
 
-    result = profile["runtime_compatibility"]["result"]
-    return 0 if result in ("VERIFIED_COMPATIBLE", "VERIFIED_NORMALIZATION_REQUIRED") else 1
+    # Exit 0 reflects a successfully produced LAYOUT verdict only --
+    # never execution safety. See the module docstring's Round-7 note.
+    result = profile["layout_compatibility"]["result"]
+    return 0 if result in ("VERIFIED_LAYOUT_COMPATIBLE", "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED") else 1
 
 
 if __name__ == "__main__":

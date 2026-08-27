@@ -6,10 +6,22 @@ FL-08 Gate 6/7: normalization plan generator.
 Given a compatibility profile JSON produced by profiler.py, produces a
 PROPOSED normalization plan (never applied -- this module contains no
 code path that writes or transforms any artifact). The plan is only
-emitted when the profile's runtime_compatibility.result is
-VERIFIED_NORMALIZATION_REQUIRED AND the profile itself validates as
-well-formed and internally consistent; any other result, or a
-malformed/ambiguous/unverified/incomplete profile, produces no plan.
+emitted when the profile's layout_compatibility.result is
+VERIFIED_LAYOUT_NORMALIZATION_REQUIRED AND the profile itself
+validates as well-formed and internally consistent; any other result,
+or a malformed/ambiguous/unverified/incomplete profile, produces no
+plan.
+
+Round-7 remediation (FL-08 closeout): a proposed plan requires ONLY
+layout evidence (pair identity verified, Q/K numerically verified and
+complete) -- it deliberately does NOT require
+`profile["execution_authorization"]` to be true. Layout normalization
+is a useful, disclosed research result on its own; requiring an
+authorization bit that this prototype can never set (execution
+authorization also requires runtime admission, which this experiment
+never evaluates) would silently erase that result. The emitted plan's
+own `execution_authorized` field is unconditionally `False` -- this
+module proposes, it never authorizes or applies.
 
 Round-2 remediation (Codex/Grok review): the raw-to-canonical Q/K
 permutation is NOT self-inverse (confirmed empirically in Phase 6 and
@@ -57,11 +69,11 @@ import json
 import re
 import sys
 
-SUPPORTED_PROFILE_SCHEMA_VERSIONS = (2,)
+SUPPORTED_PROFILE_SCHEMA_VERSIONS = (3,)
 
 _REQUIRED_TOP_LEVEL_FIELDS = (
     "schema_version", "artifact", "container", "declared_architecture", "qk_layout", "pair_identity",
-    "reference", "runtime_compatibility", "confidence_level", "unresolved_ambiguities",
+    "reference", "layout_compatibility", "confidence_level", "unresolved_ambiguities",
     "execution_authorization",
 )
 
@@ -185,13 +197,13 @@ def validate_profile(profile: dict) -> str | None:
     if reference_err:
         return reference_err
 
-    runtime, err = _get(profile, "runtime_compatibility", dict)
+    layout, err = _get(profile, "layout_compatibility", dict)
     if err:
-        return f"runtime_compatibility: {err}"
+        return f"layout_compatibility: {err}"
     for key in ("result", "target"):
-        _, err = _get(runtime, key, str)
+        _, err = _get(layout, key, str)
         if err:
-            return f"runtime_compatibility.{key}: {err}"
+            return f"layout_compatibility.{key}: {err}"
 
     unresolved, err = _get(profile, "unresolved_ambiguities", list)
     if err:
@@ -210,11 +222,11 @@ def build_plan(profile: dict) -> tuple[dict | None, str | None]:
 
     qk = profile["qk_layout"]
     pair_identity = profile["pair_identity"]
-    runtime = profile["runtime_compatibility"]
+    layout = profile["layout_compatibility"]
 
-    if runtime["result"] != "VERIFIED_NORMALIZATION_REQUIRED":
-        return None, (f"profile's runtime_compatibility.result is {runtime['result']!r}, not "
-                      f"VERIFIED_NORMALIZATION_REQUIRED -- nothing to propose")
+    if layout["result"] != "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED":
+        return None, (f"profile's layout_compatibility.result is {layout['result']!r}, not "
+                      f"VERIFIED_LAYOUT_NORMALIZATION_REQUIRED -- nothing to propose")
 
     if pair_identity["status"] != "VERIFIED":
         return None, ("profile's pair_identity.status is not exactly VERIFIED -- refusing to propose a "
@@ -225,13 +237,13 @@ def build_plan(profile: dict) -> tuple[dict | None, str | None]:
         return None, (f"profile carries {len(profile['unresolved_ambiguities'])} unresolved "
                       f"ambiguit(y/ies) -- refusing to propose a plan from an incomplete profile")
 
-    if qk["classification"] == "CANONICAL_LLAMA_CPP" and runtime["target"] == "orcengine-current":
+    if qk["classification"] == "CANONICAL_LLAMA_CPP" and layout["target"] == "orcengine-current":
         return None, ("the required transform is canonical -> raw-HF (the REVERSE of the proven "
                       "permute() direction). A genuine inverse formula has not been derived or "
                       "round-trip-tested in this experiment -- emitting no plan rather than inventing "
                       "an unproven inverse operation")
 
-    if qk["classification"] != "RAW_HF" or runtime["target"] != "canonical-llama.cpp" or \
+    if qk["classification"] != "RAW_HF" or layout["target"] != "canonical-llama.cpp" or \
        qk["confidence"] != "NUMERICALLY_VERIFIED":
         return None, (f"no named plan for classification={qk['classification']!r} "
                       f"target={runtime['target']!r} confidence={qk['confidence']!r} -- fail closed "

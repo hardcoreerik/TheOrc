@@ -286,7 +286,7 @@ class TestGate1DirectMatchNeverAbsolute(_PairedFixtureCase):
         self.assertNotEqual(profile["qk_layout"]["classification"], "RAW_HF")
         self.assertNotEqual(profile["qk_layout"]["classification"], "CANONICAL_LLAMA_CPP")
         self.assertFalse(profile["execution_authorization"])
-        self.assertEqual(profile["runtime_compatibility"]["result"], "AMBIGUOUS")
+        self.assertEqual(profile["layout_compatibility"]["result"], "AMBIGUOUS")
 
     def test_identical_canonical_artifacts_are_same_layout_unknown_not_authorized(self):
         identical_canon_path = os.path.join(self.tmpdir, "canon_copy.gguf")
@@ -325,22 +325,28 @@ class TestGate1DirectMatchNeverAbsolute(_PairedFixtureCase):
         # authorize.
         self.assertEqual(profile["qk_layout"]["classification"], "AMBIGUOUS")
         self.assertEqual(profile["qk_layout"]["confidence"], "AMBIGUOUS")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "AMBIGUOUS")
+        self.assertEqual(profile["layout_compatibility"]["result"], "AMBIGUOUS")
         self.assertFalse(profile["execution_authorization"])
 
     def test_raw_to_canonical_directional_case_still_works(self):
         profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
         self.assertEqual(profile["qk_layout"]["confidence"], "NUMERICALLY_VERIFIED")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
         self.assertFalse(profile["execution_authorization"])
 
-    def test_canonical_from_raw_directional_case_still_works_and_authorizes(self):
+    def test_canonical_from_raw_directional_case_still_works_and_is_layout_compatible(self):
+        # Round-7 remediation (FL-08 closeout): renamed from "...
+        # _and_authorizes" -- layout compatibility is NOT execution
+        # authorization (that also requires runtime admission, which
+        # this prototype never evaluates -- execution_authorization is
+        # unconditionally False regardless of layout evidence).
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp")
         self.assertEqual(profile["qk_layout"]["classification"], "CANONICAL_LLAMA_CPP")
         self.assertEqual(profile["qk_layout"]["confidence"], "NUMERICALLY_VERIFIED")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertEqual(profile["runtime_admission"]["status"], "NOT_EVALUATED")
 
 
 # ---------------------------------------------------------------------
@@ -436,10 +442,15 @@ class TestGate2ReferenceValidationAndPairIdentity(_PairedFixtureCase):
         profile = fl08.profile_artifact(self.raw_path, unrelated_path, "canonical-llama.cpp")
         self.assertFalse(profile["execution_authorization"])
 
-    def test_genuinely_bound_same_model_pair_is_verified_and_can_authorize(self):
+    def test_genuinely_bound_same_model_pair_is_verified_but_not_execution_authorized(self):
+        # Round-7 remediation (FL-08 closeout): renamed from "..._can_
+        # authorize" -- a verified pair proves LAYOUT identity, not
+        # runtime admission. execution_authorization is unconditionally
+        # False in this prototype regardless of pair-identity evidence.
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertFalse(profile["execution_authorization"])
 
 
 # ---------------------------------------------------------------------
@@ -496,24 +507,30 @@ class TestRound3OutputWeightTiedProof(_PairedFixtureCase):
         profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
 
-    def test_one_sided_output_genuinely_tied_is_verified_and_can_authorize(self):
-        # The narrow, PROVEN-safe case: reference's output.weight is
-        # present and byte-identical to the REFERENCE's own
-        # token_embd.weight (a real tied-duplicate), artifact has none.
-        # token_embd.weight itself already matches between the two
-        # (same seed=1). This must NOT block pair identity -- it is
-        # exactly the real Phase 6 Case A/B situation.
+    def test_one_sided_output_genuinely_tied_is_verified_pair_identity(self):
+        # Round-7 remediation (FL-08 closeout): renamed from "..._and_
+        # can_authorize" -- pair identity is a LAYOUT-axis proof, not
+        # execution authorization (unconditionally False in this
+        # prototype). The narrow, PROVEN-safe case this test isolates:
+        # reference's output.weight is present and byte-identical to
+        # the REFERENCE's own token_embd.weight (a real tied-
+        # duplicate), artifact has none. token_embd.weight itself
+        # already matches between the two (same seed=1). This must NOT
+        # block pair identity -- it is exactly the real Phase 6 Case
+        # A/B situation.
         tied_ref_path = os.path.join(self.tmpdir, "tied_reference.gguf")
         write_llama_fixture(tied_ref_path, self.spec, seed=1, permute_qk=True, include_output_weight="tied")
         # self.raw_path is RAW relative to tied_ref_path (canonical) --
-        # against target=canonical-llama.cpp that's VERIFIED_NORMALIZATION_
-        # REQUIRED (correctly non-authorizing, unrelated to this test's
-        # point). Use target=orcengine-current, where RAW_HF IS what the
-        # current loader expects as-is, so authorization is reachable
-        # -- isolating the tied-output-proof's effect on pair identity.
+        # against target=canonical-llama.cpp that's
+        # VERIFIED_LAYOUT_NORMALIZATION_REQUIRED (unrelated to this
+        # test's point). Use target=orcengine-current, where RAW_HF IS
+        # what the current loader expects as-is, so
+        # VERIFIED_LAYOUT_COMPATIBLE is reachable -- isolating the
+        # tied-output-proof's effect on pair identity.
         profile = fl08.profile_artifact(self.raw_path, tied_ref_path, "orcengine-current")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any("tied" in e.lower() for e in profile["evidence"]))
 
     def test_embedding_mismatch_denied_before_tied_output_proof_is_ever_reached(self):
@@ -691,7 +708,7 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
 
     def _assert_invalid_no_raise(self, path, expected_substring):
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")  # must not raise
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
                         f"expected an ambiguity containing {expected_substring!r}, got "
@@ -708,7 +725,7 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
         # logic ever runs, proving equality-of-a-malformed-type cannot
         # authorize.
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any("layer_norm_rms_epsilon" in x and "GGUF type is STRING" in x
                             for x in profile["unresolved_ambiguities"]))
@@ -724,7 +741,7 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
         a = self._write(overrides, seed=1)
         b = self._write(overrides, seed=1)
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any("rope.dimension_count" in x and "GGUF type is STRING" in x
                             for x in profile["unresolved_ambiguities"]))
@@ -804,13 +821,13 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
     # actual authorization (only `result != "INVALID"`), which is a
     # much weaker claim (e.g. AMBIGUOUS also satisfies it). Renamed and
     # rescoped to its true, narrower claim -- "properly typed metadata
-    # is never flagged by the type-validation boundary." The GENUINE
-    # positive authorization control now lives in
-    # `TestRound6RuntimeMetadataAlignment.
-    # test_genuine_orcengine_current_authorization_control`, which
-    # asserts every relevant exact outcome (classification, confidence,
-    # pair identity, runtime_compatibility.result,
-    # execution_authorization) against a real target.
+    # is never flagged by the type-validation boundary." A genuine
+    # positive LAYOUT control (never "authorization" -- see round 7)
+    # lives in `TestRound6RuntimeMetadataAlignment.
+    # test_genuine_orcengine_current_layout_compatibility_control`,
+    # which asserts every relevant exact layout outcome (classification,
+    # confidence, pair identity, layout_compatibility.result) while
+    # explicitly confirming execution_authorization stays false.
     def test_properly_typed_metadata_never_type_invalidates(self):
         a = self._write({}, seed=1, permute_qk=False)
         b = self._write({}, seed=1, permute_qk=True)
@@ -819,7 +836,7 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
         # typed metadata never gets flagged by the new type-validation
         # boundary (no "GGUF type is" ambiguity), regardless of which
         # Q/K dialect classification the pair happens to resolve to.
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(any("GGUF type is" in a for a in profile["unresolved_ambiguities"]))
 
     def test_uint16_geometry_type_family_member_accepted(self):
@@ -829,14 +846,14 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
         # UNSIGNED integer width and a value that fits it.
         path = self._write({"llama.rope.dimension_count": ("add_uint16", self.spec.head_dim)})
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(any("dimension_count" in a and "GGUF type is" in a
                              for a in profile["unresolved_ambiguities"]))
 
     def test_float64_family_member_accepted_for_rms_epsilon(self):
         path = self._write({"llama.attention.layer_norm_rms_epsilon": ("add_float64", 1e-5)})
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_real_phase6_artifact_type_tags_accepted(self):
         # The real custom Phase 6 artifact's actual on-disk metadata
@@ -878,7 +895,19 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
 
     def _assert_invalid_no_raise(self, path, expected_substring):
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")  # must not raise
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
+                        f"expected an ambiguity containing {expected_substring!r}, got "
+                        f"{profile['unresolved_ambiguities']}")
+        return profile
+
+    def _assert_unsupported_no_raise(self, path, expected_substring):
+        # Round-7 remediation (FL-08 closeout, Gate 4): a well-typed
+        # value describing a real, meaningful configuration this
+        # runtime does not implement is UNSUPPORTED, not INVALID.
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")  # must not raise
+        self.assertEqual(profile["layout_compatibility"]["result"], "UNSUPPORTED")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
                         f"expected an ambiguity containing {expected_substring!r}, got "
@@ -905,7 +934,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         a = self._write(overrides, seed=1, permute_qk=False)
         b = self._write(overrides, seed=1, permute_qk=True)
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
     def test_paired_matching_signed_int32_head_count_cannot_authorize(self):
@@ -913,7 +942,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         a = self._write(overrides, seed=1, permute_qk=False)
         b = self._write(overrides, seed=1, permute_qk=True)
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
     def test_paired_matching_signed_int32_rope_dimension_cannot_authorize(self):
@@ -921,7 +950,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         a = self._write(overrides, seed=1, permute_qk=False)
         b = self._write(overrides, seed=1, permute_qk=True)
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
     def test_unsigned_uint64_geometry_control_accepted(self):
@@ -937,7 +966,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
     def test_tensor_data_layout_absent_control_accepted(self):
         path = self._write({})
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_tensor_data_layout_reference_supported_control_accepted(self):
         path = self._write({"llama.tensor_data_layout": ("add_string", "reference")})
@@ -946,7 +975,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
 
     def test_tensor_data_layout_unsupported_value_denied(self):
         path = self._write({"llama.tensor_data_layout": ("add_string", "grouped")})
-        self._assert_invalid_no_raise(path, "tensor_data_layout")
+        self._assert_unsupported_no_raise(path, "tensor_data_layout")
 
     def test_tensor_data_layout_wrong_type_denied(self):
         path = self._write({"llama.tensor_data_layout": ("add_uint32", 1)})
@@ -969,7 +998,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         # Denied at the per-artifact semantic-validation stage (before
         # pair identity is even reached) -- equality of an unsupported
         # value on both sides cannot authorize.
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "UNSUPPORTED")
         self.assertFalse(profile["execution_authorization"])
 
     # --- Gate 2: llama.expert_count (absent/0 only, dense-only profile) ---
@@ -977,7 +1006,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
     def test_expert_count_absent_control_accepted(self):
         path = self._write({})
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_expert_count_zero_supported_control_accepted(self):
         path = self._write({"llama.expert_count": ("add_uint32", 0)})
@@ -986,7 +1015,7 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
 
     def test_expert_count_nonzero_denied(self):
         path = self._write({"llama.expert_count": ("add_uint32", 8)})
-        self._assert_invalid_no_raise(path, "expert_count")
+        self._assert_unsupported_no_raise(path, "expert_count")
 
     def test_expert_count_wrong_type_denied(self):
         path = self._write({"llama.expert_count": ("add_string", "8")})
@@ -1006,16 +1035,25 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         a = self._write(overrides, seed=1, permute_qk=False)
         b = self._write(overrides, seed=1, permute_qk=True)
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "UNSUPPORTED")
         self.assertFalse(profile["execution_authorization"])
 
-    # --- Gate 3: a genuine positive authorization control ---
+    # --- Gate 3: a genuine positive LAYOUT control ---
+    #
+    # Round-7 remediation (FL-08 closeout): these two tests were named
+    # "..._authorization_control"/"...reach_genuine_authorization" and
+    # asserted `execution_authorization is True`. That is no longer
+    # possible BY DESIGN -- execution_authorization also requires
+    # runtime_admission.status == "VERIFIED", which this prototype
+    # never produces (always "NOT_EVALUATED"). Renamed to their true
+    # claim: a genuine positive LAYOUT control, asserting every layout-
+    # axis outcome exactly while explicitly confirming authorization
+    # stays false. This is the direct fix for the SAME overclaiming
+    # pattern round 6 fixed once already for a differently-named test
+    # (`test_properly_typed_control_case_still_authorizes`) -- these
+    # two tests reintroduced it under new names in the same round.
 
-    def test_genuine_orcengine_current_authorization_control(self):
-        # Round-6 fix for a previously overclaiming test
-        # (`test_properly_typed_control_case_still_authorizes` asserted
-        # only "result != INVALID", never actual authorization). This
-        # asserts every relevant EXACT outcome against orcengine-current.
+    def test_genuine_orcengine_current_layout_compatibility_control(self):
         mha_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
         a = os.path.join(self.tmpdir, "genuine_a.gguf")
         b = os.path.join(self.tmpdir, "genuine_b.gguf")
@@ -1031,10 +1069,11 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         self.assertEqual(profile["confidence_level"], "STRUCTURALLY_VERIFIED")
         self.assertEqual(profile["confidence"]["qk_dialect"], "NUMERICALLY_VERIFIED")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertEqual(profile["runtime_admission"]["status"], "NOT_EVALUATED")
+        self.assertFalse(profile["execution_authorization"])
 
-    def test_supported_tensor_data_layout_and_expert_count_reach_genuine_authorization(self):
+    def test_supported_tensor_data_layout_and_expert_count_reach_genuine_layout_compatibility(self):
         mha_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
         overrides = {"llama.tensor_data_layout": ("add_string", "reference"),
                     "llama.expert_count": ("add_uint32", 0)}
@@ -1044,8 +1083,9 @@ class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
         write_llama_fixture(b, mha_spec, seed=1, permute_qk=True, raw_metadata_overrides=overrides)
         profile = fl08.profile_artifact(a, b, "orcengine-current")
         self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertEqual(profile["runtime_admission"]["status"], "NOT_EVALUATED")
+        self.assertFalse(profile["execution_authorization"])
 
 
 # ---------------------------------------------------------------------
@@ -1075,7 +1115,19 @@ class TestRound4SemanticMetadataValidation(unittest.TestCase):
         return fl08.profile_artifact(a_path, b_path, "canonical-llama.cpp")
 
     def _assert_invalid(self, profile, expected_substring):
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
+                        f"expected an ambiguity containing {expected_substring!r}, got "
+                        f"{profile['unresolved_ambiguities']}")
+
+    def _assert_unsupported(self, profile, expected_substring):
+        # Round-7 remediation (FL-08 closeout, Gate 4): a well-typed,
+        # well-formed value describing a real, meaningful configuration
+        # this runtime does not implement is UNSUPPORTED, not INVALID
+        # (that stays reserved for malformed/contradictory/wrong-typed
+        # values).
+        self.assertEqual(profile["layout_compatibility"]["result"], "UNSUPPORTED")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
                         f"expected an ambiguity containing {expected_substring!r}, got "
@@ -1145,19 +1197,19 @@ class TestRound4SemanticMetadataValidation(unittest.TestCase):
         path = os.path.join(self.tmpdir, "yarn.gguf")
         write_llama_fixture(path, self.spec, seed=1, rope_scaling_type="yarn")
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self._assert_invalid(profile, "rope.scaling.type")
+        self._assert_unsupported(profile, "rope.scaling.type")
 
     def test_non_identity_rope_scaling_factor_denied(self):
         path = os.path.join(self.tmpdir, "scaled.gguf")
         write_llama_fixture(path, self.spec, seed=1, rope_scaling_factor=2.0)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self._assert_invalid(profile, "rope.scaling.factor")
+        self._assert_unsupported(profile, "rope.scaling.factor")
 
     def test_nonzero_sliding_window_denied(self):
         path = os.path.join(self.tmpdir, "swa.gguf")
         write_llama_fixture(path, self.spec, seed=1, sliding_window=128)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self._assert_invalid(profile, "sliding_window")
+        self._assert_unsupported(profile, "sliding_window")
 
     # --- valid boundary/control cases must still proceed ---
 
@@ -1165,19 +1217,19 @@ class TestRound4SemanticMetadataValidation(unittest.TestCase):
         path = os.path.join(self.tmpdir, "scaling_none.gguf")
         write_llama_fixture(path, self.spec, seed=1, rope_scaling_type="none")
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_valid_identity_rope_scaling_factor_proceeds(self):
         path = os.path.join(self.tmpdir, "scaling_1.gguf")
         write_llama_fixture(path, self.spec, seed=1, rope_scaling_factor=1.0)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_valid_zero_sliding_window_proceeds(self):
         path = os.path.join(self.tmpdir, "swa_zero.gguf")
         write_llama_fixture(path, self.spec, seed=1, sliding_window=0)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_valid_metadata_control_case_still_authorizes(self):
         # A genuinely valid pair with correct metadata must still be
@@ -1185,7 +1237,7 @@ class TestRound4SemanticMetadataValidation(unittest.TestCase):
         # strict they break the already-proven-correct path.
         profile = self._paired_invalid()  # no overrides -- all-default-valid
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
 
 
 # ---------------------------------------------------------------------
@@ -1211,7 +1263,7 @@ class TestRound4GQAGeometry(unittest.TestCase):
     def test_small_invalid_gqa_geometry_denied(self):
         bad_spec = FixtureSpec(hidden=6, n_head=3, n_head_kv=2, intermediate=16, vocab=16, n_layers=1)
         profile = self._profile_pair(bad_spec)
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any("head_count_kv" in a for a in profile["unresolved_ambiguities"]))
 
@@ -1219,26 +1271,26 @@ class TestRound4GQAGeometry(unittest.TestCase):
         # The exact Codex-reproduced probe: hidden=24, n_head=3, n_head_kv=2.
         bad_spec = FixtureSpec(hidden=24, n_head=3, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
         profile = self._profile_pair(bad_spec)
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertNotIn(profile["qk_layout"]["classification"], ("RAW_HF", "CANONICAL_LLAMA_CPP"))
 
     def test_valid_mha_geometry_proceeds(self):
         mha_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
         profile = self._profile_pair(mha_spec)
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
 
     def test_valid_gqa_geometry_proceeds(self):
         gqa_spec = FixtureSpec(hidden=32, n_head=4, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
         profile = self._profile_pair(gqa_spec)
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
 
 
 # ---------------------------------------------------------------------
 # Round 3, Gate 3: DECLARED confidence must never resolve to
-# VERIFIED_COMPATIBLE, and a contradictory --reference-layout
+# VERIFIED_LAYOUT_COMPATIBLE, and a contradictory --reference-layout
 # declaration must fail closed rather than being silently ignored.
 # ---------------------------------------------------------------------
 
@@ -1249,8 +1301,8 @@ class TestRound3DeclarationVsVerification(_PairedFixtureCase):
         profile = fl08.profile_artifact(self.raw_path, identical_path, "canonical-llama.cpp",
                                         reference_layout_declared="raw")
         self.assertEqual(profile["qk_layout"]["confidence"], "DECLARED")
-        self.assertNotEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "AMBIGUOUS")
+        self.assertNotEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertEqual(profile["layout_compatibility"]["result"], "AMBIGUOUS")
         self.assertFalse(profile["execution_authorization"])
 
     def test_declaration_only_cli_exit_is_nonzero(self):
@@ -1293,7 +1345,7 @@ class TestRound3DeclarationVsVerification(_PairedFixtureCase):
                                         reference_layout_declared="canonical")
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
         self.assertEqual(profile["qk_layout"]["confidence"], "NUMERICALLY_VERIFIED")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
 
 
 # ---------------------------------------------------------------------
@@ -1321,7 +1373,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         profile = fl08.profile_artifact(raw_p, canon_p, "canonical-llama.cpp")
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
         self.assertEqual(profile["qk_layout"]["confidence"], "NUMERICALLY_VERIFIED")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
 
     def test_logical_shape_helper_uses_data_shape_not_native_shape(self):
         write_llama_fixture(os.path.join(self.tmpdir, "gqa.gguf"), GQA_SPEC, seed=3, permute_qk=False)
@@ -1336,7 +1388,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=0)
         write_llama_fixture(path, spec, seed=1, declared_block_count=0)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
     def test_zero_heads_declared_is_invalid(self):
@@ -1357,7 +1409,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         w.write_tensors_to_file()
         w.close()
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
     def test_missing_rope_metadata_recorded_as_ambiguity_not_silently_passed(self):
@@ -1372,7 +1424,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_v.weight": rng.standard_normal((SPEC.kv_rows + 4, SPEC.hidden)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_wrong_output_projection_dimension_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_o.gguf")
@@ -1380,7 +1432,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_output.weight": rng.standard_normal((SPEC.hidden + 1, SPEC.q_rows)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_mismatched_ffn_gate_up_dimensions_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_ffn.gguf")
@@ -1388,7 +1440,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.ffn_up.weight": rng.standard_normal((SPEC.intermediate + 8, SPEC.hidden)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_wrong_norm_dimension_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_norm.gguf")
@@ -1396,7 +1448,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.ffn_norm.weight": rng.standard_normal((SPEC.hidden + 1,)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_declared_layer_count_contradicts_actual_tensors(self):
         path = os.path.join(self.tmpdir, "bad_layer_count.gguf")
@@ -1404,7 +1456,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
                                               n_layers=3),
                             seed=1, layers_to_write=1)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any("block_count" in a for a in profile["unresolved_ambiguities"]))
 
@@ -1417,7 +1469,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         writer.write_tensors_to_file()
         writer.close()
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_UNSUPPORTED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "UNSUPPORTED")
         self.assertFalse(profile["execution_authorization"])
 
     # -------------------------------------------------------------
@@ -1434,7 +1486,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         path = os.path.join(self.tmpdir, "odd_head_dim.gguf")
         write_llama_fixture(path, odd_spec, seed=1)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
         self.assertTrue(any("odd" in a.lower() for a in profile["unresolved_ambiguities"]))
 
@@ -1447,7 +1499,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_q.weight": rng.standard_normal((SPEC.q_rows, SPEC.hidden + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
     def test_k_input_width_wrong_rows_correct_is_invalid(self):
@@ -1456,7 +1508,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_k.weight": rng.standard_normal((SPEC.kv_rows, SPEC.hidden + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_v_input_width_wrong_rows_correct_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_v_width.gguf")
@@ -1464,7 +1516,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_v.weight": rng.standard_normal((SPEC.kv_rows, SPEC.hidden + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_attn_output_input_width_wrong_rows_correct_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_attn_out_width.gguf")
@@ -1472,7 +1524,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_output.weight": rng.standard_normal((SPEC.hidden, SPEC.q_rows + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_ffn_gate_input_width_wrong_rows_correct_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_gate_width.gguf")
@@ -1480,7 +1532,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.ffn_gate.weight": rng.standard_normal((SPEC.intermediate, SPEC.hidden + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_ffn_up_input_width_wrong_rows_correct_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_up_width.gguf")
@@ -1488,7 +1540,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.ffn_up.weight": rng.standard_normal((SPEC.intermediate, SPEC.hidden + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_ffn_down_intermediate_input_width_wrong_is_invalid(self):
         path = os.path.join(self.tmpdir, "wrong_down_width.gguf")
@@ -1496,7 +1548,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.ffn_down.weight": rng.standard_normal((SPEC.hidden, SPEC.intermediate + 2)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_two_dimensional_norm_with_superficially_correct_first_dim_is_invalid(self):
         # A norm tensor stored as rank-2 (hidden, 1) instead of rank-1
@@ -1507,7 +1559,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         tamper = {"blk.0.attn_norm.weight": rng.standard_normal((SPEC.hidden, 1)).astype(np.float32)}
         write_llama_fixture(path, SPEC, seed=1, tamper=tamper)
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
 
     def test_malformed_q8_0_width_in_non_qk_tensor_is_invalid(self):
         # A non-Q/K tensor (ffn_gate.weight) packed with the wrong Q8_0
@@ -1549,7 +1601,7 @@ class TestGate3LogicalShapeAndStructuralValidation(unittest.TestCase):
         w.write_tensors_to_file()
         w.close()
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertFalse(profile["execution_authorization"])
 
 
@@ -1636,7 +1688,7 @@ class TestGate4AuthorizationInvariant(_PairedFixtureCase):
 
     def test_normalization_required_never_authorizes(self):
         profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
         self.assertFalse(profile["execution_authorization"])
 
     def test_zero_layer_vacuous_profile_never_authorizes(self):
@@ -1646,10 +1698,135 @@ class TestGate4AuthorizationInvariant(_PairedFixtureCase):
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
         self.assertFalse(profile["execution_authorization"])
 
-    def test_authorization_conditions_all_true_only_for_genuine_compatible_case(self):
+    def test_authorization_conditions_all_true_except_runtime_admission_for_best_case(self):
+        # Round-7 remediation (FL-08 closeout): this WAS
+        # "..._all_true_only_for_genuine_compatible_case", asserting
+        # every condition (including execution_authorization itself)
+        # true for the best possible input. That is no longer possible
+        # BY DESIGN -- runtime_admission_verified can never be true in
+        # this prototype (there is no loader/runtime seam to verify
+        # it), so even the single most favorable input this profiler
+        # can construct must show every OTHER condition true and
+        # exactly this one false, proving the fail-closed design holds
+        # even at its best case, not merely on hostile inputs.
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp")
-        self.assertTrue(profile["execution_authorization"])
-        self.assertTrue(all(profile["authorization_conditions"].values()))
+        self.assertFalse(profile["execution_authorization"])
+        conditions = profile["authorization_conditions"]
+        self.assertFalse(conditions["runtime_admission_verified"])
+        other_conditions = {k: v for k, v in conditions.items() if k != "runtime_admission_verified"}
+        self.assertTrue(all(other_conditions.values()), other_conditions)
+        self.assertEqual(profile["runtime_admission"]["status"], "NOT_EVALUATED")
+        self.assertIsNone(profile["runtime_admission"]["authority"])
+
+
+# ---------------------------------------------------------------------
+# Round 7 (FL-08 closeout): layout compatibility, runtime admission,
+# and execution authorization are three SEPARATE axes. This profiler
+# proves only the first. Gates 1-4.
+# ---------------------------------------------------------------------
+
+class TestRound7RuntimeAdmissionSeparation(_PairedFixtureCase):
+
+    def test_runtime_admission_defaults_fail_closed(self):
+        # Gate 7 requirement 4: with NO reference, NO target-specific
+        # evidence, and the most minimal valid single artifact, runtime
+        # admission is still NOT_EVALUATED and authorization is still
+        # False -- the default, not something that must be actively
+        # triggered by a hostile input.
+        profile = fl08.profile_artifact(self.raw_path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_admission"], {"status": "NOT_EVALUATED", "authority": None,
+                                                         "evidence": []})
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_forged_runtime_admission_in_seed_profile_data_is_overwritten(self):
+        # Gate 7 requirement 5: layer5_decision() is the ONLY writer of
+        # profile_data["runtime_admission"], and it writes an
+        # unconditional literal -- prove that even if a caller (or a
+        # forged/tampered profile dict from some other source) seeded
+        # profile_data with a fabricated VERIFIED admission BEFORE
+        # layer5_decision() runs, the real function call still
+        # overwrites it with NOT_EVALUATED and execution_authorization
+        # is still computed as False.
+        forged = {
+            "layout_compatibility": {"target": None, "result": "AMBIGUOUS"},
+            "runtime_admission": {"status": "VERIFIED", "authority": "forged-authority", "evidence": ["lie"]},
+            "confidence": {"container": "STRUCTURALLY_VERIFIED", "architecture": "STRUCTURALLY_VERIFIED",
+                          "reference": "AMBIGUOUS", "pair_identity": "AMBIGUOUS", "qk_dialect": "AMBIGUOUS"},
+            "container": {"valid": True},
+            "unresolved_ambiguities": [],
+            "known_normalization_requirements": [],
+            "evidence": [],
+            "qk_layout": {"classification": "RAW_HF", "confidence": "NUMERICALLY_VERIFIED",
+                         "layers_total": 1, "layers_checked": 1, "qk_tensors_total": 2,
+                         "qk_tensors_checked": 2, "per_layer_consistent": True},
+        }
+        fl08.layer5_decision(forged, "canonical-llama.cpp", artifact_terminal_result=None,
+                             reference_present=False, reference_terminal_result=None,
+                             pair_identity_status="UNVERIFIED")
+        self.assertEqual(forged["runtime_admission"], {"status": "NOT_EVALUATED", "authority": None,
+                                                        "evidence": []})
+        self.assertFalse(forged["execution_authorization"])
+        self.assertFalse(forged["authorization_conditions"]["runtime_admission_verified"])
+
+    def test_forged_execution_authorization_in_json_profile_cannot_gain_a_plan(self):
+        # Gate 7 requirement 5, at the normalization_plan.py boundary:
+        # build_plan() never reads execution_authorization or
+        # runtime_admission at all -- a hand-forged JSON profile
+        # claiming execution_authorization=true and
+        # runtime_admission.status="VERIFIED" gets EXACTLY the same
+        # plan decision as the genuine, honestly-false version of the
+        # same profile, because those fields are irrelevant to
+        # build_plan()'s logic by construction.
+        import copy
+        genuine = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
+        self.assertFalse(genuine["execution_authorization"])
+        genuine_plan, genuine_reason = fl08_plan.build_plan(genuine)
+
+        forged = copy.deepcopy(genuine)
+        forged["execution_authorization"] = True
+        forged["runtime_admission"] = {"status": "VERIFIED", "authority": "forged", "evidence": ["lie"]}
+        forged_plan, forged_reason = fl08_plan.build_plan(forged)
+
+        self.assertEqual(genuine_plan, forged_plan)
+        self.assertEqual(genuine_reason, forged_reason)
+        if forged_plan is not None:
+            self.assertFalse(forged_plan["execution_authorized"])
+
+    def test_verified_layout_normalization_still_yields_a_proposed_never_applied_plan(self):
+        # Gate 7 requirement 6: a normalization-required case is NOT
+        # execution-authorized (never was, and now can never be in this
+        # prototype) but a plan is still correctly proposed -- proving
+        # round 7 did not accidentally erase this useful research
+        # result while removing the false authorization paths.
+        profile = fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
+        self.assertFalse(profile["execution_authorization"])
+        plan, reason = fl08_plan.build_plan(profile)
+        self.assertIsNotNone(plan)
+        self.assertIsNone(reason)
+        self.assertFalse(plan["execution_authorized"])
+        self.assertFalse(plan["destructive"])
+        self.assertFalse(plan["modifies_source_artifact"])
+
+    def test_invalid_and_unsupported_are_distinct_classifications(self):
+        # Gate 7 requirement 7: a malformed/wrong-typed field (INVALID)
+        # and a well-typed-but-out-of-policy field (UNSUPPORTED) must
+        # not collapse into the same result code.
+        invalid_path = os.path.join(self.tmpdir, "invalid_rms_eps.gguf")
+        write_llama_fixture(invalid_path, self.spec, seed=1, rms_eps=-1.0)
+        invalid_profile = fl08.profile_artifact(invalid_path, None, "canonical-llama.cpp")
+        self.assertEqual(invalid_profile["layout_compatibility"]["result"], "INVALID")
+
+        unsupported_path = os.path.join(self.tmpdir, "unsupported_moe.gguf")
+        write_llama_fixture(unsupported_path, self.spec, seed=1,
+                            raw_metadata_overrides={"llama.expert_count": ("add_uint32", 8)})
+        unsupported_profile = fl08.profile_artifact(unsupported_path, None, "canonical-llama.cpp")
+        self.assertEqual(unsupported_profile["layout_compatibility"]["result"], "UNSUPPORTED")
+
+        self.assertNotEqual(invalid_profile["layout_compatibility"]["result"],
+                            unsupported_profile["layout_compatibility"]["result"])
+        self.assertFalse(invalid_profile["execution_authorization"])
+        self.assertFalse(unsupported_profile["execution_authorization"])
 
 
 # ---------------------------------------------------------------------
@@ -1675,9 +1852,52 @@ class TestGate5PackedQ80Validation(unittest.TestCase):
         self.assertEqual(profile["qk_layout"]["confidence"], "NUMERICALLY_VERIFIED")
 
     def test_canonical_from_raw_directional_detection_on_packed_q8_0(self):
+        # Round-7 remediation (FL-08 closeout, Gate 1): Q8_0 layout
+        # detection is real and still proven -- but layout detection is
+        # NOT execution authorization. execution_authorization is
+        # unconditionally False regardless of Q/K evidence.
         profile = fl08.profile_artifact(self.canon_q8_path, self.raw_q8_path, "canonical-llama.cpp")
         self.assertEqual(profile["qk_layout"]["classification"], "CANONICAL_LLAMA_CPP")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_q8_0_layout_compatible_orcengine_current_cannot_authorize_without_runtime_admission(self):
+        # The EXACT Gate-1 reproduction (FL-08 closeout mega-prompt):
+        # raw-HF primary, canonical-permuted reference, same model
+        # identity, target orcengine-current. Before this round's fix,
+        # this reached execution_authorization=true even though
+        # OrcEngine's real materialization path
+        # (gguf_encoding_materializable() in
+        # Tools/OrcEnginePhase2/src/gguf.cpp, inspected directly)
+        # supports only F32/F16 and throws for Q8_0 -- this profiler
+        # understanding the Q8_0 ENCODING TAG structurally was
+        # previously conflated with the selected runtime being able to
+        # MATERIALIZE it. Now: layout compatibility is still proven,
+        # but runtime admission is never evaluated by this prototype,
+        # so authorization is correctly withheld.
+        profile = fl08.profile_artifact(self.raw_q8_path, self.canon_q8_path, "orcengine-current")
+        self.assertEqual(profile["quantization_formats"], ["F32", "Q8_0"])
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+        self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertEqual(profile["runtime_admission"]["status"], "NOT_EVALUATED")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_f32_layout_compatible_cannot_authorize_without_runtime_admission(self):
+        # Gate 7 requirement 2: the SAME rule applies to F32/F16 -- a
+        # runtime that DOES support F32/F16 materialization is not the
+        # same claim as this prototype having verified it. Layout proof
+        # alone must not authorize execution for ANY encoding, not only
+        # the ones this runtime happens to reject.
+        f32_a = os.path.join(self.tmpdir, "f32_a.gguf")
+        f32_b = os.path.join(self.tmpdir, "f32_b.gguf")
+        write_llama_fixture(f32_a, self.spec, seed=11, permute_qk=False, encoding="F32")
+        write_llama_fixture(f32_b, self.spec, seed=11, permute_qk=True, encoding="F32")
+        profile = fl08.profile_artifact(f32_a, f32_b, "orcengine-current")
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertEqual(profile["runtime_admission"]["status"], "NOT_EVALUATED")
+        self.assertFalse(profile["execution_authorization"])
 
     def test_distinguishable_blocks_are_not_coincidentally_equal(self):
         # Guards against a degenerate packer that emits identical blocks
@@ -1749,7 +1969,7 @@ class TestGate5PackedQ80Validation(unittest.TestCase):
         # catches this at Layer 2 structural validation -- BEFORE Layer
         # 3's dedicated Q8_0 geometry check would even run -- so the
         # artifact is INVALID, not merely AMBIGUOUS at the Q/K layer.
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertTrue(any("shape" in a.lower() or "dim" in a.lower()
                             for a in profile["unresolved_ambiguities"]))
 
@@ -1794,7 +2014,7 @@ class TestGate5PackedQ80Validation(unittest.TestCase):
         write_llama_fixture(canon_p, self.spec, seed=21, permute_qk=True, encoding="Q8_0",
                             quantize_token_embd=True)
         profile = fl08.profile_artifact(raw_p, canon_p, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
         self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
 
 
@@ -1858,7 +2078,7 @@ class TestGate7NormalizationPlan(_PairedFixtureCase):
     def test_reverse_plan_explicitly_refused_not_invented(self):
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "orcengine-current")
         self.assertEqual(profile["qk_layout"]["classification"], "CANONICAL_LLAMA_CPP")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_NORMALIZATION_REQUIRED")
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_NORMALIZATION_REQUIRED")
         plan, reason = fl08_plan.build_plan(profile)
         self.assertIsNone(plan)
         self.assertIn("REVERSE", reason.upper() if "REVERSE" in reason.upper() else reason.upper())
@@ -2130,11 +2350,20 @@ class TestGate7NormalizationPlan(_PairedFixtureCase):
         self.assertIsNone(plan)
         self.assertIsNotNone(reason)
 
-    def test_unauthorized_but_compatible_input_profile_yields_no_plan(self):
+    def test_layout_compatible_profile_yields_no_normalization_plan(self):
+        # Round-7 remediation (FL-08 closeout): renamed from "..._
+        # unauthorized_but_compatible_..." -- that name was already
+        # confusing (its own assertion checked execution_authorization
+        # is TRUE) and is now simply wrong (execution_authorization is
+        # unconditionally False in this prototype). The actual point
+        # this test proves is unrelated to authorization: a profile
+        # that is ALREADY layout-compatible as-is has nothing to
+        # normalize, so build_plan() correctly proposes no plan.
         profile = fl08.profile_artifact(self.canonical_path, self.raw_path, "canonical-llama.cpp")
-        self.assertTrue(profile["execution_authorization"])
+        self.assertEqual(profile["layout_compatibility"]["result"], "VERIFIED_LAYOUT_COMPATIBLE")
+        self.assertFalse(profile["execution_authorization"])
         plan, reason = fl08_plan.build_plan(profile)
-        self.assertIsNone(plan)  # VERIFIED_COMPATIBLE has nothing to normalize
+        self.assertIsNone(plan)  # VERIFIED_LAYOUT_COMPATIBLE has nothing to normalize
 
 
 # ---------------------------------------------------------------------
@@ -2175,7 +2404,7 @@ class TestTamperedFixtureRegeneration(unittest.TestCase):
         # AMBIGUOUS classification -- Layer 3 never runs on it.
         committed_path = os.path.join(os.path.dirname(__file__), "fixtures", "tampered_ambiguous.gguf")
         profile = fl08.profile_artifact(committed_path, None, "canonical-llama.cpp")
-        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
         self.assertEqual(profile["qk_layout"]["classification"], "UNKNOWN")
         self.assertFalse(profile["execution_authorization"])
 
