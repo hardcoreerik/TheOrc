@@ -805,3 +805,248 @@ Not closed. The two round-5 findings above (metadata type confusion,
 SHA-256 exact-match) are fixed and regression-tested this round;
 stopping here for Codex review before any further remediation,
 merge, promotion, or freeze, per standing constraint.
+
+## Round 6 remediation: results and conclusions
+
+Triggered by a combined Codex authority review and an independent
+Grok Double Check of round 5. Codex independently re-ran the full
+round-5 suite (159/159 passing) and confirmed round 5's four closures
+genuinely held (numeric-string coercion, scalar-reader routing,
+SHA-256 exact-match, RoPE-coupling audit) -- **these are NOT reopened
+or re-litigated here.** Three NEW findings, all in round 5's own
+metadata-type work, required this round.
+
+### Signed-integer false authorization (Gate 1)
+
+Round 5's shared integer-type family (`_INT_GGUF_TYPES`) accepted
+BOTH the unsigned AND signed GGUF integer types (`UINT8/16/32/64` and
+`INT8/16/32/64`), reasoned from the abstract GGUF metadata schema's
+"an integer" wording alone. Codex compared this against the ACTUAL
+target runtime's own metadata reader --
+`Tools/OrcEnginePhase2/src/gguf.cpp`'s `metadata_u64()` (inspected
+directly, not modified):
+
+```c++
+uint64_t metadata_u64(const GgufArtifact& artifact, const std::string& key) {
+    const GgufValue& value = require_metadata(artifact, key);
+    switch (value.type) {
+        case GgufValueType::UInt8:
+        case GgufValueType::UInt16:
+        case GgufValueType::UInt32:
+        case GgufValueType::UInt64:
+            return std::get<uint64_t>(value.data);
+        default:
+            throw GgufError("metadata key '" + key + "' must be unsigned integer");
+    }
+}
+```
+
+This throws for every signed type. Codex reproduced paired artifacts
+with the SAME signed-`INT32` value on both sides for
+`llama.block_count`, `llama.attention.head_count`, and
+`llama.rope.dimension_count` -- all three previously reached
+`VERIFIED_COMPATIBLE`/`pair_identity=VERIFIED`/
+`execution_authorization=true`, despite OrcEngine's real loader
+rejecting every one of them outright.
+
+Fixed at the single shared boundary: `_INT_GGUF_TYPES` is now
+`{UINT8, UINT16, UINT32, UINT64}` only -- the root cause corrected
+once, not per-key. Confirmed by 7 new tests in
+`TestRound6RuntimeMetadataAlignment`: the 3 exact single-artifact
+signed-`INT32` reproductions (`block_count`, `head_count`,
+`rope.dimension_count`), the 3 corresponding PAIRED-matching
+regressions (proving pair agreement on a signed value still cannot
+recover authorization), and an unsigned-family control using
+`UINT64` (not `UINT32`) to prove the fix narrows to signed exclusion
+specifically, not to a single accepted width.
+
+The previous `test_int8_geometry_type_family_member_accepted` (which
+used `add_int32` -- a name and an acceptance premise both now wrong)
+is renamed to `test_uint16_geometry_type_family_member_accepted` and
+rewritten to use `add_uint16`, preserving its original intent (prove
+the accepted family is not limited to `UINT32`) with a type that is
+actually accepted.
+
+### Omitted OrcEngine loader restrictions: `tensor_data_layout` / `expert_count` (Gate 2)
+
+Two fields OrcEngine's real `map_llama_model()`
+(`Tools/OrcEnginePhase2/src/gguf.cpp`, inspected directly) restricts
+were entirely absent from FL-08's policy -- neither read, validated,
+nor included in pair-identity comparison:
+
+- **`llama.tensor_data_layout`**: absent is accepted; the string
+  `"reference"` is accepted; any other value throws `GgufError`
+  (`"unsupported Llama tensor_data_layout"`); a non-string GGUF type
+  throws via `metadata_string()`'s own type check.
+- **`llama.expert_count`**: absent is accepted; unsigned `0` is
+  accepted; any nonzero value throws `GgufError` (`"Llama MoE tensors
+  are outside the Phase-2 profile"`); a wrong GGUF type fails via
+  `metadata_u64()`'s own type check.
+
+Codex reproduced paired artifacts sharing the SAME unsupported value
+on both sides (e.g. `tensor_data_layout="grouped"`, `expert_count=8`)
+still reaching `VERIFIED_COMPATIBLE`/`pair_identity=VERIFIED`/
+`execution_authorization=true` -- equality of an unsupported value
+proves nothing about whether OrcEngine's real loader would accept
+either side.
+
+Both fields are now read through the existing shared typed-scalar
+boundary (`_read_string_field`/`_read_int_field` -- no new
+type-policy abstraction was needed) in `validate_artifact()`,
+per-artifact, using the SAME semantic-check pattern already
+established for `sliding_window`/`rope.scaling.*` (present-and-
+unsupported denies `INVALID` before pair identity is ever reached, so
+matching unsupported values on both sides cannot authorize via
+agreement alone). Both are also added to
+`_EXECUTION_METADATA_OPTIONAL_KEYS`, so the EXISTING
+`_diff_metadata_dict()` optional-key policy (unchanged this round)
+automatically denies a field present on only one side, with no new
+comparison code needed.
+
+The distinction between "structurally readable but unsupported by
+this profile" and "malformed" is preserved: an out-of-policy value
+(`tensor_data_layout="grouped"`, `expert_count=8`) is correctly
+typed and readable -- it is REJECTED for policy reasons (this
+runtime's supported dense/reference profile), not reported as a
+type/decode defect, and its evidence string says so explicitly
+("OrcEngine's real loader ... rejects ... as outside the Phase-2
+... profile" / "... throws ... for any other declared value") rather
+than reusing the "GGUF type is ..." wrong-type wording.
+
+Confirmed by 12 new tests (6 per field) in
+`TestRound6RuntimeMetadataAlignment`: absent control, supported
+explicit-value control, unsupported value denied, wrong GGUF type
+denied, one-sided presence denied (asserting
+`pair_identity.status == "UNVERIFIED"` with "present on only one
+side" evidence), and paired matching-unsupported-value denied
+(asserting non-authorization).
+
+### Bounded runtime-metadata audit
+
+One-time audit comparing every scalar metadata key OrcEngine's actual
+`map_llama_model()` reads against FL-08's validation/pair-identity
+policy, to close the one-key-at-a-time false-authorization pattern
+that produced both this round's findings and round 5's. Not a general
+GGUF metadata registry -- scoped to exactly the keys the real loader
+consumes.
+
+| Key | OrcEngine contract | FL-08 handling | Affects authorization |
+|---|---|---|---|
+| `general.architecture` | string; must equal `"llama"` | `validate_artifact()` Layer 2 | Yes |
+| `llama.embedding_length` | unsigned int; required | geometry block | Yes |
+| `llama.feed_forward_length` | unsigned int; required | geometry block + required exec-metadata key | Yes |
+| `llama.block_count` | unsigned int; required | geometry block | Yes |
+| `llama.attention.head_count` | unsigned int; required | geometry block | Yes |
+| `llama.attention.head_count_kv` | unsigned int; optional, defaults to head_count | geometry block (same default) | Yes |
+| `llama.context_length` | unsigned int; required | geometry block + required exec-metadata key | Yes |
+| `llama.attention.layer_norm_rms_epsilon` | float; required | semantic block + required exec-metadata key | Yes |
+| `llama.rope.freq_base` | float; optional, defaults `10000.0f` | required exec-metadata key (FL-08 treats absence as an ambiguity, not a default-and-proceed -- an existing, pre-round-6 design choice, not changed here) | Yes |
+| `llama.rope.dimension_count` | unsigned int; optional, must equal `head_dim` if present | semantic block + required exec-metadata key | Yes |
+| `llama.tensor_data_layout` | string; optional, absent/`"reference"` only | **round 6**: semantic block + optional exec-metadata key | Yes |
+| `llama.expert_count` | unsigned int; optional, absent/`0` only | **round 6**: semantic block + optional exec-metadata key | Yes |
+| GGUF header version | raw `u32`; loader requires exactly `3` | FL-08 reads `GGUF.version` via the typed boundary but accepts `2` OR `3` (a pre-existing, wider acceptance than the real loader's exact `3`) | Not yet audited for correction -- flagged here as an open discrepancy for a future round's authority review, not fixed in this bounded pass |
+
+The GGUF-version discrepancy is a genuine, newly observed gap, but it
+is NOT one of this round's two named findings and fixing it was not
+requested -- recorded here rather than silently expanded into, or
+silently dropped from, this round's bounded scope.
+
+**Scope pin, stated explicitly**: every "OrcEngine's real loader"
+citation in this document (rounds 4-6) is `Tools/OrcEnginePhase2/`,
+inspected directly in THIS worktree. This worktree contains
+`OrcEnginePhase0` through `OrcEnginePhase5C` only -- there is no
+`OrcEnginePhase6` here (Phase 6 is a separate worktree/branch this
+experiment deliberately does not depend on, per its own charter). The
+Q8_0-quantized real artifacts used in Cases C/D are read only as
+GGUF byte content for fixture purposes; this profiler makes no claim
+about Phase 6's own loader contract, which was never inspected as
+part of this experiment.
+
+### Positive authorization control corrected (Gate 3)
+
+`test_properly_typed_control_case_still_authorizes` (round 5) was
+named as an authorization test but only asserted
+`runtime_compatibility.result != "INVALID"` -- a materially weaker
+claim (e.g. an `AMBIGUOUS` result also satisfies it; the test never
+proved authorization actually occurred). Renamed to
+`test_properly_typed_metadata_never_type_invalidates` with its
+original, narrower claim preserved unchanged (properly typed
+metadata is never flagged by the type-validation boundary).
+
+A genuine positive control,
+`TestRound6RuntimeMetadataAlignment.
+test_genuine_orcengine_current_authorization_control`, asserts every
+relevant EXACT outcome against `orcengine-current`: Q/K classification
+(`RAW_HF`), `pair_identity.status == "VERIFIED"`,
+`runtime_compatibility.result == "VERIFIED_COMPATIBLE"`,
+`execution_authorization is True`. Overall `confidence_level` is
+`STRUCTURALLY_VERIFIED`, not `NUMERICALLY_VERIFIED` -- this is
+correct existing (pre-round-6) behavior, not a defect: `_min_
+confidence()` takes the WEAKEST constituent axis, and a `--reference`
+artifact's own container/architecture confidence is
+`STRUCTURALLY_VERIFIED` even when `qk_dialect` itself is numerically
+proven (asserted separately via `confidence["qk_dialect"] ==
+"NUMERICALLY_VERIFIED"`).
+
+A second control,
+`test_supported_tensor_data_layout_and_expert_count_reach_genuine_
+authorization`, proves the round-6 additions do not over-reject: an
+otherwise-valid pair with `tensor_data_layout="reference"` and
+`expert_count=0` on both sides still reaches
+`pair_identity.status == "VERIFIED"` /
+`runtime_compatibility.result == "VERIFIED_COMPATIBLE"` /
+`execution_authorization is True`.
+
+### Round-4/5 behavior preserved
+
+Full suite re-run confirms no regression in any previously closed
+behavior: numeric-looking strings still rejected, matching malformed
+numeric strings still denied, array/scalar confusion still rejected,
+bool-as-int still rejected, redundant-metadata wrong types still deny
+pair verification, SHA-256 validation still rejects all documented
+malformed forms, malformed normalization plans still return `(None,
+reason)` without raising, and non-identity RoPE scaling remains
+denied even with the scaling type absent (defaulting to `"linear"`
+per the pinned llama.cpp source cited in round 5, unchanged and not
+broadened here).
+
+### Real-artifact fixture disposition
+
+All 6 committed real-artifact outputs
+(`fixtures_results/case_{a,b,c,d,e}.{json,txt}`,
+`no_reference_ambiguous.{json,txt}`) were regenerated against the
+round-6 code and diffed byte-for-byte against the committed files:
+**all 6 remain byte-identical, zero diff** -- actually verified, not
+assumed. This is expected: direct inspection confirms all 4 real
+Phase 6 artifacts declare neither `llama.tensor_data_layout` nor
+`llama.expert_count` at all, and all their integer geometry fields
+are `UINT32` (unaffected by the signed-type exclusion). None of the 6
+files were touched.
+
+### Final test count (this round)
+
+`python -m unittest test_profiler`: **180 tests, 180 passing.** Up
+from round 5's 159: **+21**, all in the new
+`TestRound6RuntimeMetadataAlignment` class (7 signed-integer, 12
+`tensor_data_layout`/`expert_count`, 2 genuine positive controls) --
+`159 + 21 = 180`, matching the executed count exactly. Independently
+cross-checked via `grep -c "    def test_" test_profiler.py`.
+
+### FL-08 status after round 6
+
+Not closed. All three round-6 findings (signed-integer false
+authorization, omitted `tensor_data_layout`/`expert_count` policy,
+the overclaiming authorization-control test) are fixed and
+regression-tested. A real-artifact authorization result DOES exist
+after these corrections: the real custom-vs-canonical Phase 6
+artifact pairs (Cases A-D) remain non-authorizing for the same
+disclosed reason established in round 3/4 (genuine tokenizer.*
+key-set asymmetry) -- this round's fixes do not change that outcome
+for any real artifact, only for adversarially constructed ones.
+Limitations still genuinely open and NOT addressed this round:
+tokenizer policy (no override mechanism), single-artifact inference
+without a paired reference remains `AMBIGUOUS`-capped, no reverse
+normalization-plan support, and the GGUF-header-version-2-vs-3
+discrepancy newly recorded in the audit table above. Stopping here
+for Codex review before any further remediation, merge, promotion,
+or freeze, per standing constraint.
