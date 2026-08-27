@@ -65,14 +65,28 @@ SCHEMA_VERSION = 2
 # and FLOAT32 for both rms_epsilon and rope.freq_base -- confirmed by
 # direct inspection, not assumed) and against the official GGUF
 # metadata schema, which defines these fields as "an integer" / "a
-# float" / "a string" without mandating one specific bit width -- so
-# the FAMILY of GGUF integer/float types is accepted, not only the one
-# width this project's own fixtures happen to use, while STRING/ARRAY/
-# BOOL are never silently accepted where a number is required (and
-# vice versa) even though Python could coerce a numeric-looking string.
+# float" / "a string" without mandating one specific bit width.
+#
+# Round-6 remediation (Gate 1, Codex authority review): round 5's
+# integer family INCLUDED the signed GGUF integer types (INT8/16/32/
+# 64), which is a false-authorization defect -- the actual target
+# runtime's own metadata reader, `metadata_u64()` in
+# `Tools/OrcEnginePhase2/src/gguf.cpp` (inspected directly, not
+# modified), accepts ONLY `UInt8`/`UInt16`/`UInt32`/`UInt64` and throws
+# `GgufError("metadata key '...' must be unsigned integer")` for every
+# signed type. A paired artifact with the SAME signed-INT32 value on
+# both sides previously still reached `VERIFIED_COMPATIBLE`/
+# `execution_authorization=true`, even though OrcEngine's real loader
+# would reject it outright. The integer family is therefore now
+# UNSIGNED-ONLY, matching the real consumer's contract exactly rather
+# than the broader "any GGUF integer" reading of the abstract schema --
+# so the FAMILY of unsigned widths is accepted (not only the one width
+# this project's own fixtures happen to use), while signed integers,
+# STRING/ARRAY/BOOL are never silently accepted where an unsigned
+# integer is required, even though Python could coerce a numeric-
+# looking string or a small signed value.
 _INT_GGUF_TYPES = frozenset({
     GGUFValueType.UINT8, GGUFValueType.UINT16, GGUFValueType.UINT32, GGUFValueType.UINT64,
-    GGUFValueType.INT8, GGUFValueType.INT16, GGUFValueType.INT32, GGUFValueType.INT64,
 })
 _FLOAT_GGUF_TYPES = frozenset({GGUFValueType.FLOAT32, GGUFValueType.FLOAT64})
 _STRING_GGUF_TYPES = frozenset({GGUFValueType.STRING})
@@ -109,6 +123,16 @@ _EXECUTION_METADATA_OPTIONAL_KEYS = (
     "llama.rope.scaling.type",
     "llama.rope.scaling.factor",
     "llama.attention.sliding_window",
+    # Round-6 remediation (Gate 2, Codex authority review): two fields
+    # OrcEngine's actual `map_llama_model()` (Tools/OrcEnginePhase2/
+    # src/gguf.cpp, inspected directly) restricts but this profiler
+    # previously never read at all. A paired artifact with the SAME
+    # unsupported value on both sides (e.g. tensor_data_layout="grouped"
+    # or expert_count=8) previously still reached VERIFIED_COMPATIBLE --
+    # equality alone does not prove OrcEngine's real loader would accept
+    # either side.
+    "llama.tensor_data_layout",
+    "llama.expert_count",
 )
 # Classified BENIGN (pure bookkeeping/provenance, never blocks pair
 # identity) from direct inspection of the real custom-vs-canonical
@@ -616,6 +640,40 @@ def validate_artifact(path: str) -> ArtifactValidation:
             v.ambiguities.append(f"llama.attention.sliding_window={sliding_window_val} is a nonzero "
                                  f"windowed-attention request -- OrcEngine's frozen runtime implements no "
                                  f"sliding-window attention at all")
+            v.terminal_result = "INVALID"
+            return v
+
+    # Round-6 remediation (Gate 2, Codex authority review): OrcEngine's
+    # actual map_llama_model() (Tools/OrcEnginePhase2/src/gguf.cpp,
+    # inspected directly, not modified) throws GgufError for any
+    # llama.tensor_data_layout value other than "reference" -- absence
+    # is accepted (the field predates GGUF's own deprecation of it).
+    tensor_layout_val, err = _read_string_field(reader, "llama.tensor_data_layout")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    if tensor_layout_val is not None:
+        if tensor_layout_val != "reference":
+            v.ambiguities.append(f"llama.tensor_data_layout={tensor_layout_val!r} is not 'reference' -- "
+                                 f"OrcEngine's real loader (map_llama_model()) throws \"unsupported Llama "
+                                 f"tensor_data_layout\" for any other declared value")
+            v.terminal_result = "INVALID"
+            return v
+
+    # OrcEngine's real loader throws GgufError("Llama MoE tensors are
+    # outside the Phase-2 profile") for any nonzero llama.expert_count;
+    # absence and an explicit 0 are both accepted (dense/non-MoE).
+    expert_count_val, err = _read_int_field(reader, "llama.expert_count")
+    if err:
+        v.ambiguities.append(err)
+        v.terminal_result = "INVALID"
+        return v
+    if expert_count_val is not None:
+        if expert_count_val != 0:
+            v.ambiguities.append(f"llama.expert_count={expert_count_val} is nonzero -- OrcEngine's real "
+                                 f"loader (map_llama_model()) rejects MoE tensors as outside the Phase-2 "
+                                 f"dense-only profile")
             v.terminal_result = "INVALID"
             return v
 

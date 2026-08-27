@@ -798,7 +798,20 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
 
     # 10. Properly-typed controls -- every accepted scalar family must
     #     still work; these checks must not be over-strict.
-    def test_properly_typed_control_case_still_authorizes(self):
+    #
+    # Round-6 remediation (Gate 3, Codex authority review): this test
+    # was previously named `..._still_authorizes` but never asserted
+    # actual authorization (only `result != "INVALID"`), which is a
+    # much weaker claim (e.g. AMBIGUOUS also satisfies it). Renamed and
+    # rescoped to its true, narrower claim -- "properly typed metadata
+    # is never flagged by the type-validation boundary." The GENUINE
+    # positive authorization control now lives in
+    # `TestRound6RuntimeMetadataAlignment.
+    # test_genuine_orcengine_current_authorization_control`, which
+    # asserts every relevant exact outcome (classification, confidence,
+    # pair identity, runtime_compatibility.result,
+    # execution_authorization) against a real target.
+    def test_properly_typed_metadata_never_type_invalidates(self):
         a = self._write({}, seed=1, permute_qk=False)
         b = self._write({}, seed=1, permute_qk=True)
         profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
@@ -809,10 +822,12 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
         self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
         self.assertFalse(any("GGUF type is" in a for a in profile["unresolved_ambiguities"]))
 
-    def test_int8_geometry_type_family_member_accepted(self):
-        # The integer FAMILY (not only UINT32) is accepted -- construct
-        # a field using a different, still-valid integer width.
-        path = self._write({"llama.rope.dimension_count": ("add_int32", self.spec.head_dim)})
+    def test_uint16_geometry_type_family_member_accepted(self):
+        # Round 6: the integer FAMILY is UNSIGNED-only (see
+        # TestRound6RuntimeMetadataAlignment) -- but still a FAMILY, not
+        # only UINT32. Construct a field using a different, still-valid
+        # UNSIGNED integer width and a value that fits it.
+        path = self._write({"llama.rope.dimension_count": ("add_uint16", self.spec.head_dim)})
         profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
         self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
         self.assertFalse(any("dimension_count" in a and "GGUF type is" in a
@@ -834,6 +849,203 @@ class TestRound5MetadataTypeValidation(unittest.TestCase):
             self.skipTest("real Phase 6 artifact not present on this machine")
         profile = fl08.profile_artifact(custom_f32, None, "canonical-llama.cpp")
         self.assertFalse(any("GGUF type is" in a for a in profile["unresolved_ambiguities"]))
+
+
+# ---------------------------------------------------------------------
+# Round 6 (Codex authority review): the profiler's integer-type family
+# and metadata coverage previously diverged from OrcEngine's ACTUAL
+# runtime contract (Tools/OrcEnginePhase2/src/gguf.cpp, inspected
+# directly, not modified). Gate 1 (signed GGUF integers must not
+# authorize), Gate 2 (llama.tensor_data_layout / llama.expert_count
+# were entirely unread), Gate 3 (a genuine positive authorization
+# control, replacing an overclaiming "still authorizes" test that
+# never actually asserted authorization).
+# ---------------------------------------------------------------------
+
+class TestRound6RuntimeMetadataAlignment(unittest.TestCase):
+    spec = SPEC
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write(self, overrides, seed=1, **kwargs):
+        path = os.path.join(self.tmpdir, f"r6_{seed}_{len(overrides)}_{id(overrides)}.gguf")
+        write_llama_fixture(path, self.spec, seed=seed, raw_metadata_overrides=overrides, **kwargs)
+        return path
+
+    def _assert_invalid_no_raise(self, path, expected_substring):
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")  # must not raise
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any(expected_substring in a for a in profile["unresolved_ambiguities"]),
+                        f"expected an ambiguity containing {expected_substring!r}, got "
+                        f"{profile['unresolved_ambiguities']}")
+        return profile
+
+    # --- Gate 1: signed GGUF integer types must not authorize, per
+    # OrcEngine's actual metadata_u64() contract (unsigned-only). ---
+
+    def test_block_count_signed_int32_denied(self):
+        path = self._write({"llama.block_count": ("add_int32", self.spec.n_layers)})
+        self._assert_invalid_no_raise(path, "block_count")
+
+    def test_head_count_signed_int32_denied(self):
+        path = self._write({"llama.attention.head_count": ("add_int32", self.spec.n_head)})
+        self._assert_invalid_no_raise(path, "head_count")
+
+    def test_rope_dimension_signed_int32_denied(self):
+        path = self._write({"llama.rope.dimension_count": ("add_int32", self.spec.head_dim)})
+        self._assert_invalid_no_raise(path, "dimension_count")
+
+    def test_paired_matching_signed_int32_block_count_cannot_authorize(self):
+        overrides = {"llama.block_count": ("add_int32", self.spec.n_layers)}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_paired_matching_signed_int32_head_count_cannot_authorize(self):
+        overrides = {"llama.attention.head_count": ("add_int32", self.spec.n_head)}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_paired_matching_signed_int32_rope_dimension_cannot_authorize(self):
+        overrides = {"llama.rope.dimension_count": ("add_int32", self.spec.head_dim)}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+
+    def test_unsigned_uint64_geometry_control_accepted(self):
+        # An unsigned width OTHER than UINT32 (the family, not one
+        # bit-width) must remain accepted.
+        path = self._write({"llama.context_length": ("add_uint64", 2048)})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertFalse(any("context_length" in a and "GGUF type is" in a
+                             for a in profile["unresolved_ambiguities"]))
+
+    # --- Gate 2: llama.tensor_data_layout (absent/"reference" only) ---
+
+    def test_tensor_data_layout_absent_control_accepted(self):
+        path = self._write({})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_tensor_data_layout_reference_supported_control_accepted(self):
+        path = self._write({"llama.tensor_data_layout": ("add_string", "reference")})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertFalse(any("tensor_data_layout" in a for a in profile["unresolved_ambiguities"]))
+
+    def test_tensor_data_layout_unsupported_value_denied(self):
+        path = self._write({"llama.tensor_data_layout": ("add_string", "grouped")})
+        self._assert_invalid_no_raise(path, "tensor_data_layout")
+
+    def test_tensor_data_layout_wrong_type_denied(self):
+        path = self._write({"llama.tensor_data_layout": ("add_uint32", 1)})
+        self._assert_invalid_no_raise(path, "tensor_data_layout")
+
+    def test_tensor_data_layout_one_sided_presence_denied(self):
+        a = self._write({"llama.tensor_data_layout": ("add_string", "reference")}, seed=1, permute_qk=False)
+        b = self._write({}, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("tensor_data_layout" in e and "present on only one side" in e
+                            for e in profile["pair_identity"]["evidence"]))
+
+    def test_tensor_data_layout_matching_unsupported_value_cannot_authorize(self):
+        overrides = {"llama.tensor_data_layout": ("add_string", "grouped")}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        # Denied at the per-artifact semantic-validation stage (before
+        # pair identity is even reached) -- equality of an unsupported
+        # value on both sides cannot authorize.
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+
+    # --- Gate 2: llama.expert_count (absent/0 only, dense-only profile) ---
+
+    def test_expert_count_absent_control_accepted(self):
+        path = self._write({})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertNotEqual(profile["runtime_compatibility"]["result"], "INVALID")
+
+    def test_expert_count_zero_supported_control_accepted(self):
+        path = self._write({"llama.expert_count": ("add_uint32", 0)})
+        profile = fl08.profile_artifact(path, None, "canonical-llama.cpp")
+        self.assertFalse(any("expert_count" in a for a in profile["unresolved_ambiguities"]))
+
+    def test_expert_count_nonzero_denied(self):
+        path = self._write({"llama.expert_count": ("add_uint32", 8)})
+        self._assert_invalid_no_raise(path, "expert_count")
+
+    def test_expert_count_wrong_type_denied(self):
+        path = self._write({"llama.expert_count": ("add_string", "8")})
+        self._assert_invalid_no_raise(path, "expert_count")
+
+    def test_expert_count_one_sided_presence_denied(self):
+        a = self._write({"llama.expert_count": ("add_uint32", 0)}, seed=1, permute_qk=False)
+        b = self._write({}, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["pair_identity"]["status"], "UNVERIFIED")
+        self.assertFalse(profile["execution_authorization"])
+        self.assertTrue(any("expert_count" in e and "present on only one side" in e
+                            for e in profile["pair_identity"]["evidence"]))
+
+    def test_expert_count_matching_unsupported_value_cannot_authorize(self):
+        overrides = {"llama.expert_count": ("add_uint32", 8)}
+        a = self._write(overrides, seed=1, permute_qk=False)
+        b = self._write(overrides, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "canonical-llama.cpp")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
+
+    # --- Gate 3: a genuine positive authorization control ---
+
+    def test_genuine_orcengine_current_authorization_control(self):
+        # Round-6 fix for a previously overclaiming test
+        # (`test_properly_typed_control_case_still_authorizes` asserted
+        # only "result != INVALID", never actual authorization). This
+        # asserts every relevant EXACT outcome against orcengine-current.
+        mha_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
+        a = os.path.join(self.tmpdir, "genuine_a.gguf")
+        b = os.path.join(self.tmpdir, "genuine_b.gguf")
+        write_llama_fixture(a, mha_spec, seed=1, permute_qk=False)
+        write_llama_fixture(b, mha_spec, seed=1, permute_qk=True)
+        profile = fl08.profile_artifact(a, b, "orcengine-current")
+        self.assertEqual(profile["qk_layout"]["classification"], "RAW_HF")
+        # Overall confidence is the WEAKEST constituent axis, not just
+        # qk_dialect's: a --reference input's own container/architecture
+        # confidence is STRUCTURALLY_VERIFIED (not NUMERICALLY_VERIFIED),
+        # so that is what caps confidence_level here even though Q/K
+        # itself was numerically proven.
+        self.assertEqual(profile["confidence_level"], "STRUCTURALLY_VERIFIED")
+        self.assertEqual(profile["confidence"]["qk_dialect"], "NUMERICALLY_VERIFIED")
+        self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
+        self.assertTrue(profile["execution_authorization"])
+
+    def test_supported_tensor_data_layout_and_expert_count_reach_genuine_authorization(self):
+        mha_spec = FixtureSpec(hidden=16, n_head=2, n_head_kv=2, intermediate=32, vocab=32, n_layers=1)
+        overrides = {"llama.tensor_data_layout": ("add_string", "reference"),
+                    "llama.expert_count": ("add_uint32", 0)}
+        a = os.path.join(self.tmpdir, "supported_a.gguf")
+        b = os.path.join(self.tmpdir, "supported_b.gguf")
+        write_llama_fixture(a, mha_spec, seed=1, permute_qk=False, raw_metadata_overrides=overrides)
+        write_llama_fixture(b, mha_spec, seed=1, permute_qk=True, raw_metadata_overrides=overrides)
+        profile = fl08.profile_artifact(a, b, "orcengine-current")
+        self.assertEqual(profile["pair_identity"]["status"], "VERIFIED")
+        self.assertEqual(profile["runtime_compatibility"]["result"], "VERIFIED_COMPATIBLE")
+        self.assertTrue(profile["execution_authorization"])
 
 
 # ---------------------------------------------------------------------
