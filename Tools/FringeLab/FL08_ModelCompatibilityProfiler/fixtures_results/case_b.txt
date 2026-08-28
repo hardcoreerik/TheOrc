@@ -1,0 +1,18 @@
+Architecture: llama
+Container: GGUF v3
+Artifact dialect (Q/K): CANONICAL_LLAMA_CPP
+Pair identity: UNVERIFIED
+Layout target: canonical-llama.cpp
+Layout compatibility: AMBIGUOUS
+Runtime admission: NOT_EVALUATED (this research prototype has no loader/runtime seam to evaluate admission; this is always NOT_EVALUATED)
+Evidence:
+  - artifact sha256=aef7f8d471367c711a7e46365619498e0e51a0fa93dca8aa09005dabc19810e7
+  - container valid: GGUF v3, 272 tensors, 0 out-of-bounds, 0 duplicates
+  - architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)
+  - output.weight tensor absent -- tied head materialized from token_embd.weight at runtime (canonical-converter convention)
+  - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']
+  - Q/K fingerprint matches CANONICAL_LLAMA_CPP convention: permute(reference 'F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf''s Q/K) == this artifact's Q/K (the reference is raw relative to this artifact, per the externally-fixed permute() direction), verified on 60/60 tensors (30/30 layers)
+Unresolved ambiguities:
+  - [pair-identity] tokenizer metadata key sets differ: only on artifact=['tokenizer.ggml.add_space_prefix', 'tokenizer.ggml.unknown_token_id'], only on reference=['tokenizer.ggml.add_eos_token']
+Confidence: AMBIGUOUS
+Execution authorization: denied (layout compatibility alone never grants this -- runtime admission is required and is never verified by this prototype)

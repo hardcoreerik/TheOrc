@@ -1,0 +1,82 @@
+{
+  "artifact": {
+    "file_size_bytes": 653091040,
+    "path": "F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf",
+    "sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac"
+  },
+  "authorization_conditions": {
+    "architecture_valid": true,
+    "container_valid": true,
+    "encoding_structurally_known": true,
+    "matches_target_as_is": false,
+    "no_unresolved_ambiguity": false,
+    "normalization_not_required": true,
+    "pair_identity_verified": false,
+    "per_layer_consistent": false,
+    "qk_numerically_verified": false,
+    "qk_tensors_nonzero_and_complete": false,
+    "reference_valid": false,
+    "runtime_admission_verified": false
+  },
+  "confidence": {
+    "architecture": "STRUCTURALLY_VERIFIED",
+    "container": "STRUCTURALLY_VERIFIED",
+    "pair_identity": "AMBIGUOUS",
+    "qk_dialect": "AMBIGUOUS",
+    "reference": "AMBIGUOUS"
+  },
+  "confidence_level": "AMBIGUOUS",
+  "container": {
+    "evidence": [
+      "artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+      "container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates",
+      "architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)"
+    ],
+    "type": "GGUF",
+    "valid": true,
+    "version": 3
+  },
+  "declared_architecture": "llama",
+  "evidence": [
+    "artifact sha256=fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
+    "container valid: GGUF v3, 273 tensors, 0 out-of-bounds, 0 duplicates",
+    "architecture 'llama' validated: 30 layers, all required tensors present, logical shapes consistent with head_count=9/head_count_kv=3/hidden=576 (validated against tensor.data.shape, the logical axis)",
+    "output.weight present and byte-identical to token_embd.weight (logically tied, physically duplicated)"
+  ],
+  "execution_authorization": false,
+  "known_normalization_requirements": [],
+  "layout_compatibility": {
+    "result": "AMBIGUOUS",
+    "target": "canonical-llama.cpp"
+  },
+  "metadata_fingerprint": "22d9b8bdc0f47726abfd235ae79e01c3131ac52bc03605e52a7f17f8c2ce78df",
+  "output_weight_semantics": "TIED_PHYSICALLY_DUPLICATED",
+  "pair_identity": {
+    "evidence": [],
+    "status": "UNVERIFIED"
+  },
+  "qk_layout": {
+    "classification": "UNKNOWN",
+    "confidence": "AMBIGUOUS",
+    "layers_checked": 0,
+    "layers_total": 30,
+    "per_layer_consistent": false,
+    "qk_tensors_checked": 0,
+    "qk_tensors_total": 60
+  },
+  "quantization_formats": [
+    "F32"
+  ],
+  "reference": null,
+  "runtime_admission": {
+    "authority": null,
+    "evidence": [],
+    "status": "NOT_EVALUATED"
+  },
+  "schema_version": 3,
+  "tensor_inventory_fingerprint": "7ae7e4ebe358e161d678ae8eaaed29f7e3e90f267a6638a39cb4b3e6b7ca858b",
+  "tokenizer_fingerprint": "b3dc951d19443a91ef6d10d4f59f2544d8e46d64e83fec06ea43419996cc49b9",
+  "unresolved_ambiguities": [
+    "no paired reference artifact supplied -- Q/K layout cannot be classified from a single artifact (tensor names alone are not evidence, per this profiler's explicit design)"
+  ]
+}
