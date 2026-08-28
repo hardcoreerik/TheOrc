@@ -417,9 +417,20 @@ def validate_artifact(path: str) -> ArtifactValidation:
         v.terminal_result = "INVALID"
         return v
 
-    v.sha256 = sha256_file(path)
+    # Round-8 remediation (pre-freeze correction, Codex authority
+    # review): hashing/size inspection ran BEFORE any exception
+    # handling existed in this function -- an ordinary filesystem
+    # access failure (e.g. PermissionError mid-read) escaped as an
+    # uncaught exception, violating this function's own "never raises"
+    # contract stated in its docstring above.
+    try:
+        v.sha256 = sha256_file(path)
+        v.file_size_bytes = os.path.getsize(path)
+    except OSError as ex:
+        v.ambiguities.append(f"artifact could not be read for hashing/size inspection: {ex!r}")
+        v.terminal_result = "INVALID"
+        return v
     v.evidence.append(f"artifact sha256={v.sha256}")
-    v.file_size_bytes = os.path.getsize(path)
 
     try:
         reader = GGUFReader(path)

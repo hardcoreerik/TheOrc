@@ -21,6 +21,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 from gguf import GGMLQuantizationType, GGUFWriter
@@ -2058,6 +2059,36 @@ class TestArtifactNeverModified(_PairedFixtureCase):
         fl08.profile_artifact(self.raw_path, self.canonical_path, "canonical-llama.cpp")
         self.assertEqual(sha(self.raw_path), before_raw)
         self.assertEqual(sha(self.canonical_path), before_canon)
+
+
+# ---------------------------------------------------------------------
+# Round 8 (pre-freeze correction, Codex authority review):
+# validate_artifact()'s own docstring claims it never raises, but
+# sha256_file()/os.path.getsize() ran BEFORE any exception handling
+# existed in the function -- an ordinary filesystem access failure
+# (e.g. a PermissionError mid-read) escaped uncaught.
+# ---------------------------------------------------------------------
+
+class TestRound8ArtifactReadFailureFailsClosed(_PairedFixtureCase):
+    def test_permission_error_during_hashing_fails_closed_not_raised(self):
+        with mock.patch.object(fl08, "sha256_file", side_effect=PermissionError("Access is denied")):
+            v = fl08.validate_artifact(self.raw_path)  # must not raise
+        self.assertEqual(v.terminal_result, "INVALID")
+        self.assertTrue(any("could not be read" in a and "PermissionError" in a for a in v.ambiguities),
+                        f"expected a read/hash-failure ambiguity, got {v.ambiguities}")
+        # Same boundary must also catch a getsize() failure -- confirmed
+        # in the SAME test (Gate requirement 5) rather than a second test,
+        # since it exercises the identical try/except, not new logic.
+        with mock.patch("os.path.getsize", side_effect=PermissionError("Access is denied")):
+            v2 = fl08.validate_artifact(self.raw_path)  # must not raise
+        self.assertEqual(v2.terminal_result, "INVALID")
+        self.assertTrue(any("could not be read" in a and "PermissionError" in a for a in v2.ambiguities),
+                        f"expected a read/hash-failure ambiguity, got {v2.ambiguities}")
+        # Full profile_artifact() must also stay non-authorizing and not raise.
+        with mock.patch.object(fl08, "sha256_file", side_effect=PermissionError("Access is denied")):
+            profile = fl08.profile_artifact(self.raw_path, None, "canonical-llama.cpp")
+        self.assertEqual(profile["layout_compatibility"]["result"], "INVALID")
+        self.assertFalse(profile["execution_authorization"])
 
 
 # ---------------------------------------------------------------------
