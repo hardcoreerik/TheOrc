@@ -115,6 +115,24 @@ else()
                    "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
 endif()
 
+# Gate 5 dedicated follow-up (Codex authority prompt, post-round-7):
+# projection-level (not whole-layer) localization of the same internal
+# F32-vs-Q8_0 tolerance failure. A NEW sibling tool -- see
+# fixtures/PHASE6_GATE5_STATUS.md's methodology section. Same
+# real-artifact gating as the whole-layer tool above.
+if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_Q8_0_GGUF)
+    message(STATUS "Phase 6 Gate 5 projection-level localization: REGISTERED")
+    add_executable(phase6_holdout_quick_fox_projection_localization tools/phase6_holdout_quick_fox_projection_localization.cpp)
+    target_link_libraries(phase6_holdout_quick_fox_projection_localization PRIVATE orcengine_phase5a orcengine_phase2)
+    target_compile_options(phase6_holdout_quick_fox_projection_localization PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+else()
+    message(STATUS "Phase 6 Gate 5 projection-level localization: SKIPPED -- "
+                   "ORCENGINE_REAL_F32_GGUF and/or ORCENGINE_REAL_Q8_0_GGUF not configured")
+endif()
+
 # Gate 4 (combined Codex/Grok remediation round 7): diagnostic-only
 # single-GGUF loader probe -- does OrcEngine's existing, unmodified
 # loader accept the Gate 2/3 canonical/Q/K-isolated artifacts, and what
