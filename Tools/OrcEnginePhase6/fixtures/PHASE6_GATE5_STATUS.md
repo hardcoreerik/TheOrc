@@ -230,9 +230,22 @@ run against the real GGUF pair.
 
 ## Results: `phase6_holdout_quick_fox_projection_localization` (dedicated Gate 5 follow-up)
 
+**Canonical evidence artifact**:
+`Tools/OrcEnginePhase6/fixtures/PHASE6_GATE5_PROJECTION_EVIDENCE.txt`
+(committed). The COMPLETE raw per-projection, per-layer, per-prompt
+numerical tables and the full self-test transcript exist ONLY in that
+file, along with input-artifact hashes, exact invocation, build
+configuration, exit code, and cross-build (Debug/strict/ASan)
+comparison hashes. This section is a summary and interpretation of
+that data -- it does not reproduce the full tables, and any number
+quoted below should be checked against the canonical artifact, not
+treated as the primary record.
+
 Built and run against the real, hash-verified F32/Q8_0 GGUF pair
-(SmolLM2-135M, vocab=49152 hidden=576 n_layers=30). All 8 known-value
-self-test checks (Gate 2) passed before any model I/O was attempted,
+(SmolLM2-135M, vocab=49152 hidden=576 n_layers=30). All 14 known-value
+self-test checks (Gate 2's original 8, plus this round's hardening
+additions: 3 for the new zero-scale-block case, 3 for the extent-
+mismatch regression) passed before any model I/O was attempted,
 including the required independent-parser-vs-production-dequantizer
 parity check (the diagnostic throws immediately, not silently, if the
 two ever disagree -- they did not disagree on any of the tens of
@@ -253,38 +266,64 @@ the CORRECT behavior of a working linear layer, not evidence against
 one. This confirms round 6's whole-layer "nearly additive, negligible
 interaction" finding replicates at projection granularity.
 
-**FFN_down is the one outlier, and it recurs identically in every
-prompt.** At layer 11, FFN_down's isolated weight-effect max_abs is
-11.18 (`dev_code_snippet`, PASSING), 11.43 (`holdout_quick_fox`,
-FAILING), and 12.04 (`holdout_hello_world`, PASSING) -- all at the
-SAME coordinate, `[pos=0, ch=306]`. At layer 28, the isolated
-state-effect and combined-effect max_abs are 86.96-91.55 across ALL
-THREE prompts, all at `[pos=0, ch=507]`. These magnitudes and
-coordinates are the same (within a few percent) whether the prompt
-passes or fails. In every case, `L2(pos0)` is 40-400x larger than
+**FFN_down is the one outlier, and it shows comparable magnitude at
+the same coordinate across passing and failing prompts alike.** At
+layer 11, FFN_down's isolated weight-effect max_abs is 11.18
+(`dev_code_snippet`, PASSING), 11.43 (`holdout_quick_fox`, FAILING),
+and 12.04 (`holdout_hello_world`, PASSING) -- all at the SAME
+coordinate, `[pos=0, ch=306]` (an approximately 8% max/min spread
+across the three prompts). At layer 28, the isolated state-effect and
+combined-effect max_abs are approximately 86.96-91.55 across all three
+prompts, all at `[pos=0, ch=507]`. These are bounded, comparable
+magnitudes at the same coordinate, not proof of an exact or
+prompt-independent value -- "recurs identically" and "within a few
+percent" (this section's own prior wording) overstated the precision
+the data actually supports; "comparable magnitude at the same
+coordinate across passing and failing prompts" is the defensible
+statement. In every case, `L2(pos0)` is 40-400x larger than
 `L2(final)` for the affected projection's own output -- the disruption
 is heavily concentrated at position 0 and does not propagate
 proportionally to that projection's own later-position outputs.
 
 ### Gate 2: raw Q8_0 block inspection (layers 11, 28, all 7 projections)
 
-No invalid (zero or non-finite) scales in any of the 14 tensors
-inspected (7 projections x 2 layers). Scale distributions are all in
-an ordinary, narrow range (roughly 0.0005-0.05 across every tensor,
-consistent medians around 0.003-0.004). Per-block reconstruction error
-(against the real F32 ground truth, not merely the production
-dequantizer) tops out at 0.007-0.024 max_abs across every tensor --
-consistent with ordinary int8-quantization step-size noise at these
-scale magnitudes (step size is approximately the block's own scale;
-0.003-0.005 scale implies 0.0015-0.025 expected max rounding error,
-matching observed reconstruction error almost exactly). No block shows
-a reconstruction error anywhere near the 7-12 magnitude of the Gate-1
-projection-output outlier -- the outlier is NOT explained by one
-corrupted or mis-scaled Q8_0 block; it is explained by ordinary,
-small, per-element rounding noise multiplying against an activation
-that is itself extremely large specifically at position 0 (a
-"BOS-adjacent outlier channel," a documented phenomenon in transformer
-quantization literature, not unique to this implementation).
+No non-finite (malformed) scales in any of the 14 tensors inspected (7
+projections x 2 layers); a small number of exact-zero scales occur,
+which is a legitimate encoding for an all-zero block, not a defect,
+and is now tracked and reported separately from non-finite scales
+(see the round-of-hardening correction below). Scale distributions are
+all in an ordinary, narrow range (roughly 0.0005-0.05 across every
+tensor, consistent medians around 0.003-0.004). Per-block
+reconstruction error (against the real F32 ground truth, not merely
+the production dequantizer) tops out at 0.007-0.024 max_abs across
+every tensor -- consistent with ordinary int8-quantization step-size
+noise (max rounding error is approximately half the block's own
+scale). **Correction**: the prior statement that "0.003-0.005 scale
+implies 0.0015-0.025 expected max rounding error" was arithmetically
+wrong -- half of 0.003-0.005 is approximately 0.0015-0.0025, not
+0.0015-0.025 (a stray order of magnitude). The observed maximum
+reconstruction error near 0.024 corresponds to blocks whose OWN scale
+is near the reported per-tensor maximum (approximately 0.048, e.g.
+FFN_down layer 11's `scale_max=0.0477295`), not the median-scale
+range -- `0.048 / 2 ~= 0.024`, which is exactly what is observed. No
+block shows a reconstruction error anywhere near the 7-12 magnitude of
+the Gate-1 projection-output outlier -- the outlier is not explained
+by one corrupted or mis-scaled Q8_0 block; it is consistent with
+ordinary, small, per-element rounding noise multiplying against an
+activation that is itself extremely large specifically at position 0
+(a "BOS-adjacent outlier channel," a documented phenomenon in
+transformer quantization literature, not unique to this
+implementation).
+
+**Round-of-hardening correction (Codex review)**: the diagnostic
+previously classified a zero scale together with a non-finite scale
+under one `invalid_scale_count`. A zero scale is a legitimate encoding
+for an all-zero block and is not itself evidence of a defect; it is
+now reported separately (`zero_scale_count` vs. `nonfinite_scale_count`
+in the tool's output), and a known-value self-test now proves a
+zero-scale block with a deliberately NONZERO int8 payload decodes to
+all zeros and is not flagged as malformed. Non-finite scales remain
+fail-closed-reportable, unweakened.
 
 ### Gate 3: failing-versus-control comparison
 
@@ -292,9 +331,10 @@ quantization literature, not unique to this implementation).
    FFN_down's LOCAL position-0 error dominates every other projection
    by roughly 2 orders of magnitude, but:
 2. **Does the same projection show comparable error in the passing
-   prompts?** Yes -- nearly identical magnitude (within a few percent)
-   at the same coordinates across all three prompts, including the two
-   PASSING ones. FFN_down's outlier is therefore NOT what
+   prompts?** Yes -- comparable magnitude at the same coordinate across
+   all three prompts, including the two PASSING ones (layer 11:
+   11.18-12.04, approximately an 8% max/min spread; layer 28:
+   approximately 86.96-91.55). FFN_down's outlier is therefore NOT what
    differentiates the failing prompt from the passing ones.
 3. **Root cause of the holdout failure**: not weight reconstruction
    alone, not incoming-state drift alone, not their interaction
@@ -330,13 +370,14 @@ trajectory, not decision-margin narrowness by itself.
 
 ### Gate 4 outcome classification
 
-**Outcome B: implementation appears correct; current tolerance
-methodology is inadequate.**
+**Outcome B (PROVISIONAL): implementation appears correct in the
+seams examined; current tolerance methodology is inadequate.**
 
 Support for this classification, per the mega-prompt's own required
 conditions:
-- Known-value dequantization remains exact (8/8 self-test checks
-  passed, including exact hand-computed block values).
+- Known-value dequantization remains exact (10/10 self-test checks
+  after this round's hardening, including exact hand-computed block
+  values and the new zero-scale-block check).
 - Raw-block parsing is correct (independent parser agrees with the
   frozen production `dequantize_q8_0_scalar_reference()` on every
   element of every block inspected across all 14 tensors -- the
@@ -346,15 +387,28 @@ conditions:
   (Gate 2's per-block reconstruction error matches the expected
   int8-step-size magnitude at the observed scales; nothing in the raw
   block data is anomalous).
-- No dispatch/layout/math defect was found: the factorial-interaction
-  formula's near-zero-but-nonzero values are exactly what a correctly
-  implemented linear layer produces for a bilinear interaction of two
-  small perturbations, not a symptom of a bug.
-- The holdout failure is explained by empirically ordinary
+- No dispatch/layout/math defect was found in the seams this round
+  actually exercised: the factorial-interaction formula's
+  near-zero-but-nonzero values are exactly what a correctly implemented
+  linear layer produces for a bilinear interaction of two small
+  perturbations, not a symptom of a bug.
+- The holdout failure is consistent with empirically ordinary
   quantization drift (the FFN_down/O-projection position-0 outlier
-  recurs identically across passing and failing prompts) combined with
-  each prompt's own accumulated numerical trajectory over 30 layers --
-  not by a narrow margin alone, and not by any single defect.
+  shows comparable magnitude at the same coordinate across passing and
+  failing prompts alike, not exact or identical recurrence) combined
+  with each prompt's own accumulated numerical trajectory over 30
+  layers -- not narrow decision margin alone, and no single defect was
+  found.
+
+**This is a provisional classification, not a proof.** This pass
+examined a specific, bounded set of seams (two layers, two positions,
+three prompts, seven projections, direct raw-block inspection) and
+found no defect and no anomaly within that scope. It does NOT prove
+this is the sole root cause of the holdout failure, and it does NOT
+prove every OrcEngine Q8_0-related code path is correct -- only that
+the paths this diagnostic actually exercised behaved as expected. A
+future round examining different layers, positions, or code paths
+could still surface something this one did not.
 
 Per the mega-prompt's Outcome B requirements, this pass does **not**
 change the gate (`0.973504` vs `1.079983` remains **FAILED**,
@@ -381,18 +435,40 @@ phenomenon's natural variance.
   methodology's own stated limitation -- it is not a downstream
   Jacobian and does not itself prove causal contribution to the final
   logit failure.
-- Gate 2's worst-block indices were not cross-referenced against the
-  specific flat-array column index of Gate 1's outlier channel (e.g.
-  confirming block `floor(306/32)` is among FFN_down's reported worst
-  blocks) -- the data to do this exists in the tool's own output but
-  this exact correlation step was not performed as a separate
-  computation this round; the aggregate finding (reconstruction error
-  magnitude is consistent with ordinary quantization noise, not a
-  corrupted block) does not depend on it.
-- ASan verification of this new diagnostic ran but progressed far
-  slower than the Debug/strict runs (see the round's commit/report for
-  its final disposition) -- see the main investigation report for
-  whether it completed within this round's time budget.
+- **Correction (Codex review)**: this limitation previously stated the
+  correlation would be "block `floor(306/32)`" -- wrong. Weights are
+  stored `[out_features, in_features]` row-major (`ops.hpp`'s own
+  documented convention), so an OUTPUT channel (Gate 1's outlier
+  coordinate `ch=306` is an output-channel index, since FFN_down's
+  output width is `hidden`) occupies its own entire ROW of
+  `in_features` elements, i.e. `in_features / 32` consecutive blocks,
+  not one block at index `channel/32`. For FFN_down specifically
+  (`in_features = cfg.intermediate`, derivable from the model's own
+  config -- for the real SmolLM2-135M pair used this round,
+  `intermediate=1536`, confirmed from `blocks=27648 = 576 * 1536 / 32`
+  in the committed evidence), output channel 306's row spans blocks
+  `306 * (1536/32)` through `306 * (1536/32) + 47`, i.e. blocks
+  14688-14735 for this specific model. This is a property of the model
+  config, not a hardcoded constant, and was not computed as executable
+  logic this round. Checked by hand against the committed evidence:
+  layer 11 FFN_down's reported worst blocks are `[24382, 24374,
+  17838]` -- NONE fall in `[14688, 14735]`. This means the single
+  worst-reconstruction-error blocks in the whole tensor are NOT inside
+  the specific outlier channel's own row -- consistent with (not
+  proof of) the finding that the outlier is not caused by one
+  anomalously bad block, but by ordinary per-block quantization noise
+  combined with an unusually large activation magnitude at that
+  channel/position. A full per-row aggregate (not just top-3 whole-
+  tensor blocks) was not computed this round and would be needed to
+  make a stronger claim.
+- ASan verification of the pre-hardening diagnostic completed after
+  this section was originally written (it progressed far slower than
+  Debug/strict, ~10-20x, consistent with ASan's known instrumentation
+  overhead on I/O-heavy code, not a hang): zero sanitizer violations,
+  exit code 0, numerical output byte-identical to Debug and strict.
+  This round's hardened diagnostic is re-verified under Debug/strict/
+  ASan again -- see this round's own commit for those results and the
+  canonical evidence artifact.
 
 ### FL-08 and the external Q/K-layout question
 

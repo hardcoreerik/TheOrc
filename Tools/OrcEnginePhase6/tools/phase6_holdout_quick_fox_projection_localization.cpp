@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <stdexcept>
@@ -246,7 +247,13 @@ struct BlockScaleStats {
     int64_t block_count = 0;
     float scale_min = 0.0f, scale_median = 0.0f, scale_mean = 0.0f, scale_max = 0.0f;
     float scale_p10 = 0.0f, scale_p90 = 0.0f;
-    int64_t invalid_scale_count = 0;  // zero, non-finite
+    // Round-of-hardening (Codex review of the Gate 5 follow-up): a zero
+    // scale can represent a legitimate all-zero block (nothing malformed
+    // about it), so it is now tracked SEPARATELY from non-finite scales,
+    // which remain fail-closed. Conflating the two under one
+    // "invalid_scale_count" previously misclassified a valid block.
+    int64_t zero_scale_count = 0;       // noteworthy, NOT malformed
+    int64_t nonfinite_scale_count = 0;  // malformed, fail-closed
     float recon_max_abs = 0.0f;
     double recon_rmse = 0.0;
     std::vector<int64_t> worst_block_indices;  // top 3 by max-abs reconstruction error
@@ -261,11 +268,40 @@ struct BlockScaleStats {
 BlockScaleStats inspect_q8_0_tensor(const std::string& q8_path, const GgufTensorInfo& q8_tensor,
                                     const std::vector<float>& f32_reference_flat) {
     const int64_t elements = q8_tensor.logical_shape.element_count();
+    // Round-of-hardening (Codex review): fail closed on every extent
+    // mismatch BEFORE any indexing into f32_reference_flat below --
+    // previously this function indexed f32_reference_flat[idx] without
+    // first proving its size matched the Q8 tensor's element count, an
+    // out-of-bounds read risk if a caller ever passed a mismatched pair.
+    if (elements <= 0) {
+        throw std::runtime_error("tensor '" + q8_tensor.name + "' has a non-positive element count (" +
+                                 std::to_string(elements) + ")");
+    }
     if (elements % kQ8_0BlockElements != 0) {
         throw std::runtime_error("tensor '" + q8_tensor.name + "' element count not a multiple of 32");
     }
+    if (static_cast<int64_t>(f32_reference_flat.size()) != elements) {
+        throw std::runtime_error("tensor '" + q8_tensor.name + "' F32 reference has " +
+                                 std::to_string(f32_reference_flat.size()) + " elements, expected exactly " +
+                                 std::to_string(elements) + " to match the Q8_0 tensor's own element count "
+                                 "-- refusing to index a mismatched reference");
+    }
     const int64_t block_count = elements / kQ8_0BlockElements;
     const uint64_t total_bytes = static_cast<uint64_t>(block_count) * static_cast<uint64_t>(kQ8_0BlockBytes);
+    // The indexed artifact's own encoded_length is DERIVED from this exact
+    // same (element_count / block_elements) * block_bytes formula at index
+    // time (Tools/OrcEnginePhase2/src/gguf.cpp:436, index_gguf()) -- so
+    // total_bytes == q8_tensor.encoded_length is an invariant already
+    // proven by the indexer, not something this diagnostic independently
+    // declares. Checked directly anyway (cheap, and self-documents the
+    // invariant rather than only asserting it in a comment).
+    if (total_bytes != q8_tensor.encoded_length) {
+        throw std::runtime_error("tensor '" + q8_tensor.name + "' computed Q8_0 backing-byte requirement (" +
+                                 std::to_string(total_bytes) + ") disagrees with the indexed artifact's own "
+                                 "encoded_length (" + std::to_string(q8_tensor.encoded_length) +
+                                 ") -- this should be impossible per index_gguf()'s own derivation; refusing "
+                                 "to read a tensor whose own indexed metadata is internally inconsistent");
+    }
     const std::vector<uint8_t> raw = read_file_range(q8_path, q8_tensor.absolute_offset, total_bytes);
 
     // Cross-check against the frozen production dequantizer on the SAME
@@ -284,7 +320,11 @@ BlockScaleStats inspect_q8_0_tensor(const std::string& q8_path, const GgufTensor
         const Q8_0Block block = parse_q8_0_block(raw.data() + static_cast<size_t>(b) * kQ8_0BlockBytes);
         scales[static_cast<size_t>(b)] = block.scale;
         scale_sum += static_cast<double>(block.scale);
-        if (block.scale == 0.0f || !std::isfinite(block.scale)) ++stats.invalid_scale_count;
+        // Zero is a legitimate scale for an all-zero block -- tracked
+        // separately, never conflated with a genuinely malformed
+        // (non-finite) scale, which remains fail-closed-reportable.
+        if (block.scale == 0.0f) ++stats.zero_scale_count;
+        if (!std::isfinite(block.scale)) ++stats.nonfinite_scale_count;
 
         float block_max_abs = 0.0f;
         for (int64_t i = 0; i < kQ8_0BlockElements; ++i) {
@@ -351,7 +391,12 @@ void run_known_value_block_test() {
     std::printf("=== Gate 2 self-test: known-value Q8_0 block decode ===\n");
     // Block 0: scale = 1.0 (F16 bit pattern 0x3C00), values [1, -1, 2, -2, 0, ...].
     // Block 1: scale = 0.5 (F16 bit pattern 0x3800), values [127, -128, 3, -3, 0, ...].
-    std::vector<uint8_t> raw(2 * kQ8_0BlockBytes, 0);
+    // Block 2 (round-of-hardening addition): scale = 0.0 (F16 bit pattern
+    // 0x0000) with NONZERO int8 values -- a legitimate all-zero block
+    // (proves zero scale is decoded as all-zero output regardless of the
+    // stored int8 bytes, and is classified separately from a genuinely
+    // malformed non-finite scale; see BlockScaleStats).
+    std::vector<uint8_t> raw(3 * kQ8_0BlockBytes, 0);
     // Block 0 scale bits 0x3C00, little-endian.
     raw[0] = 0x00; raw[1] = 0x3C;
     const std::vector<int8_t> block0_qi = {1, -1, 2, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -364,9 +409,17 @@ void run_known_value_block_test() {
     for (int i = 0; i < 32; ++i) {
         raw[kQ8_0BlockBytes + 2 + static_cast<size_t>(i)] = std::bit_cast<uint8_t>(block1_qi[static_cast<size_t>(i)]);
     }
+    // Block 2 scale bits 0x0000 (zero), int8 values deliberately NONZERO
+    // (e.g. 42) to prove the OUTPUT is zero because scale is zero, not
+    // because the int8 payload happens to be zero.
+    raw[2 * kQ8_0BlockBytes + 0] = 0x00; raw[2 * kQ8_0BlockBytes + 1] = 0x00;
+    for (int i = 0; i < 32; ++i) {
+        raw[2 * kQ8_0BlockBytes + 2 + static_cast<size_t>(i)] = std::bit_cast<uint8_t>(static_cast<int8_t>(42));
+    }
 
     const Q8_0Block b0 = parse_q8_0_block(raw.data());
     const Q8_0Block b1 = parse_q8_0_block(raw.data() + kQ8_0BlockBytes);
+    const Q8_0Block b2 = parse_q8_0_block(raw.data() + 2 * kQ8_0BlockBytes);
     check_and_report("block 0 scale decodes to exactly 1.0 from F16 bits 0x3C00",
                      std::fabs(b0.scale - 1.0f) < 1e-9f);
     check_and_report("block 1 scale decodes to exactly 0.5 from F16 bits 0x3800",
@@ -376,8 +429,17 @@ void run_known_value_block_test() {
     check_and_report("block 1 signed int8 values decoded correctly (127,-128,3,-3) "
                      "-- proves std::bit_cast sign handling at the int8 extremes",
                      b1.qi[0] == 127 && b1.qi[1] == -128 && b1.qi[2] == 3 && b1.qi[3] == -3);
+    check_and_report("block 2 scale decodes to exactly 0.0 from F16 bits 0x0000 (a legitimate value, "
+                     "not treated as malformed)", b2.scale == 0.0f && std::isfinite(b2.scale));
+    check_and_report("block 2 int8 payload is 42 (nonzero) but scale=0.0", b2.qi[0] == 42);
 
-    const std::vector<float> production = dequantize_q8_0_scalar_reference(raw, 64);
+    const std::vector<float> production = dequantize_q8_0_scalar_reference(raw, 96);
+    bool block2_all_zero = true;
+    for (int i = 0; i < 32; ++i) {
+        if (production[static_cast<size_t>(64 + i)] != 0.0f) block2_all_zero = false;
+    }
+    check_and_report("frozen dequantize_q8_0_scalar_reference() decodes the zero-scale block to all "
+                     "zeros despite a nonzero int8 payload (42 * 0.0 = 0.0)", block2_all_zero);
     const bool block0_matches_production =
         std::fabs(production[0] - 1.0f) < 1e-6f && std::fabs(production[1] - (-1.0f)) < 1e-6f &&
         std::fabs(production[2] - 2.0f) < 1e-6f && std::fabs(production[3] - (-2.0f)) < 1e-6f;
@@ -413,10 +475,72 @@ void run_known_value_block_test() {
     std::printf("\n");
 }
 
+// Round-of-hardening negative regression (Codex review): inspect_q8_0_
+// tensor() previously indexed f32_reference_flat[idx] without first
+// proving its size matched the Q8 tensor's own element count. Proves a
+// mismatched reference is REJECTED with a clear diagnostic, not read
+// out of bounds.
+void run_extent_mismatch_regression() {
+    std::printf("=== Gate 1 hardening self-test: extent-mismatch rejection ===\n");
+    // One real, well-formed Q8_0 block (32 elements) written to a temp
+    // file, so inspect_q8_0_tensor() has genuine bytes to (refuse to) read.
+    std::vector<uint8_t> raw(kQ8_0BlockBytes, 0);
+    raw[0] = 0x00; raw[1] = 0x3C;  // scale = 1.0
+    for (int i = 0; i < 32; ++i) raw[2 + static_cast<size_t>(i)] = std::bit_cast<uint8_t>(static_cast<int8_t>(1));
+
+    const std::string temp_path = std::filesystem::temp_directory_path().string() +
+                                  "/phase6_gate5_extent_regression.bin";
+    {
+        std::ofstream out(temp_path, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
+    }
+
+    GgufTensorInfo fake_tensor;
+    fake_tensor.name = "regression_test_tensor";
+    fake_tensor.logical_shape = TensorShape({kQ8_0BlockElements});
+    fake_tensor.encoding = GgufTensorEncoding::Q8_0;
+    fake_tensor.absolute_offset = 0;
+    fake_tensor.encoded_length = static_cast<uint64_t>(kQ8_0BlockBytes);
+
+    // Deliberately WRONG size: 16 elements instead of the required 32.
+    const std::vector<float> mismatched_reference(16, 0.0f);
+    bool threw_as_expected = false;
+    std::string thrown_message;
+    try {
+        (void)inspect_q8_0_tensor(temp_path, fake_tensor, mismatched_reference);
+    } catch (const std::exception& ex) {
+        threw_as_expected = true;
+        thrown_message = ex.what();
+    }
+    check_and_report("mismatched F32 reference size (16 vs required 32) is rejected with a clear "
+                     "diagnostic, not read out of bounds", threw_as_expected);
+    if (threw_as_expected) {
+        check_and_report("rejection message names the actual vs expected element counts",
+                         thrown_message.find("16") != std::string::npos &&
+                         thrown_message.find("32") != std::string::npos);
+    }
+
+    // Matching size (32) must NOT throw for this reason -- proves the
+    // check is precise, not merely rejecting everything.
+    const std::vector<float> matching_reference(32, 0.0f);
+    bool threw_unexpectedly = false;
+    try {
+        (void)inspect_q8_0_tensor(temp_path, fake_tensor, matching_reference);
+    } catch (const std::exception&) {
+        threw_unexpectedly = true;
+    }
+    check_and_report("a correctly-sized F32 reference (32 elements) does not throw",
+                     !threw_unexpectedly);
+
+    std::filesystem::remove(temp_path);
+    std::printf("\n");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     run_known_value_block_test();
+    run_extent_mismatch_regression();
     if (g_selftest_failures != 0) {
         std::fprintf(stderr, "Gate 2 known-value self-test FAILED -- aborting before any model I/O\n");
         return 1;
@@ -651,11 +775,11 @@ int main(int argc, char** argv) {
                         const std::vector<float> f32_flat = read_f32_tensor_flat(f32_path, f32_tensor);
                         const BlockScaleStats bs = inspect_q8_0_tensor(q8_path, q8_tensor, f32_flat);
                         std::printf("  [%-9s] blocks=%lld scale[min=%.6g p10=%.6g median=%.6g mean=%.6g "
-                                    "p90=%.6g max=%.6g] invalid_scales=%lld recon[max_abs=%.6g rmse=%.6g] "
-                                    "worst_blocks=[",
+                                    "p90=%.6g max=%.6g] zero_scales=%lld nonfinite_scales=%lld "
+                                    "recon[max_abs=%.6g rmse=%.6g] worst_blocks=[",
                                     proj.name, (long long)bs.block_count, bs.scale_min, bs.scale_p10, bs.scale_median,
-                                    bs.scale_mean, bs.scale_p90, bs.scale_max, (long long)bs.invalid_scale_count,
-                                    bs.recon_max_abs, bs.recon_rmse);
+                                    bs.scale_mean, bs.scale_p90, bs.scale_max, (long long)bs.zero_scale_count,
+                                    (long long)bs.nonfinite_scale_count, bs.recon_max_abs, bs.recon_rmse);
                         for (size_t i = 0; i < bs.worst_block_indices.size(); ++i) {
                             std::printf("%lld%s", (long long)bs.worst_block_indices[i],
                                         i + 1 < bs.worst_block_indices.size() ? "," : "");

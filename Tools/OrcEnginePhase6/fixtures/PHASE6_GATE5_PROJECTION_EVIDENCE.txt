@@ -1,0 +1,306 @@
+Phase 6 Stage 1, Gate 5 dedicated follow-up -- canonical evidence artifact
+Copyright (C) 2025-present hardcoreerik / TheOrc contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+This file is the single canonical, committed evidence artifact for the
+Gate 5 projection-level localization diagnostic
+(Tools/OrcEnginePhase6/tools/phase6_holdout_quick_fox_projection_localization.cpp).
+PHASE6_GATE5_STATUS.md's "Results" section summarizes and interprets
+this data; the complete raw numerical tables exist ONLY here, not
+duplicated in the Markdown summary.
+
+## Tool identity
+
+Source: Tools/OrcEnginePhase6/tools/phase6_holdout_quick_fox_projection_localization.cpp
+Committed alongside this evidence file in the same commit as this
+round's Gate 1 hardening (extent validation, zero/non-finite scale
+separation) -- see that commit's own message for its exact hash.
+
+## Input artifact identity (SHA-256)
+
+F32 GGUF (SmolLM2-135M):
+  path (this machine): F:/Ai/OrchestratorIDE-phase2-gguf/Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf
+  sha256: fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac
+
+Q8_0 GGUF (SmolLM2-135M, locally quantized):
+  path (this repo): Tools/OrcEnginePhase6/fixtures/smollm2-135m-q8_0.gguf
+  sha256: 3aed955db7e8e7e73e12a05964ad9efb79cef77a895120a77475d7743609d398
+
+## Invocation (machine-specific absolute paths shown are this
+## worktree's own committed fixture and the pinned Phase 0 real-model
+## artifact from the separate Phase 0/2 worktree; no secrets)
+
+phase6_holdout_quick_fox_projection_localization.exe \
+    <path-to>/smollm2-135m.gguf \
+    Tools/OrcEnginePhase6/fixtures/smollm2-135m-q8_0.gguf
+
+## Build configuration (Debug -- this is the canonical/reference run)
+
+Generator: Visual Studio 17 2022, CMAKE_BUILD_TYPE=Debug (no additional
+CMAKE_CXX_FLAGS beyond CMake's own Debug defaults).
+Exit code: 0.
+
+## Cross-build verification
+
+- **Strict** (`/permissive- /EHsc /W4 /WX`, confirmed present in the
+  actual compile command as `ConformanceMode=true`,
+  `ExceptionHandling=Sync`, `WarningLevel=Level4`,
+  `TreatWarningAsError=true` in the generated `.vcxproj`, not merely
+  assumed from the CMake cache string): exit code 0, stdout
+  BYTE-IDENTICAL to the canonical Debug run above -- same SHA-256,
+  `c3c68b4a86f30ca9fe007837fa436cf54460701025bbb1bf54263ab2a14e44f0`.
+  Zero compiler warnings.
+- **ASan** (`-fsanitize=address` confirmed present in the actual
+  compile command via `AdditionalOptions`; `/EHsc` confirmed ABSENT
+  from this build config -- the compiler itself warns C4530 "C++
+  exception handler used, but unwind semantics are not enabled.
+  Specify /EHsc" for this reason, not assumed): this round's hardened
+  diagnostic was launched under ASan and its clean-completion status
+  for this exact round's rebuild was still pending confirmation when
+  this evidence artifact was committed (ASan is well known to run
+  10-50x slower than Debug/strict on I/O- and memory-access-heavy code
+  such as this diagnostic's raw Q8_0 block scan; it was still actively
+  consuming CPU time, not hung, when this commit was made). The
+  PRE-HARDENING version of this same diagnostic (identical math,
+  differing only in the extent-validation/zero-scale changes this
+  round made) was previously confirmed under ASan with zero sanitizer
+  violations, exit code 0, and stdout byte-identical to that round's
+  Debug/strict runs. This round's own hardened-build ASan confirmation
+  should be added as a follow-up note (or a superseding evidence
+  artifact) once that run completes -- not fabricated here.
+
+## SHA-256 of this artifact's own raw evidence section
+
+(Computed over the "=== RAW EVIDENCE ===" section below, exactly as
+committed -- i.e. sha256sum of this file from that marker to EOF.)
+sha256 (raw evidence section): c3c68b4a86f30ca9fe007837fa436cf54460701025bbb1bf54263ab2a14e44f0
+
+=== RAW EVIDENCE ===
+=== Gate 2 self-test: known-value Q8_0 block decode ===
+[PASS] block 0 scale decodes to exactly 1.0 from F16 bits 0x3C00
+[PASS] block 1 scale decodes to exactly 0.5 from F16 bits 0x3800
+[PASS] block 0 signed int8 values decoded correctly (1,-1,2,-2)
+[PASS] block 1 signed int8 values decoded correctly (127,-128,3,-3) -- proves std::bit_cast sign handling at the int8 extremes
+[PASS] block 2 scale decodes to exactly 0.0 from F16 bits 0x0000 (a legitimate value, not treated as malformed)
+[PASS] block 2 int8 payload is 42 (nonzero) but scale=0.0
+[PASS] frozen dequantize_q8_0_scalar_reference() decodes the zero-scale block to all zeros despite a nonzero int8 payload (42 * 0.0 = 0.0)
+[PASS] frozen dequantize_q8_0_scalar_reference() agrees with hand-computed block 0 values (1*1.0, -1*1.0, 2*1.0, -2*1.0)
+[PASS] frozen dequantize_q8_0_scalar_reference() agrees with hand-computed block 1 values (127*0.5, -128*0.5, 3*0.5, -3*0.5)
+[PASS] reconstruction error against an EXACT reference is exactly 0 (max_abs and RMSE)
+[PASS] reconstruction error against a reference perturbed by exactly 0.25 at one element reports max_abs=0.25
+
+=== Gate 1 hardening self-test: extent-mismatch rejection ===
+[PASS] mismatched F32 reference size (16 vs required 32) is rejected with a clear diagnostic, not read out of bounds
+[PASS] rejection message names the actual vs expected element counts
+[PASS] a correctly-sized F32 reference (32 elements) does not throw
+
+=== Gate 5 dedicated follow-up: projection-level localization ===
+model: vocab=49152 hidden=576 n_layers=30 (F32/Q8_0 configs verified equal)
+
+
+########## prompt: holdout_quick_fox (role=FAILING) ##########
+F32 top-1/top-2 final-logit margin: 0.427232 (selected token=27003)
+
+--- layer 11, prompt holdout_quick_fox: projection-level four-way decomposition ---
+  [Q        ] weight(Δy=y_qf-y_ff): max_abs=0.037886 rmse=0.006732 L2(pos0)=0.158750 L2(final)=0.168598 at [pos=3,ch=207]
+  [Q        ] state:                 max_abs=0.154939 rmse=0.024607 at [pos=0,ch=63]
+  [Q        ] combined:              max_abs=0.143967 rmse=0.025486 at [pos=0,ch=63]
+  [Q        ] interaction:           max_abs=0.001222 rmse=0.000143 at [pos=0,ch=202]
+  [K        ] weight(Δy=y_qf-y_ff): max_abs=0.020350 rmse=0.006497 L2(pos0)=0.090518 L2(final)=0.091038 at [pos=1,ch=82]
+  [K        ] state:                 max_abs=0.122428 rmse=0.026085 at [pos=0,ch=72]
+  [K        ] combined:              max_abs=0.106974 rmse=0.026668 at [pos=0,ch=72]
+  [K        ] interaction:           max_abs=0.000746 rmse=0.000141 at [pos=0,ch=126]
+  [V        ] weight(Δy=y_qf-y_ff): max_abs=0.016552 rmse=0.004816 L2(pos0)=0.067820 L2(final)=0.065696 at [pos=2,ch=8]
+  [V        ] state:                 max_abs=0.108330 rmse=0.017860 at [pos=0,ch=151]
+  [V        ] combined:              max_abs=0.114955 rmse=0.018544 at [pos=0,ch=151]
+  [V        ] interaction:           max_abs=0.000593 rmse=0.000113 at [pos=0,ch=127]
+  [O        ] weight(Δy=y_qf-y_ff): max_abs=0.053200 rmse=0.009603 L2(pos0)=0.261094 L2(final)=0.209335 at [pos=0,ch=161]
+  [O        ] state:                 max_abs=0.241531 rmse=0.053540 at [pos=1,ch=325]
+  [O        ] combined:              max_abs=0.226259 rmse=0.054248 at [pos=1,ch=325]
+  [O        ] interaction:           max_abs=0.002450 rmse=0.000471 at [pos=0,ch=507]
+  [FFN_gate ] weight(Δy=y_qf-y_ff): max_abs=0.027597 rmse=0.003745 L2(pos0)=0.180132 L2(final)=0.124099 at [pos=2,ch=1229]
+  [FFN_gate ] state:                 max_abs=0.147311 rmse=0.019686 at [pos=0,ch=1498]
+  [FFN_gate ] combined:              max_abs=0.147980 rmse=0.020014 at [pos=0,ch=1498]
+  [FFN_gate ] interaction:           max_abs=0.000706 rmse=0.000111 at [pos=2,ch=893]
+  [FFN_up   ] weight(Δy=y_qf-y_ff): max_abs=0.029675 rmse=0.004372 L2(pos0)=0.210556 L2(final)=0.139060 at [pos=2,ch=1487]
+  [FFN_up   ] state:                 max_abs=0.177661 rmse=0.023984 at [pos=0,ch=873]
+  [FFN_up   ] combined:              max_abs=0.182665 rmse=0.024360 at [pos=0,ch=873]
+  [FFN_up   ] interaction:           max_abs=0.000957 rmse=0.000129 at [pos=0,ch=1229]
+  [FFN_down ] weight(Δy=y_qf-y_ff): max_abs=11.432933 rmse=1.386129 L2(pos0)=66.533248 L2(final)=0.169177 at [pos=0,ch=306]
+  [FFN_down ] state:                 max_abs=11.304688 rmse=0.261309 at [pos=0,ch=507]
+  [FFN_down ] combined:              max_abs=11.429278 rmse=1.412873 at [pos=0,ch=306]
+  [FFN_down ] interaction:           max_abs=0.005789 rmse=0.000974 at [pos=0,ch=69]
+
+  -- Gate 2: raw Q8_0 block inspection, layer 11 --
+  [Q        ] blocks=10368 scale[min=0.000607491 p10=0.0025692 median=0.00378227 mean=0.00407877 p90=0.00584412 max=0.0174713] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.00866699 rmse=0.00124205] worst_blocks=[3569,4568,3605]
+  [K        ] blocks=3456 scale[min=0.00155354 p10=0.00289154 median=0.00411987 mean=0.00425003 p90=0.00572205 max=0.0164795] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.00805664 rmse=0.00125691] worst_blocks=[1005,1095,997]
+  [V        ] blocks=3456 scale[min=0.00129986 p10=0.00205994 median=0.00299835 mean=0.00314978 p90=0.00442886 max=0.00793457] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.00390625 rmse=0.000935952] worst_blocks=[1273,1248,2255]
+  [O        ] blocks=10368 scale[min=0.00052309 p10=0.00168419 median=0.00276756 mean=0.00292045 p90=0.00421524 max=0.0248566] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0120087 rmse=0.000892949] worst_blocks=[1808,8032,9139]
+  [FFN_gate ] blocks=27648 scale[min=0.000961304 p10=0.00236893 median=0.00313759 mean=0.00325819 p90=0.00421524 max=0.0276794] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0135498 rmse=0.000960754] worst_blocks=[22129,2291,26769]
+  [FFN_up   ] blocks=27648 scale[min=0.0014534 p10=0.00273705 median=0.00364494 mean=0.00379985 p90=0.00504303 max=0.0270691] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0134888 rmse=0.00111996] worst_blocks=[26769,22135,22125]
+  [FFN_down ] blocks=27648 scale[min=0.00111485 p10=0.00276756 median=0.0036602 mean=0.00381125 p90=0.00495148 max=0.0477295] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0235596 rmse=0.00112699] worst_blocks=[24382,24374,17838]
+
+--- layer 28, prompt holdout_quick_fox: projection-level four-way decomposition ---
+  [Q        ] weight(Δy=y_qf-y_ff): max_abs=0.038765 rmse=0.006346 L2(pos0)=0.091974 L2(final)=0.173757 at [pos=1,ch=344]
+  [Q        ] state:                 max_abs=0.139704 rmse=0.024610 at [pos=3,ch=186]
+  [Q        ] combined:              max_abs=0.138117 rmse=0.025355 at [pos=3,ch=186]
+  [Q        ] interaction:           max_abs=0.000964 rmse=0.000167 at [pos=3,ch=316]
+  [K        ] weight(Δy=y_qf-y_ff): max_abs=0.021509 rmse=0.005537 L2(pos0)=0.049127 L2(final)=0.080674 at [pos=2,ch=123]
+  [K        ] state:                 max_abs=0.110696 rmse=0.023805 at [pos=3,ch=90]
+  [K        ] combined:              max_abs=0.108485 rmse=0.024641 at [pos=3,ch=90]
+  [K        ] interaction:           max_abs=0.001037 rmse=0.000165 at [pos=2,ch=183]
+  [V        ] weight(Δy=y_qf-y_ff): max_abs=0.036840 rmse=0.010919 L2(pos0)=0.099956 L2(final)=0.165242 at [pos=2,ch=32]
+  [V        ] state:                 max_abs=0.236305 rmse=0.050938 at [pos=3,ch=4]
+  [V        ] combined:              max_abs=0.224889 rmse=0.052177 at [pos=3,ch=4]
+  [V        ] interaction:           max_abs=0.001267 rmse=0.000309 at [pos=3,ch=46]
+  [O        ] weight(Δy=y_qf-y_ff): max_abs=0.037621 rmse=0.008374 L2(pos0)=0.137178 L2(final)=0.296431 at [pos=3,ch=301]
+  [O        ] state:                 max_abs=0.375939 rmse=0.083602 at [pos=3,ch=54]
+  [O        ] combined:              max_abs=0.367197 rmse=0.083928 at [pos=3,ch=287]
+  [O        ] interaction:           max_abs=0.001970 rmse=0.000460 at [pos=3,ch=240]
+  [FFN_gate ] weight(Δy=y_qf-y_ff): max_abs=0.078865 rmse=0.008434 L2(pos0)=0.536543 L2(final)=0.228124 at [pos=0,ch=31]
+  [FFN_gate ] state:                 max_abs=0.248716 rmse=0.026881 at [pos=3,ch=678]
+  [FFN_gate ] combined:              max_abs=0.219940 rmse=0.028070 at [pos=3,ch=678]
+  [FFN_gate ] interaction:           max_abs=0.001219 rmse=0.000149 at [pos=1,ch=678]
+  [FFN_up   ] weight(Δy=y_qf-y_ff): max_abs=0.203907 rmse=0.010312 L2(pos0)=0.662128 L2(final)=0.279926 at [pos=0,ch=678]
+  [FFN_up   ] state:                 max_abs=0.376354 rmse=0.031726 at [pos=2,ch=678]
+  [FFN_up   ] combined:              max_abs=0.290659 rmse=0.033205 at [pos=2,ch=678]
+  [FFN_up   ] interaction:           max_abs=0.002148 rmse=0.000176 at [pos=3,ch=678]
+  [FFN_down ] weight(Δy=y_qf-y_ff): max_abs=7.747009 rmse=1.409029 L2(pos0)=67.613815 L2(final)=0.981206 at [pos=0,ch=100]
+  [FFN_down ] state:                 max_abs=88.425781 rmse=1.872606 at [pos=0,ch=507]
+  [FFN_down ] combined:              max_abs=91.228516 rmse=2.381240 at [pos=0,ch=507]
+  [FFN_down ] interaction:           max_abs=0.047119 rmse=0.008206 at [pos=0,ch=100]
+
+  -- Gate 2: raw Q8_0 block inspection, layer 28 --
+  [Q        ] blocks=10368 scale[min=0.000572681 p10=0.00148392 median=0.00266075 mean=0.00275726 p90=0.0039978 max=0.0147629] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0072937 rmse=0.000841684] worst_blocks=[8493,7329,3903]
+  [K        ] blocks=3456 scale[min=0.000417233 p10=0.000999451 median=0.00242996 mean=0.00248569 p90=0.00378227 max=0.0108871] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.00541687 rmse=0.000784199] worst_blocks=[543,432,2160]
+  [V        ] blocks=3456 scale[min=0.00193787 p10=0.00392151 median=0.00519943 mean=0.00536624 p90=0.00701141 max=0.0116882] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.00535583 rmse=0.00157129] worst_blocks=[276,994,767]
+  [O        ] blocks=10368 scale[min=0.00123787 p10=0.0029068 median=0.00402832 mean=0.00412524 p90=0.00547409 max=0.0161133] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.00830078 rmse=0.0012133] worst_blocks=[9143,9140,9142]
+  [FFN_gate ] blocks=27648 scale[min=0.00106907 p10=0.00239944 median=0.00312233 mean=0.00326983 p90=0.00424576 max=0.0418396] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0198364 rmse=0.000969888] worst_blocks=[12204,12211,12214]
+  [FFN_up   ] blocks=27648 scale[min=0.0012846 p10=0.00295258 median=0.00384521 mean=0.00394012 p90=0.00501251 max=0.0484619] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0239258 rmse=0.0011692] worst_blocks=[12221,12207,12214]
+  [FFN_down ] blocks=27648 scale[min=0.00138378 p10=0.00281525 median=0.0036602 mean=0.00374068 p90=0.00473785 max=0.0457764] zero_scales=0 nonfinite_scales=0 recon[max_abs=0.0227051 rmse=0.00109138] worst_blocks=[24357,2409,14356]
+
+########## prompt: dev_code_snippet (role=DEV_below_tolerance) ##########
+F32 top-1/top-2 final-logit margin: 2.126911 (selected token=253)
+
+--- layer 11, prompt dev_code_snippet: projection-level four-way decomposition ---
+  [Q        ] weight(Δy=y_qf-y_ff): max_abs=0.027801 rmse=0.006679 L2(pos0)=0.165766 L2(final)=0.155391 at [pos=0,ch=223]
+  [Q        ] state:                 max_abs=0.122214 rmse=0.017998 at [pos=0,ch=247]
+  [Q        ] combined:              max_abs=0.119340 rmse=0.019403 at [pos=0,ch=462]
+  [Q        ] interaction:           max_abs=0.001028 rmse=0.000108 at [pos=0,ch=202]
+  [K        ] weight(Δy=y_qf-y_ff): max_abs=0.023531 rmse=0.006474 L2(pos0)=0.098698 L2(final)=0.082669 at [pos=0,ch=151]
+  [K        ] state:                 max_abs=0.106505 rmse=0.018574 at [pos=0,ch=170]
+  [K        ] combined:              max_abs=0.117479 rmse=0.019515 at [pos=0,ch=189]
+  [K        ] interaction:           max_abs=0.000608 rmse=0.000107 at [pos=0,ch=28]
+  [V        ] weight(Δy=y_qf-y_ff): max_abs=0.019568 rmse=0.004854 L2(pos0)=0.068154 L2(final)=0.070128 at [pos=7,ch=95]
+  [V        ] state:                 max_abs=0.098618 rmse=0.013239 at [pos=0,ch=151]
+  [V        ] combined:              max_abs=0.105490 rmse=0.013837 at [pos=0,ch=151]
+  [V        ] interaction:           max_abs=0.000553 rmse=0.000081 at [pos=0,ch=66]
+  [O        ] weight(Δy=y_qf-y_ff): max_abs=0.068078 rmse=0.008539 L2(pos0)=0.315668 L2(final)=0.155625 at [pos=0,ch=446]
+  [O        ] state:                 max_abs=0.281986 rmse=0.037908 at [pos=1,ch=247]
+  [O        ] combined:              max_abs=0.288216 rmse=0.038833 at [pos=1,ch=247]
+  [O        ] interaction:           max_abs=0.002346 rmse=0.000304 at [pos=0,ch=507]
+  [FFN_gate ] weight(Δy=y_qf-y_ff): max_abs=0.023973 rmse=0.003472 L2(pos0)=0.191144 L2(final)=0.140645 at [pos=7,ch=893]
+  [FFN_gate ] state:                 max_abs=0.158905 rmse=0.015204 at [pos=0,ch=1229]
+  [FFN_gate ] combined:              max_abs=0.147088 rmse=0.015588 at [pos=0,ch=1498]
+  [FFN_gate ] interaction:           max_abs=0.000619 rmse=0.000084 at [pos=0,ch=764]
+  [FFN_up   ] weight(Δy=y_qf-y_ff): max_abs=0.020559 rmse=0.003993 L2(pos0)=0.220277 L2(final)=0.157634 at [pos=0,ch=1412]
+  [FFN_up   ] state:                 max_abs=0.155974 rmse=0.018296 at [pos=2,ch=1229]
+  [FFN_up   ] combined:              max_abs=0.147480 rmse=0.018757 at [pos=2,ch=1229]
+  [FFN_up   ] interaction:           max_abs=0.000899 rmse=0.000097 at [pos=0,ch=444]
+  [FFN_down ] weight(Δy=y_qf-y_ff): max_abs=11.181664 rmse=0.955345 L2(pos0)=64.849629 L2(final)=0.179835 at [pos=0,ch=306]
+  [FFN_down ] state:                 max_abs=8.646484 rmse=0.155220 at [pos=0,ch=507]
+  [FFN_down ] combined:              max_abs=11.127165 rmse=0.969335 at [pos=0,ch=306]
+  [FFN_down ] interaction:           max_abs=0.015625 rmse=0.000664 at [pos=0,ch=507]
+
+--- layer 28, prompt dev_code_snippet: projection-level four-way decomposition ---
+  [Q        ] weight(Δy=y_qf-y_ff): max_abs=0.040730 rmse=0.006536 L2(pos0)=0.091925 L2(final)=0.169475 at [pos=1,ch=344]
+  [Q        ] state:                 max_abs=0.103872 rmse=0.016171 at [pos=5,ch=272]
+  [Q        ] combined:              max_abs=0.096816 rmse=0.017387 at [pos=5,ch=272]
+  [Q        ] interaction:           max_abs=0.000521 rmse=0.000103 at [pos=6,ch=490]
+  [K        ] weight(Δy=y_qf-y_ff): max_abs=0.023326 rmse=0.005658 L2(pos0)=0.049049 L2(final)=0.085299 at [pos=6,ch=189]
+  [K        ] state:                 max_abs=0.079690 rmse=0.014259 at [pos=6,ch=183]
+  [K        ] combined:              max_abs=0.075745 rmse=0.015671 at [pos=6,ch=183]
+  [K        ] interaction:           max_abs=0.000471 rmse=0.000096 at [pos=6,ch=59]
+  [V        ] weight(Δy=y_qf-y_ff): max_abs=0.038154 rmse=0.011688 L2(pos0)=0.099831 L2(final)=0.182204 at [pos=2,ch=36]
+  [V        ] state:                 max_abs=0.131125 rmse=0.029209 at [pos=6,ch=187]
+  [V        ] combined:              max_abs=0.128151 rmse=0.031205 at [pos=6,ch=110]
+  [V        ] interaction:           max_abs=0.000679 rmse=0.000187 at [pos=6,ch=120]
+  [O        ] weight(Δy=y_qf-y_ff): max_abs=0.045949 rmse=0.009079 L2(pos0)=0.137083 L2(final)=0.251725 at [pos=7,ch=568]
+  [O        ] state:                 max_abs=0.292366 rmse=0.074219 at [pos=3,ch=573]
+  [O        ] combined:              max_abs=0.290719 rmse=0.074510 at [pos=2,ch=81]
+  [O        ] interaction:           max_abs=0.001542 rmse=0.000407 at [pos=2,ch=553]
+  [FFN_gate ] weight(Δy=y_qf-y_ff): max_abs=0.078889 rmse=0.007651 L2(pos0)=0.536567 L2(final)=0.258635 at [pos=0,ch=31]
+  [FFN_gate ] state:                 max_abs=0.085799 rmse=0.016116 at [pos=5,ch=989]
+  [FFN_gate ] combined:              max_abs=0.095294 rmse=0.017848 at [pos=6,ch=1527]
+  [FFN_gate ] interaction:           max_abs=0.001211 rmse=0.000090 at [pos=6,ch=678]
+  [FFN_up   ] weight(Δy=y_qf-y_ff): max_abs=0.202961 rmse=0.009129 L2(pos0)=0.661909 L2(final)=0.294690 at [pos=0,ch=678]
+  [FFN_up   ] state:                 max_abs=0.296461 rmse=0.019629 at [pos=4,ch=678]
+  [FFN_up   ] combined:              max_abs=0.301683 rmse=0.021660 at [pos=4,ch=678]
+  [FFN_up   ] interaction:           max_abs=0.000966 rmse=0.000108 at [pos=5,ch=678]
+  [FFN_down ] weight(Δy=y_qf-y_ff): max_abs=7.655334 rmse=0.985525 L2(pos0)=66.817466 L2(final)=1.297427 at [pos=0,ch=100]
+  [FFN_down ] state:                 max_abs=88.769531 rmse=1.326540 at [pos=0,ch=507]
+  [FFN_down ] combined:              max_abs=91.547852 rmse=1.679178 at [pos=0,ch=507]
+  [FFN_down ] interaction:           max_abs=0.046661 rmse=0.005823 at [pos=0,ch=100]
+
+########## prompt: holdout_hello_world (role=HOLDOUT_agreeing) ##########
+F32 top-1/top-2 final-logit margin: 0.161943 (selected token=253)
+
+--- layer 11, prompt holdout_hello_world: projection-level four-way decomposition ---
+  [Q        ] weight(Δy=y_qf-y_ff): max_abs=0.029284 rmse=0.006683 L2(pos0)=0.173525 L2(final)=0.153127 at [pos=0,ch=493]
+  [Q        ] state:                 max_abs=0.161248 rmse=0.026641 at [pos=0,ch=61]
+  [Q        ] combined:              max_abs=0.163290 rmse=0.027604 at [pos=0,ch=61]
+  [Q        ] interaction:           max_abs=0.001127 rmse=0.000157 at [pos=0,ch=64]
+  [K        ] weight(Δy=y_qf-y_ff): max_abs=0.021042 rmse=0.006422 L2(pos0)=0.099977 L2(final)=0.084645 at [pos=1,ch=107]
+  [K        ] state:                 max_abs=0.149933 rmse=0.027601 at [pos=0,ch=95]
+  [K        ] combined:              max_abs=0.143314 rmse=0.028559 at [pos=0,ch=95]
+  [K        ] interaction:           max_abs=0.000869 rmse=0.000156 at [pos=2,ch=126]
+  [V        ] weight(Δy=y_qf-y_ff): max_abs=0.018583 rmse=0.004989 L2(pos0)=0.072225 L2(final)=0.065696 at [pos=0,ch=123]
+  [V        ] state:                 max_abs=0.100229 rmse=0.018889 at [pos=2,ch=117]
+  [V        ] combined:              max_abs=0.105670 rmse=0.019560 at [pos=2,ch=151]
+  [V        ] interaction:           max_abs=0.000753 rmse=0.000115 at [pos=0,ch=66]
+  [O        ] weight(Δy=y_qf-y_ff): max_abs=0.061797 rmse=0.009552 L2(pos0)=0.349371 L2(final)=0.133038 at [pos=0,ch=446]
+  [O        ] state:                 max_abs=0.508448 rmse=0.055831 at [pos=0,ch=507]
+  [O        ] combined:              max_abs=0.490582 rmse=0.056315 at [pos=0,ch=507]
+  [O        ] interaction:           max_abs=0.003403 rmse=0.000450 at [pos=0,ch=507]
+  [FFN_gate ] weight(Δy=y_qf-y_ff): max_abs=0.018050 rmse=0.003589 L2(pos0)=0.198865 L2(final)=0.111916 at [pos=0,ch=1471]
+  [FFN_gate ] state:                 max_abs=0.239472 rmse=0.022968 at [pos=2,ch=1229]
+  [FFN_gate ] combined:              max_abs=0.242543 rmse=0.023235 at [pos=2,ch=1229]
+  [FFN_gate ] interaction:           max_abs=0.001068 rmse=0.000129 at [pos=2,ch=740]
+  [FFN_up   ] weight(Δy=y_qf-y_ff): max_abs=0.021599 rmse=0.004088 L2(pos0)=0.231136 L2(final)=0.128059 at [pos=0,ch=257]
+  [FFN_up   ] state:                 max_abs=0.182015 rmse=0.027743 at [pos=0,ch=873]
+  [FFN_up   ] combined:              max_abs=0.188734 rmse=0.028003 at [pos=0,ch=873]
+  [FFN_up   ] interaction:           max_abs=0.001020 rmse=0.000148 at [pos=2,ch=1200]
+  [FFN_down ] weight(Δy=y_qf-y_ff): max_abs=12.037388 rmse=1.299993 L2(pos0)=69.764311 L2(final)=0.163994 at [pos=0,ch=306]
+  [FFN_down ] state:                 max_abs=1.172363 rmse=0.107507 at [pos=0,ch=371]
+  [FFN_down ] combined:              max_abs=12.137324 rmse=1.305450 at [pos=0,ch=306]
+  [FFN_down ] interaction:           max_abs=0.005859 rmse=0.000688 at [pos=0,ch=507]
+
+--- layer 28, prompt holdout_hello_world: projection-level four-way decomposition ---
+  [Q        ] weight(Δy=y_qf-y_ff): max_abs=0.042782 rmse=0.006028 L2(pos0)=0.091834 L2(final)=0.160607 at [pos=4,ch=344]
+  [Q        ] state:                 max_abs=0.110417 rmse=0.019018 at [pos=2,ch=310]
+  [Q        ] combined:              max_abs=0.118228 rmse=0.019941 at [pos=2,ch=310]
+  [Q        ] interaction:           max_abs=0.000760 rmse=0.000126 at [pos=2,ch=325]
+  [K        ] weight(Δy=y_qf-y_ff): max_abs=0.020446 rmse=0.004966 L2(pos0)=0.049160 L2(final)=0.071053 at [pos=2,ch=189]
+  [K        ] state:                 max_abs=0.078404 rmse=0.017715 at [pos=2,ch=183]
+  [K        ] combined:              max_abs=0.086795 rmse=0.018287 at [pos=2,ch=183]
+  [K        ] interaction:           max_abs=0.000764 rmse=0.000115 at [pos=2,ch=24]
+  [V        ] weight(Δy=y_qf-y_ff): max_abs=0.042483 rmse=0.010753 L2(pos0)=0.099850 L2(final)=0.151936 at [pos=3,ch=9]
+  [V        ] state:                 max_abs=0.126872 rmse=0.031765 at [pos=2,ch=96]
+  [V        ] combined:              max_abs=0.121605 rmse=0.033157 at [pos=2,ch=96]
+  [V        ] interaction:           max_abs=0.001076 rmse=0.000234 at [pos=2,ch=37]
+  [O        ] weight(Δy=y_qf-y_ff): max_abs=0.049532 rmse=0.009816 L2(pos0)=0.136613 L2(final)=0.271850 at [pos=1,ch=487]
+  [O        ] state:                 max_abs=0.339190 rmse=0.092350 at [pos=4,ch=81]
+  [O        ] combined:              max_abs=0.354680 rmse=0.093056 at [pos=4,ch=81]
+  [O        ] interaction:           max_abs=0.001976 rmse=0.000458 at [pos=2,ch=507]
+  [FFN_gate ] weight(Δy=y_qf-y_ff): max_abs=0.078834 rmse=0.008175 L2(pos0)=0.536592 L2(final)=0.223166 at [pos=0,ch=31]
+  [FFN_gate ] state:                 max_abs=0.161993 rmse=0.022310 at [pos=3,ch=678]
+  [FFN_gate ] combined:              max_abs=0.192486 rmse=0.023700 at [pos=3,ch=678]
+  [FFN_gate ] interaction:           max_abs=0.001093 rmse=0.000112 at [pos=1,ch=678]
+  [FFN_up   ] weight(Δy=y_qf-y_ff): max_abs=0.202976 rmse=0.009716 L2(pos0)=0.661909 L2(final)=0.253646 at [pos=0,ch=678]
+  [FFN_up   ] state:                 max_abs=0.490494 rmse=0.024344 at [pos=1,ch=678]
+  [FFN_up   ] combined:              max_abs=0.484410 rmse=0.026068 at [pos=1,ch=678]
+  [FFN_up   ] interaction:           max_abs=0.002763 rmse=0.000141 at [pos=2,ch=678]
+  [FFN_down ] weight(Δy=y_qf-y_ff): max_abs=7.761505 rmse=1.263048 L2(pos0)=67.730145 L2(final)=1.300931 at [pos=0,ch=100]
+  [FFN_down ] state:                 max_abs=86.958008 rmse=1.642652 at [pos=0,ch=507]
+  [FFN_down ] combined:              max_abs=89.769531 rmse=2.105842 at [pos=0,ch=507]
+  [FFN_down ] interaction:           max_abs=0.045410 rmse=0.007215 at [pos=0,ch=100]
