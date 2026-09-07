@@ -54,20 +54,18 @@ Exit code: 0.
   compile command via `AdditionalOptions`; `/EHsc` confirmed ABSENT
   from this build config -- the compiler itself warns C4530 "C++
   exception handler used, but unwind semantics are not enabled.
-  Specify /EHsc" for this reason, not assumed): this round's hardened
-  diagnostic was launched under ASan and its clean-completion status
-  for this exact round's rebuild was still pending confirmation when
-  this evidence artifact was committed (ASan is well known to run
-  10-50x slower than Debug/strict on I/O- and memory-access-heavy code
-  such as this diagnostic's raw Q8_0 block scan; it was still actively
-  consuming CPU time, not hung, when this commit was made). The
-  PRE-HARDENING version of this same diagnostic (identical math,
-  differing only in the extent-validation/zero-scale changes this
-  round made) was previously confirmed under ASan with zero sanitizer
-  violations, exit code 0, and stdout byte-identical to that round's
-  Debug/strict runs. This round's own hardened-build ASan confirmation
-  should be added as a follow-up note (or a superseding evidence
-  artifact) once that run completes -- not fabricated here.
+  Specify /EHsc" for this reason, not assumed): **UPDATE -- completed
+  after the hardening commit landed** (it was still running,
+  disclosed as pending rather than fabricated, at commit time; this
+  paragraph was updated once the run actually finished). Result:
+  exit code 0, **zero sanitizer violations** (no `AddressSanitizer:`
+  error banner anywhere in output), stdout BYTE-IDENTICAL to the
+  canonical Debug run and the strict run above -- same SHA-256,
+  `c3c68b4a86f30ca9fe007837fa436cf54460701025bbb1bf54263ab2a14e44f0`.
+  Gate 4's cross-build verification is now fully closed for this
+  round's hardened diagnostic: Debug, strict, and ASan all produced
+  identical numerical output and ASan reported no memory-safety
+  issues.
 
 ## SHA-256 of this artifact's own raw evidence section
 
