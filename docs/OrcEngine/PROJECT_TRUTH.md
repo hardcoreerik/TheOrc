@@ -1,8 +1,8 @@
 # Project Truth
 
-> Snapshot date: 2026-08-18 America/Los_Angeles (Phase 4 formally frozen; Phase 5A real-model correctness verified, composition with Phase 4 now the active gate per OE-ADR-026)
+> Snapshot date: 2026-09-18 America/Los_Angeles (Phases 1-5C formally frozen; Phase 6 Stage 1 in progress, not frozen; FL-08 frozen). Sections below dated earlier are retained as historical evidence; `CURRENT_STATE.yaml` is the current-state authority.
 >
-> Active worktree snapshot: `F:\Ai\OrchestratorIDE-phase5a-kv-cache` @ branch `feat/orcengine-phase5a-kv-cache`, HEAD `0a80477d`
+> Active worktree snapshot: `F:\Ai\OrchestratorIDE-phase6-quantization` @ branch `feat/orcengine-phase6-quantization` (live git HEAD is the authority; last independently reviewed Phase 6 work: Gate 5 hardening, OE-ADR-059)
 >
 > Frozen parent (distinct from the active worktree above): `F:\Ai\OrchestratorIDE-phase4-bookend-virtualization` @ branch `feat/orcengine-phase4-bookend-virtualization`, tag `orcengine-phase4-freeze` -> `944f07b86428ec53d46ca19dc66c3d0d5b1e207d`
 >

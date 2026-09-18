@@ -4096,3 +4096,29 @@ Neither freeze blocker's status changes (external gate still RED on
 the unmodified pinned artifacts; internal tolerance blocker untouched,
 Gate 5 separate). `orcengine-phase6-freeze` does not exist and this
 entry does not authorize creating it. FL-08 remains not started.
+
+---
+
+## OE-ADR-059 — Phase 6 Gate 5 dedicated follow-up: projection-level Q8_0 localization, Outcome B (provisional), hardening (Codex review)
+
+**Status:** accepted as evidence; the internal tolerance gate is NOT changed.
+
+New diagnostic `Tools/OrcEnginePhase6/tools/phase6_holdout_quick_fox_projection_localization.cpp` (sibling of the layer-localization tool; no frozen Phase 0-5C file and no Phase 2/6 production code modified) runs a four-way weight/state/combined/interaction decomposition at projection granularity (Q, K, V, attention-output, FFN gate/up/down) for layers 11 and 28, positions 0 and final, on `holdout_quick_fox` (failing) and two passing controls, plus independent raw Q8_0 block inspection cross-validated against the frozen `dequantize_q8_0_scalar_reference()`.
+
+**Findings (see `Tools/OrcEnginePhase6/fixtures/PHASE6_GATE5_PROJECTION_EVIDENCE.txt`, the sole canonical raw record):** interaction terms are 2-3 orders of magnitude below isolated effects everywhere (the expected bilinear product of two small perturbations); FFN_down shows a large position-0-concentrated outlier of comparable magnitude at the same coordinate across passing AND failing prompts (layer 11 `[pos=0,ch=306]` 11.18-12.04; layer 28 `[pos=0,ch=507]` about 86.96-91.55), so it does not differentiate the failing prompt; raw block inspection found no non-finite scales and reconstruction error consistent with ordinary int8 rounding noise.
+
+**Classification: Outcome B, PROVISIONAL** -- no implementation defect found in the seams examined; current tolerance methodology appears inadequate. This does not prove a sole root cause or that every Q8_0 code path is correct.
+
+**Codex-review hardening (same ADR):** extent validation added before indexing the F32 reference; zero Q8_0 scales (legitimate all-zero blocks) separated from non-finite scales; rounding arithmetic, wording ("comparable magnitude", not "recurs identically") and the FFN-down block-row mapping (output channel = one full weight row of `in_features/32` blocks) corrected. Debug, strict (`/W4 /WX /permissive- /EHsc`) and ASan builds produce byte-identical output (SHA-256 `c3c68b4a86f30ca9fe007837fa436cf54460701025bbb1bf54263ab2a14e44f0`); ASan reported zero violations.
+
+**Unchanged and still open:** internal gate FAILED (derived `0.973504` vs observed `1.079983`); tolerance re-derivation (predeclared methodology, larger disjoint development corpus, untouched holdout) has not started; no `orcengine-phase6-freeze` tag.
+
+---
+
+## OE-ADR-060 — FL-08 Model Compatibility Profiler frozen as a bounded research result; runtime admission must come from the runtime
+
+**Status:** accepted; research prototype only, not production integration.
+
+FL-08 (Fringe Lab, branch `research/orcengine-fl08-model-compat-profiler`, tag `orcengine-fl08-freeze` -> `5042a7465d8646b2d76d5a3c957370628dfe177d`, PR hardcoreerik/TheOrc#106 open/unmerged) grew from the Phase 6 Q/K-layout finding (OE-ADR-053/057/058). After eight adversarial remediation rounds its accepted conclusion is bounded: Q/K dialect detection (raw-HF vs canonical llama.cpp) and a *proposed* forward normalization plan are demonstrated; profile schema v3 separates `layout_compatibility` from `runtime_admission` (fixed `NOT_EVALUATED`) and `execution_authorization` (unconditionally false).
+
+**Architectural finding (the durable result):** a Python profiler that re-encodes a loader's rules is a shadow implementation and drifts (found: GGUF v2 accepted vs the loader's exact-v3, Q8_0 understood vs non-materializable by the Phase 2 loader, signed-integer metadata, `tensor_data_layout`/`expert_count`). A compatibility profiler should classify and explain artifacts; execution admission must come from the runtime that will execute them, or an engine-owned versioned capability contract. FL-08 is NOT runtime admission and does not authorize execution. Recommended (not implemented) follow-up: an engine-owned admission result combined with FL-08-style layout evidence by the ExecutionPlanner, exposed as separate layout / runtime-support / authorization states.

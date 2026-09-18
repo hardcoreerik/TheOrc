@@ -1,6 +1,6 @@
 # Phase 6: Initial Quantization (Q8_0)
 
-Status: **SPECIFICATION -- decision-ready, not yet implemented.** This
+Status (updated 2026-09-18): **STAGE 1 IN PROGRESS, NOT FROZEN.** Q8_0 dequantization is implemented; the internal tolerance gate is FAILED and unchanged (see `CURRENT_STATE.yaml`, OE-ADR-041 through OE-ADR-059). The original status below is retained as historical: **SPECIFICATION -- decision-ready, not yet implemented.** This
 document is committed alone, as a dedicated spec commit, per the
 authorizing instruction: "write a decision-ready Phase 6 spec... do not
 implement, stop after the spec is committed and consistent."

@@ -1,14 +1,14 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-08-20"
+  date: "2026-09-18"
   timezone: America/Los_Angeles
   # Three distinct authorities -- do not conflate. "repository"/"branch" below
   # point at whichever worktree is CURRENTLY ACTIVE for the work this file is
-  # describing (Phase 5B specification drafting, as of this update); it is
+  # describing (Phase 6 Stage 1 Gate 5 hardening, as of this update); it is
   # not the frozen parent and not the shipped product baseline.
-  repository: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
-  branch: feat/orcengine-phase5b-tokenizer
+  repository: "F:\\Ai\\OrchestratorIDE-phase6-quantization"
+  branch: feat/orcengine-phase6-quantization
   # phase5a_base_authority: the frozen tag/commit this Phase 5B worktree was
   # forked from (git worktree add ... orcengine-phase5a-freeze). Distinct
   # from frozen_parent below, which is Phase 5A's OWN frozen parent (Phase
@@ -43,7 +43,7 @@ as_of:
     native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_accepted_and_formally_frozen_2026_08_22_phase_5c_not_yet_started
+  lifecycle: phase_4_complete_frozen_phase_5a_accepted_and_formally_frozen_2026_08_20_phase_5b_accepted_and_formally_frozen_2026_08_22_phase_5c_accepted_and_formally_frozen_2026_08_22_phase_6_stage1_in_progress_not_frozen
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -101,7 +101,7 @@ status:
   phase5a_freeze_tag: orcengine-phase5a-freeze
   phase5a_freeze_verdict: accepted_and_frozen_by_maintainer_2026_08_20
   phase5a_branch: feat/orcengine-phase5a-kv-cache
-  phase5a_branch_push: not_done
+  phase5a_branch_push: done_remote_branch_exists_and_freeze_tag_remote_verified_2026_09_18
   phase5a_synthetic_differential: bit_exact_all_9_steps
   phase5a_fault_injection_cases_passing: 86_check_assertions_2026_08_19_grep_derived_across_test_cache_position_safety_test_real_cache_attacks_test_virtualized_cache_attacks_test_real_composed_evidence_cpp
   phase5a_real_model_validation: done_debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_ctest_22_30_plus_8_of_8_confirmed_by_direct_invocation_see_validation_matrix_composed_post_closure_and_DECISION_LOG_OE_ADR_028
@@ -138,7 +138,7 @@ status:
   phase5b_freeze_tag: orcengine-phase5b-freeze
   phase5b_freeze_verdict: accepted_and_frozen_2026_08_22
   phase5b_branch: feat/orcengine-phase5b-tokenizer
-  phase5b_branch_push: not_done
+  phase5b_branch_push: done_remote_branch_exists_and_freeze_tag_remote_verified_2026_09_18
   phase5b_worktree: "F:\\Ai\\OrchestratorIDE-phase5b-tokenizer"
   # Phase 5C: a narrow, backward-compatible reusable activation-workspace
   # seam for the cached-decode transformer-layer path (Stage 1 only:
@@ -168,10 +168,32 @@ status:
   phase5c_freeze_tag: orcengine-phase5c-freeze
   phase5c_freeze_verdict: accepted_and_frozen_2026_08_22
   phase5c_branch: feat/orcengine-phase5c-activation-workspace
-  phase5c_branch_push: not_done
+  phase5c_branch_push: done_remote_branch_exists_and_freeze_tag_remote_verified_2026_09_18
   phase5c_worktree: "F:\\Ai\\OrchestratorIDE-phase5c-activation-workspace"
   cuda_backend: not_implemented
-  quantization: indexing_only_no_materialization_or_compute
+  quantization: q8_0_scalar_reference_dequantization_implemented_phase6_stage1_not_frozen_no_q8_resident_compute
+  # ---- Phase 6 Stage 1 (added 2026-09-18) --------------------------------
+  # Frontier of the C++ engine track. Forked from orcengine-phase5c-freeze.
+  phase6_status: stage1_in_progress_not_frozen_no_orcengine_phase6_freeze_tag
+  phase6_spec: PHASE6_QUANTIZATION_SPEC.md
+  phase6_branch: feat/orcengine-phase6-quantization
+  phase6_branch_push: done_remote_tip_3ff44944_2026_09_18
+  phase6_worktree: "F:\\Ai\\OrchestratorIDE-phase6-quantization"
+  phase6_q8_0_dequantization: implemented_scalar_reference_known_value_and_real_fixture_tested
+  phase6_internal_f32_vs_q8_0_tolerance_gate: FAILED_unchanged_derived_0_973504_vs_observed_holdout_max_1_079983
+  phase6_external_qk_layout_divergence: root_cause_external_raw_hf_vs_canonical_llama_cpp_qk_layout_confirmed_causal_see_OE_ADR_053_057_058_no_production_remediation_implemented
+  phase6_gate5_projection_diagnostic: done_outcome_B_provisional_no_defect_in_examined_seams_tolerance_methodology_inadequate_see_OE_ADR_059
+  phase6_gate5_evidence: Tools/OrcEnginePhase6/fixtures/PHASE6_GATE5_PROJECTION_EVIDENCE.txt
+  phase6_tolerance_rederivation: not_started_requires_predeclared_methodology_larger_dev_corpus_and_untouched_holdout
+  phase6_freeze_tag: not_created
+  # ---- FL-08 Model Compatibility Profiler (Fringe Lab, added 2026-09-18) ---
+  fl08_status: research_prototype_accepted_with_bounded_conclusions_frozen
+  fl08_freeze_tag: orcengine-fl08-freeze
+  fl08_freeze_commit: 5042a7465d8646b2d76d5a3c957370628dfe177d
+  fl08_branch: research/orcengine-fl08-model-compat-profiler
+  fl08_pull_request: "hardcoreerik/TheOrc#106 (open, not merged)"
+  fl08_scope_boundary: layout_classification_and_proposed_forward_normalization_only_runtime_admission_not_evaluated_execution_authorization_always_false_see_OE_ADR_060
+
   paged_execution: research_only
   production_theorc_integration: not_implemented
   runnable_engine_exists: true_reference_cli_only
@@ -781,7 +803,7 @@ phases:
       chronology reconstruction and renumbering table.
   - id: 6
     name: initial_quantization
-    state: not_started
+    state: stage1_in_progress_not_frozen
     note: >-
       Renumbered from "Phase 5" (2026-08-18, OE-ADR-024) after Phase 5 was
       assigned to practical CPU inference semantics. Content unchanged

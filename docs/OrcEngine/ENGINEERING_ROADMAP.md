@@ -307,7 +307,9 @@ Specification](PHASE5C_ACTIVATION_WORKSPACE_SPEC.md) Section 9 and
 per-layer temporaries) is open future work, not yet scoped or
 scheduled.
 
-## Phase 6 — Initial quantization
+## Phase 6 — Initial quantization — STAGE 1 IN PROGRESS (not frozen)
+
+**Status as of 2026-09-18:** Q8_0 scalar reference dequantization is implemented and known-value/real-fixture tested. The internal F32-vs-Q8_0 tolerance gate is **FAILED** (derived `0.973504`, observed holdout maximum `1.079983`) and remains unchanged. A confirmed external Q/K-layout divergence (raw-HF vs canonical llama.cpp) is documented in OE-ADR-053/057/058; no production remediation is implemented. The dedicated Gate 5 projection-level diagnostic classified the internal failure as a provisional Outcome B (no defect found in the examined seams; tolerance methodology inadequate) per OE-ADR-059. Tolerance re-derivation has not started. No `orcengine-phase6-freeze` tag exists. Authoritative state: `CURRENT_STATE.yaml`.
 
 **Renumbered from "Phase 5" (2026-08-18, OE-ADR-024) — the heading's content
 predates Phase 3/4 and OE-ADR-021's later decision that the deferred

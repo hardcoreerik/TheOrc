@@ -1,6 +1,6 @@
 # OrcEngine documentation index
 
-> Status: Phase 3 frozen; Phase 4 implemented and self-reviewed, awaiting independent freeze review
+> Status: Phases 1-5C formally frozen (tags `orcengine-phase1-freeze` .. `orcengine-phase5c-freeze`); Phase 6 Stage 1 (Q8_0 quantization) in progress and NOT frozen; FL-08 research prototype frozen (`orcengine-fl08-freeze`). Machine-readable authority: [CURRENT_STATE.yaml](CURRENT_STATE.yaml)
 >
 > Product posture: experimental backend candidate; not a replacement for the current production/default runtime
 >
@@ -46,6 +46,7 @@ Every document should distinguish these states:
 14. [Phase 3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md)
 15. [Phase 3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md)
 16. [Phase 4 Bookend Virtualization](PHASE4_BOOKEND_VIRTUALIZATION.md)
+    - [Phase 5A KV-Cache Spec](PHASE5A_KV_CACHE_SPEC.md), [Phase 5B Tokenizer Spec](PHASE5B_TOKENIZER_SPEC.md), [Phase 5C Activation Workspace Spec](PHASE5C_ACTIVATION_WORKSPACE_SPEC.md), [Phase 6 Quantization Spec](PHASE6_QUANTIZATION_SPEC.md)
 17. Technical-design documents in pipeline order
 18. Verification, risk, security, licensing, and review documents
 
@@ -70,6 +71,10 @@ Every document should distinguish these states:
 | [Phase 3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md) | Proposed phase gate | Real-model layer-streaming mission, baseline, risks, metrics, and completion gates. |
 | [Phase 3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md) | Freeze evidence | Controlled budget, format-neutral source, observer, persistent timing, cross-freeze differential, and final matrix. |
 | [Phase 4 Bookend Virtualization](PHASE4_BOOKEND_VIRTUALIZATION.md) | Candidate implementation evidence | Logical row regions, sparse embedding access, chunked output projection, real-model residency, adversarial tests, and reproduction commands. |
+| [Phase 5A KV-Cache Spec](PHASE5A_KV_CACHE_SPEC.md) | Frozen implementation evidence | KV-cached incremental decode reference, virtualized cached path, freeze evidence. |
+| [Phase 5B Tokenizer Spec](PHASE5B_TOKENIZER_SPEC.md) | Frozen implementation evidence | Tokenizer/text-token boundary, three-way oracle comparison. |
+| [Phase 5C Activation Workspace Spec](PHASE5C_ACTIVATION_WORKSPACE_SPEC.md) | Frozen implementation evidence | Bounded activation workspace and workspace-driven cached decode. |
+| [Phase 6 Quantization Spec](PHASE6_QUANTIZATION_SPEC.md) | In-progress phase spec | Q8_0 reference dequantization; internal tolerance gate currently FAILED; see DECISION_LOG OE-ADR-041 through OE-ADR-059. |
 | [Model Format and GGUF](MODEL_FORMAT_AND_GGUF.md) | Model ingestion | File parsing, validation, tensor mapping, and compatibility posture. |
 | [Tensor Engine Design](TENSOR_ENGINE_DESIGN.md) | Compute core | Tensor representation, operators, allocation, and graph execution. |
 | [CPU Backend Design](CPU_BACKEND_DESIGN.md) | CPU execution | Reference kernels, threading, SIMD, and optimization gates. |
@@ -117,6 +122,7 @@ GGUF bytes
 - AI reviews are evidence, not authority. Findings must be checked against current code or primary sources.
 - External links are research references, not copied code or automatic license permission.
 - If a status statement conflicts with live code, live code wins and the discrepancy is recorded.
+- **Automated drift checks.** `Tools/check_orcengine_docs_truth.py` (CI: `.github/workflows/orcengine-docs-truth.yml`, on every PR touching `docs/OrcEngine` or `Tools/OrcEngine*`, on push, and weekly) verifies that freeze tags named in `CURRENT_STATE.yaml` exist and peel to the documented commits, referenced spec/link/file targets exist, ADR references are not dangling, the Project Truth snapshot matches `CURRENT_STATE.yaml`, known-obsolete claims have not resurfaced, and the state docs are not stale relative to the newest OrcEngine code commit. Run it locally with `python Tools/check_orcengine_docs_truth.py`; when you change engine state, update `CURRENT_STATE.yaml` in the same change. Append-only history (`DECISION_LOG.md`, dated `PROJECT_TRUTH.md` sections) is exempt from stale-phrase checks by design.
 
 ## Primary external references
 
