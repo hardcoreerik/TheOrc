@@ -1,0 +1,49 @@
+name: OrcEngine Documentation Truth
+
+# Deterministic doc-drift checks for docs/OrcEngine (methodology ported from
+# OrcSDR's documentation-truth workflow). Separate from ci.yml on purpose:
+# ci.yml ignores **.md, so doc drift would never trigger it.
+#
+# Also triggers on OrcEngine CODE paths: a code change that lands without the
+# state docs being updated is exactly the drift this guards against.
+on:
+  pull_request:
+    paths:
+      - 'docs/OrcEngine/**'
+      - 'Tools/OrcEngine**'
+      - 'Tools/check_orcengine_docs_truth.py'
+      - 'Tools/test_check_orcengine_docs_truth.py'
+      - '.github/workflows/orcengine-docs-truth.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'docs/OrcEngine/**'
+      - 'Tools/OrcEngine**'
+      - 'Tools/check_orcengine_docs_truth.py'
+      - 'Tools/test_check_orcengine_docs_truth.py'
+      - '.github/workflows/orcengine-docs-truth.yml'
+  schedule:
+    - cron: '23 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check docs against tags, files, ADR log, and code history
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history and tags -- freeze tags and code dates are checked)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test the documentation checker
+        run: python -m unittest discover -s Tools -p 'test_check_orcengine_docs_truth.py' -v
+      - name: Check OrcEngine documentation truth
+        run: python Tools/check_orcengine_docs_truth.py
