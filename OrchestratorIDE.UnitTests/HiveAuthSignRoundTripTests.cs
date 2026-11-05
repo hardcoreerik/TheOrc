@@ -35,7 +35,11 @@ public sealed class HiveAuthSignRoundTripTests
     /// </summary>
     [OneTimeSetUp]
     public void InitSecretProtection() =>
+#if THEORC_NO_DPAPI
+        SecretProtection.Initialize(new AesGcmSecretProtector(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+#else
         SecretProtection.Initialize(new DpapiSecretProtector());
+#endif
 
     private static (HiveAuthMiddleware Auth, byte[] Secret, string NodeId) BuildPeer()
     {

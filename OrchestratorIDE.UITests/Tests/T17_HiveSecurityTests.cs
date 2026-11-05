@@ -19,7 +19,11 @@ public class T17_HiveSecurityTests
 {
     [OneTimeSetUp]
     public void InitSecrets()
+#if THEORC_NO_DPAPI
+        => SecretProtection.Initialize(new AesGcmSecretProtector(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+#else
         => SecretProtection.Initialize(new DpapiSecretProtector());
+#endif
 
     // ── HiveAuthMiddleware: static input validators ────────────────────────────
 
