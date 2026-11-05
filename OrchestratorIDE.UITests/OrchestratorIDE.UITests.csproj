@@ -10,6 +10,18 @@
     <!-- GDI+ types (Bitmap, Graphics, etc.) come from System.Drawing.Common package below -->
   </PropertyGroup>
 
+  <!--
+    FlaUI tests only RUN on Windows, but the project sits in OrchestratorIDE.slnx, so on a
+    macOS/Linux host `dotnet build OrchestratorIDE.slnx` failed with NETSDK1073 (WindowsDesktop
+    framework refs unknown). EnableWindowsTargeting lets the non-Windows SDK resolve the Windows
+    targeting packs so the project compiles; THEORC_NO_DPAPI mirrors UnitTests.csproj because the
+    referenced Avalonia build has no DpapiSecretProtector off Windows. No effect on Windows hosts.
+  -->
+  <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <DefineConstants>$(DefineConstants);THEORC_NO_DPAPI</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- UI Automation -->
     <PackageReference Include="FlaUI.Core"  Version="4.0.0" />
