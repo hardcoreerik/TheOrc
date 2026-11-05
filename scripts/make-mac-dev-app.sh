@@ -10,13 +10,19 @@
 #                 and relaunch. It runs Microsoft's dotnet, so macOS privacy permissions
 #                 (Screen Recording, folders, …) are asked for and granted to "dotnet".
 #   --standalone  The app itself, self-contained (.NET runtime included, no SDK needed) and
-#                 signed ad-hoc as its own program, so permissions are asked for TheOrc and
-#                 cover only TheOrc. Re-run the script after code changes; an ad-hoc signature
-#                 changes with every build, so macOS may ask for permissions again.
-#                 Not notarized (that needs an Apple Developer ID): fine on this Mac, but
+#                 signed as its own program, so permissions are asked for TheOrc and cover only
+#                 TheOrc. Re-run the script after code changes. Signed ad-hoc by default: that
+#                 signature changes with every build, so macOS asks for permissions again.
+#   --sign NAME   (with --standalone) sign with a certificate from your keychain instead, e.g.
+#                 "Apple Development: you@example.com (ABCDE12345)" from a free Apple account
+#                 (Xcode › Settings › Accounts › Manage Certificates › + Apple Development).
+#                 Permissions then survive rebuilds. List yours with:
+#                   security find-identity -v -p codesigning
+#                 Neither is notarized (that needs a paid Developer ID): fine on this Mac, but
 #                 Gatekeeper would block a copy downloaded on another one.
 #
-# Usage:  scripts/make-mac-dev-app.sh [--standalone | --release] [--no-build] [path/to/TheOrc.app]
+# Usage:  scripts/make-mac-dev-app.sh [--standalone [--sign NAME] | --release] [--no-build]
+#                                     [path/to/TheOrc.app]
 #         (default: ~/Applications/TheOrc.app; then open it, or drag it to the Dock)
 set -euo pipefail
 
@@ -24,17 +30,31 @@ BUNDLE_ID="local.dev.theorc"
 CONFIG="Debug"
 BUILD=1
 STANDALONE=0
+SIGN_ID="-"   # ad-hoc
 OUT="$HOME/Applications/TheOrc.app"
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --release)    CONFIG="Release" ;;
     --standalone) STANDALONE=1; CONFIG="Release" ;;
     --no-build)   BUILD=0 ;;
-    -h|--help)    sed -n '5,23p' "$0"; exit 0 ;;
-    -*)         echo "make-mac-dev-app: unknown option $arg" >&2; exit 2 ;;
-    *)          OUT="$arg" ;;
+    --sign)       [[ $# -ge 2 && -n "$2" ]] || { echo "make-mac-dev-app: --sign needs a certificate name." >&2; exit 2; }
+                  SIGN_ID="$2"; shift ;;
+    --sign=*)     SIGN_ID="${1#--sign=}" ;;
+    -h|--help)    sed -n '5,28p' "$0"; exit 0 ;;
+    -*)           echo "make-mac-dev-app: unknown option $1" >&2; exit 2 ;;
+    *)            OUT="$1" ;;
   esac
+  shift
 done
+if [[ "$SIGN_ID" != "-" ]]; then
+  (( STANDALONE )) || { echo "make-mac-dev-app: --sign only applies to --standalone (the launcher isn't signed)." >&2; exit 2; }
+  # Fail before a long publish when the keychain has no such identity.
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$SIGN_ID"; then
+    echo "make-mac-dev-app: no code-signing certificate matching \"$SIGN_ID\" in your keychain." >&2
+    echo "  Yours:  security find-identity -v -p codesigning" >&2
+    exit 1
+  fi
+fi
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "make-mac-dev-app: macOS only." >&2; exit 2; }
 [[ "$OUT" == *.app ]] || { echo "make-mac-dev-app: output must end in .app: $OUT" >&2; exit 2; }
@@ -121,11 +141,18 @@ if (( STANDALONE )); then
   mv "$APP/OrchestratorIDE.Avalonia" "$OUT/Contents/MacOS/TheOrc"
   ln -s ../Resources/app/OrchestratorIDE.Avalonia.dll "$OUT/Contents/MacOS/OrchestratorIDE.Avalonia.dll"
 
-  # Sign every native file, then the bundle as TheOrc (ad-hoc: no certificate needed).
+  # Sign every native file, then the bundle as TheOrc: ad-hoc ("-", no certificate) unless
+  # --sign named one. (macOS may ask once to let codesign use that certificate's key.)
+  sign() {   # quiet on success; on failure show codesign's message and stop
+    local msg
+    if ! msg="$(codesign --force --sign "$SIGN_ID" "$@" 2>&1)"; then
+      echo "make-mac-dev-app: codesign failed for ${!#}:" >&2; echo "$msg" >&2; exit 1
+    fi
+  }
   while IFS= read -r -d '' f; do
-    if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f" 2>/dev/null; fi
+    if file -b "$f" | grep -q 'Mach-O'; then sign "$f"; fi
   done < <(find "$APP" -type f -print0)
-  codesign --force --sign - --identifier "$BUNDLE_ID" "$OUT" 2>/dev/null
+  sign --identifier "$BUNDLE_ID" "$OUT"
   codesign --verify --deep --strict "$OUT"
 else
   # exec keeps the bundle's process, so the Dock tile stays TheOrc's. The app writes its own log
@@ -146,7 +173,8 @@ if [[ "${THEORC_NO_REGISTER:-0}" != "1" ]]; then
 fi
 
 if (( STANDALONE )); then
-  echo "Built $OUT (TheOrc $VERSION, standalone, signed ad-hoc as $BUNDLE_ID, $(du -sh "$OUT" | cut -f1))."
+  if [[ "$SIGN_ID" == "-" ]]; then signer="ad-hoc"; else signer="by \"$SIGN_ID\""; fi
+  echo "Built $OUT (TheOrc $VERSION, standalone, signed $signer as $BUNDLE_ID, $(du -sh "$OUT" | cut -f1))."
 else
   echo "Built $OUT (TheOrc $VERSION, launcher for the $CONFIG build in $REPO)."
 fi

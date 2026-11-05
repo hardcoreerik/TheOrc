@@ -117,6 +117,17 @@ public class MacDevAppScriptTests
     }
 
     [Test]
+    public void Signing_with_a_certificate_that_is_not_in_the_keychain_fails_before_building()
+    {
+        var app = Path.Combine(_dir, "TheOrc.app");
+        var (exit, output) = Run(Path.Combine(Repo(), "scripts", "make-mac-dev-app.sh"),
+            "--standalone", "--sign", "No Such Certificate " + Guid.NewGuid().ToString("N"), app);
+        Assert.That(exit, Is.EqualTo(1));
+        Assert.That(output, Does.Contain("no code-signing certificate matching"));
+        Assert.That(Directory.Exists(app), Is.False, "nothing is published or built");
+    }
+
+    [Test]
     public void Never_replaces_a_bundle_it_did_not_make()
     {
         var other = Path.Combine(_dir, "Other.app");
