@@ -45,7 +45,12 @@ namespace OrchestratorSetup.Services;
 /// </summary>
 public static class LlamaCppResolver
 {
-    private const string ApiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
+    // NOT /releases/latest: llama.cpp publishes its numbered builds (bNNNNN, the releases that
+    // carry the binaries) as PRERELEASES, which /latest never returns. Since 2026-11-04 /latest
+    // is a new-style "v0.9.0" release whose only asset is nightly-tag.txt, so it resolved no
+    // build on any OS. List recent releases instead (prereleases included, newest first) and
+    // take the newest one with a matching asset -- see SelectAssetUrl.
+    private const string ApiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15";
 
     // Terms that MUST appear in the asset filename (case-insensitive) for each variant,
     // BEFORE the OS-specific tag/extension (added in TryResolveLatestAsync below) -- kept
@@ -62,13 +67,20 @@ public static class LlamaCppResolver
                               // one build that exists per architecture -- no extra term needed.
     };
 
+    // Every accelerated build llama.cpp publishes alongside the plain CPU one (b12130,
+    // 2026-11-05). The CPU variants must exclude them all: Linux's CPU asset has no "cpu" label
+    // ("…-bin-ubuntu-x64.tar.gz"), so excluding only cuda/vulkan picked
+    // "…-bin-ubuntu-openvino-2026.4.1-x64.tar.gz", the first remaining match.
+    private static readonly string[] AcceleratedBuilds =
+        ["cuda", "vulkan", "rocm", "sycl", "openvino", "opencl", "snapdragon", "zdnn"];
+
     // Terms that must NOT appear in the asset filename for each variant
-    // (prevents cpu/avx2 from matching cuda/vulkan builds).
+    // (prevents cpu/avx2 from matching accelerated builds).
     private static readonly Dictionary<string, string[]> MustNotContain = new()
     {
         ["vulkan"] = ["cuda"],
-        ["avx2"]   = ["cuda", "vulkan"],
-        ["cpu"]    = ["cuda", "vulkan"],
+        ["avx2"]   = AcceleratedBuilds,
+        ["cpu"]    = AcceleratedBuilds,
     };
 
     /// <summary>
@@ -115,63 +127,74 @@ public static class LlamaCppResolver
             http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
 
             var json = await http.GetStringAsync(ApiUrl, ct);
-            var root = JsonDocument.Parse(json).RootElement;
-
-            if (!root.TryGetProperty("assets", out var assets))
-                return null;
-
             var (osTag, extension) = ResolveOsTagAndExtension();
-            var archTag = ResolveArchTag();
-
-            // llama.cpp's Linux ("ubuntu") CPU build carries no backend label at all -- unlike
-            // Windows' explicit "win-cpu-x64.zip"/"win-cpu-arm64.zip", the Linux asset is just
-            // "ubuntu-x64.tar.gz"/"ubuntu-arm64.tar.gz" with zero backend substring (verified
-            // live against the real release, 2026-06-24: gh api .../releases/latest lists both
-            // "llama-bNNNN-bin-ubuntu-x64.tar.gz" and "...-ubuntu-arm64.tar.gz", neither
-            // containing "cpu" anywhere). Requiring the literal "cpu" term there meant this
-            // variant has never matched anything on Linux, on any architecture -- same class of
-            // bug as the avx2->cpu rename noted in this class's doc comment, just OS-specific
-            // instead of time-specific. MustNotContain's cuda/vulkan exclusion already does the
-            // real discriminating work once "cpu" stops being a hard requirement, exactly like
-            // "metal" already needs no extra must-contain term on macOS.
-            var cpuLikeVariant = variant is "cpu" or "avx2";
-            var variantTerms = (osTag == "ubuntu" && cpuLikeVariant)
-                ? []
-                : MustContain.GetValueOrDefault(variant, []);
-            var must = variantTerms.Append(osTag).Append(archTag).Append(extension).ToArray();
-            var mustNot = MustNotContain.GetValueOrDefault(variant, []);
-
-            // Prefer assets with "cudart-" prefix (self-contained — bundled CUDA runtime)
-            // over those without it, for cuda variants.
-            string? best    = null;
-            string? fallback = null;
-
-            foreach (var asset in assets.EnumerateArray())
-            {
-                if (!asset.TryGetProperty("name", out var nameProp)) continue;
-                var name  = nameProp.GetString() ?? "";
-                var lower = name.ToLowerInvariant();
-
-                if (!must.All(f    => lower.Contains(f)))    continue;
-                if ( mustNot.Any(f => lower.Contains(f)))    continue;
-
-                var url = asset.TryGetProperty("browser_download_url", out var urlProp)
-                              ? urlProp.GetString()
-                              : null;
-                if (url is null) continue;
-
-                // Prefer the "cudart-" build (includes CUDA runtime DLLs — no extra install needed)
-                if (lower.StartsWith("cudart-"))
-                    best = url;
-                else
-                    fallback ??= url;
-            }
-
-            return best ?? fallback;
+            return SelectAssetUrl(JsonDocument.Parse(json).RootElement, variant, osTag,
+                                  ResolveArchTag(), extension);
         }
         catch
         {
             return null; // non-fatal — InstallOrchestrator falls back to manifest URL
         }
+    }
+
+    /// <summary>
+    /// The download URL of the first matching asset in the newest release that has one.
+    /// <paramref name="releases"/> is the GitHub API's release list (newest first); a single
+    /// release object is accepted too. Drafts are skipped; prereleases are not (that is where
+    /// llama.cpp's builds are). Pure: no network, so it's testable against real API payloads.
+    /// </summary>
+    internal static string? SelectAssetUrl(JsonElement releases, string variant,
+                                           string osTag, string archTag, string extension)
+    {
+        IEnumerable<JsonElement> list = releases.ValueKind == JsonValueKind.Array
+            ? releases.EnumerateArray()
+            : [releases];
+
+        // llama.cpp's Linux ("ubuntu") CPU build carries no backend label at all -- unlike
+        // Windows' explicit "win-cpu-x64.zip"/"win-cpu-arm64.zip", the Linux asset is just
+        // "ubuntu-x64.tar.gz"/"ubuntu-arm64.tar.gz" with zero backend substring (verified
+        // live against the real release, 2026-06-24: gh api .../releases/latest lists both
+        // "llama-bNNNN-bin-ubuntu-x64.tar.gz" and "...-ubuntu-arm64.tar.gz", neither
+        // containing "cpu" anywhere). Requiring the literal "cpu" term there meant this
+        // variant has never matched anything on Linux, on any architecture -- same class of
+        // bug as the avx2->cpu rename noted in this class's doc comment, just OS-specific
+        // instead of time-specific. MustNotContain's cuda/vulkan exclusion already does the
+        // real discriminating work once "cpu" stops being a hard requirement, exactly like
+        // "metal" already needs no extra must-contain term on macOS.
+        var cpuLikeVariant = variant is "cpu" or "avx2";
+        var variantTerms = (osTag == "ubuntu" && cpuLikeVariant)
+            ? []
+            : MustContain.GetValueOrDefault(variant, []);
+        var must = variantTerms.Append(osTag).Append(archTag).Append(extension).ToArray();
+        var mustNot = MustNotContain.GetValueOrDefault(variant, []);
+
+        foreach (var release in list)
+        {
+            if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)
+                continue;
+            if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var asset in assets.EnumerateArray())
+            {
+                if (!asset.TryGetProperty("name", out var nameProp)) continue;
+                var lower = (nameProp.GetString() ?? "").ToLowerInvariant();
+
+                // "cudart-llama-bin-win-cuda-*.zip" holds ONLY the CUDA runtime DLLs
+                // (cublas64_12.dll, cublasLt64_12.dll, cudart64_12.dll -- verified against
+                // b12130's zip, 2026-11-05): no llama-server.exe. It used to be preferred as
+                // "self-contained", which handed the installer an archive with no server in it.
+                // The binaries are in "llama-bNNNNN-bin-win-cuda-*.zip".
+                if (lower.StartsWith("cudart-")) continue;
+
+                if (!must.All(f    => lower.Contains(f)))    continue;
+                if ( mustNot.Any(f => lower.Contains(f)))    continue;
+
+                if (asset.TryGetProperty("browser_download_url", out var urlProp) &&
+                    urlProp.GetString() is { Length: > 0 } url)
+                    return url;
+            }
+        }
+        return null;
     }
 }

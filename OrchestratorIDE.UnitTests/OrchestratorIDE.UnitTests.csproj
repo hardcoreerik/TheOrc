@@ -45,6 +45,9 @@
       CS0433). Compiling just this one self-contained file in avoids that entirely.
     -->
     <Compile Include="..\OrchestratorIDE.Daemon\DaemonConfig.cs" Link="Daemon\DaemonConfig.cs" />
+    <!-- Same reason: the installer's llama.cpp release resolver is self-contained (System.*
+         only), and OrchestratorSetup is an exe with no test project of its own. -->
+    <Compile Include="..\OrchestratorSetup\Services\LlamaCppResolver.cs" Link="Setup\LlamaCppResolver.cs" />
   </ItemGroup>
 
   <!--
