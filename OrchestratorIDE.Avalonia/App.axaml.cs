@@ -42,7 +42,12 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            // macOS: TheOrc's icon in the Dock instead of .NET's (no-op elsewhere).
+            if (OperatingSystem.IsMacOS() && !UI.MacDockIcon.TrySet())
+                Core.Diagnostics.AppLog.Warn("macOS", $"Dock icon not set ({UI.MacDockIcon.DefaultPath} missing or unreadable)");
             desktop.MainWindow = new MainWindow();
+        }
         // Log UI-thread exceptions; doesn't mark them handled, so behavior is unchanged.
         Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, e) =>
             Core.Diagnostics.AppLog.Exception("UI thread", e.Exception, "Unhandled UI-thread exception");

@@ -9,13 +9,20 @@ namespace OrchestratorIDE.UnitTests;
 [TestFixture]
 public sealed class ContextFabricIndexingOrchestratorTests
 {
+    // Progress<T> posts each report to the thread pool, so a report can land after the
+    // assertions run (seen on the macOS CI runner: "Reducing" missing). Record synchronously.
+    private sealed class SyncProgress<T>(List<T> sink) : IProgress<T>
+    {
+        public void Report(T value) { lock (sink) sink.Add(value); }
+    }
+
     [Test]
     public async Task IndexDocumentAsync_Reads_Then_Reduces_And_Reports_Complete()
     {
         using var harness = NewHarness();
         var orchestrator = harness.NewOrchestrator();
         var events = new List<IndexStageEvent>();
-        var progress = new Progress<IndexStageEvent>(events.Add);
+        var progress = new SyncProgress<IndexStageEvent>(events);
 
         var result = await orchestrator.IndexDocumentAsync(harness.Document.DocumentId, readOnly: false, progress);
 
@@ -37,7 +44,7 @@ public sealed class ContextFabricIndexingOrchestratorTests
         using var harness = NewHarness();
         var orchestrator = harness.NewOrchestrator();
         var events = new List<IndexStageEvent>();
-        var progress = new Progress<IndexStageEvent>(events.Add);
+        var progress = new SyncProgress<IndexStageEvent>(events);
 
         var result = await orchestrator.IndexDocumentAsync(harness.Document.DocumentId, readOnly: true, progress);
 
