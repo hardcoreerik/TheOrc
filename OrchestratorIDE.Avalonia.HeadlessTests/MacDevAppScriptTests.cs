@@ -85,6 +85,37 @@ public class MacDevAppScriptTests
         });
     }
 
+    [Test, CancelAfter(600_000)]
+    public void Standalone_bundle_is_self_contained_and_validly_signed_as_TheOrc()
+    {
+        var app = Path.Combine(_dir, "TheOrc.app");
+        var (exit, output) = Run(Path.Combine(Repo(), "scripts", "make-mac-dev-app.sh"), "--standalone", app);
+        Assert.That(exit, Is.EqualTo(0), output);
+
+        var macos = Path.Combine(app, "Contents", "MacOS");
+        var payload = Path.Combine(app, "Contents", "Resources", "app");
+        Assert.Multiple(() =>
+        {
+            // Signed as its own program, so macOS asks for permissions on TheOrc's behalf.
+            var verify = Run("/usr/bin/codesign", "--verify", "--deep", "--strict", app);
+            Assert.That(verify.Exit, Is.EqualTo(0), verify.Output);
+            Assert.That(Run("/usr/bin/codesign", "-dv", app).Output, Does.Contain("Identifier=local.dev.theorc"));
+
+            // MacOS holds only code: the apphost and the symlink it follows to the app folder.
+            Assert.That(Directory.GetFileSystemEntries(macos).Select(Path.GetFileName).Order(),
+                Is.EqualTo(new[] { "OrchestratorIDE.Avalonia.dll", "TheOrc" }));
+            Assert.That(new FileInfo(Path.Combine(macos, "OrchestratorIDE.Avalonia.dll")).LinkTarget,
+                Is.EqualTo("../Resources/app/OrchestratorIDE.Avalonia.dll"));
+
+            // Self-contained: the .NET runtime sits with the app (no SDK needed to run it).
+            Assert.That(File.Exists(Path.Combine(payload, "libhostfxr.dylib")), Is.True);
+            Assert.That(File.Exists(Path.Combine(payload, "libcoreclr.dylib")), Is.True);
+            // Only this Mac's native libraries are kept.
+            Assert.That(Directory.GetDirectories(Path.Combine(payload, "runtimes")).Select(Path.GetFileName),
+                Is.EqualTo(new[] { "osx-arm64" }));
+        });
+    }
+
     [Test]
     public void Never_replaces_a_bundle_it_did_not_make()
     {
