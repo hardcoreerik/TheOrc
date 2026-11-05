@@ -152,6 +152,16 @@ public partial class MainWindow : Window
         _activeRuntimeSettings = _settings.CreateSnapshot();
         InitializeComponent();
 
+        // macOS: menus belong in the system menu bar, not inside the window. Mirror the XAML
+        // menu (still the single source of truth, see NativeMenuMirror) and collapse its row.
+        // Windows/Linux keep the in-window menu exactly as before.
+        if (OperatingSystem.IsMacOS())
+        {
+            NativeMenu.SetMenu(this, NativeMenuMirror.Build(MainMenu));
+            MainMenu.IsVisible = false;
+            RootGrid.RowDefinitions[1].Height = new GridLength(0);
+        }
+
         // Keyboard shortcuts — attached before panels are constructed
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
 
@@ -658,7 +668,12 @@ public partial class MainWindow : Window
 
     private async Task RefreshVramStatusAsync()
     {
-        var budget = await Task.Run(NativeVramProbe.TryQueryLiveNvidiaBudget);
+        // nvidia-smi first (unchanged off macOS), then Metal on Apple Silicon.
+        var budget = await Task.Run(NativeVramProbe.TryQueryLiveGpuBudget);
+        if (NativeVramProbe.IsUnifiedMemoryHost)
+            ToolTip.SetTip(SbVramStatus,
+                "Live GPU memory (Metal, unified memory): used / working-set limit. " +
+                "Used includes memory other apps hold that the GPU can't currently claim.");
 
         if (budget is null)
         {
@@ -1110,12 +1125,18 @@ public partial class MainWindow : Window
         // selection already ran as part of that success path — is free: it returns the same
         // cached report, never re-triggers real GPU detection.
         var verifiedNativeBackend = nativeHiveRuntime is not null
-            && NativeBackendBootstrap.EnsureConfigured().SelectedCuda
-                ? "cuda12" : "cpu";
+            ? NativeBackendBootstrap.EnsureConfigured().HiveBackend
+            : "cpu";
+        // Apple Silicon: DetectedVramGb is 0 (unified memory), so advertise Metal's live free
+        // figure instead. Every other platform keeps the install-detected total.
+        var freeVramMb = verifiedNativeBackend == "metal" &&
+                         NativeVramProbe.TryQueryLiveMetalBudget() is { } metalBudget
+            ? (metalBudget.TotalBytes - metalBudget.ReservedBytes) / (1024 * 1024)
+            : (long)Math.Max(0, _activeRuntimeSettings.DetectedVramGb * 1024);
         _hiveWorkerAgent.Capabilities = await WorkerCapabilityDetector.DetectAsync(
             name,
             ModelDepot.Scan(_activeRuntimeSettings.ResolvedNativeRuntimeModelRoot),
-            (long)Math.Max(0, _activeRuntimeSettings.DetectedVramGb * 1024),
+            freeVramMb,
             _hiveTaskQueue?.ArtifactStore,
             verifiedNativeBackend: verifiedNativeBackend);
         _hiveWorkerAgent.AutoResyncEnabled = _settings.HiveDevAutoResyncEnabled;
@@ -3135,7 +3156,10 @@ public partial class MainWindow : Window
         // Native Runtime v2.0 Phase B: prefer a LIVE nvidia-smi read over the one-time
         // install-detected total -- ReservedBytes then reflects whatever else is using the GPU
         // right now (other apps, the OS compositor, another TheOrc process), not a static zero.
-        if (NativeVramProbe.TryQueryLiveNvidiaBudget() is { } liveBudget)
+        // Apple Silicon: no nvidia-smi and no installer-detected VRAM (unified memory), so the
+        // Metal probe (null on every other platform) stands in; without it the native runtime
+        // is never built.
+        if (NativeVramProbe.TryQueryLiveGpuBudget() is { } liveBudget)
             return liveBudget;
 
         var detectedVramGb = _activeRuntimeSettings.DetectedVramGb;

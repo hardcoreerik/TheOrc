@@ -22,6 +22,11 @@ public partial class App : Application
         SecretProtection.Initialize(new AesGcmSecretProtector(OrchestratorIDE.Daemon.MachineKey.Load()));
 #endif
         AvaloniaXamlLoader.Load(this);
+
+        // macOS builds the app menu ("About …", "Hide …", "Quit") from Application.Name, which
+        // otherwise reads "Avalonia Application". macOS-only so nothing changes elsewhere.
+        if (OperatingSystem.IsMacOS())
+            Name = "TheOrc";
     }
 
     public override void OnFrameworkInitializationCompleted()

@@ -175,7 +175,10 @@ public sealed class HiveService : BackgroundService
             // outside the branch below, so it stays "cpu" (correct) when native isn't configured
             // at all, and gets the real verdict only when backend selection actually ran.
             var verifiedNativeBackend = "cpu";
-            if (nativeReady && _cfg.NativeVramMb <= 0)
+            // Apple Silicon reads a live Metal budget (BuildNativeHiveVramBudget), so it doesn't
+            // need Hive:NativeVramMb. Null everywhere else, leaving this gate unchanged there.
+            var liveMetalBudget = NativeVramProbe.TryQueryLiveMetalBudget();
+            if (nativeReady && _cfg.NativeVramMb <= 0 && liveMetalBudget is null)
             {
                 // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2):
                 // RuntimeOrchestrator now fails CLOSED when no scheduler/budget is configured
@@ -208,7 +211,7 @@ public sealed class HiveService : BackgroundService
                 // CPU backend is a Warning with the full selection log — never silent.
                 var backend = NativeBackendBootstrap.EnsureConfigured(
                     line => _log.LogDebug("[llama-native] {Line}", line));
-                verifiedNativeBackend = backend.SelectedCuda ? "cuda12" : "cpu";
+                verifiedNativeBackend = backend.HiveBackend;
                 if (backend.CudaCapableGpu && !backend.SelectedCuda)
                 {
                     _log.LogWarning("Native backend: {Verdict}", backend.Verdict);
@@ -318,8 +321,13 @@ public sealed class HiveService : BackgroundService
             _nodeServer.CancelTaskHandler = taskId => _worker.TryCancelTask(taskId);
             _worker.OnLog += msg => _log.LogInformation("[Worker] {Msg}", msg);
             var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage, _cfg.CaseForgeImage);
+            // Apple Silicon: advertise Metal's live free memory rather than the configured
+            // NativeVramMb (usually unset on a Mac). Unchanged on every other platform.
+            var freeVramMb = verifiedNativeBackend == "metal" && liveMetalBudget is not null
+                ? (liveMetalBudget.TotalBytes - liveMetalBudget.ReservedBytes) / (1024 * 1024)
+                : _cfg.NativeVramMb;
             _worker.Capabilities = await WorkerCapabilityDetector.DetectAsync(
-                _cfg.NodeName, depot, _cfg.NativeVramMb, _taskQueue.ArtifactStore,
+                _cfg.NodeName, depot, freeVramMb, _taskQueue.ArtifactStore,
                 installedPacks, stoppingToken, verifiedNativeBackend);
             if (_worker.Capabilities.ContainerEngine.Length > 0 &&
                 installedPacks.Any(p => p.ExecutionKind == HiveExecutionKinds.ContainerPack))
@@ -374,9 +382,11 @@ public sealed class HiveService : BackgroundService
     /// using the GPU right now, not a static zero. Falls back to the pre-Phase-B
     /// config-only budget when the live probe is unavailable (non-NVIDIA GPU, nvidia-smi
     /// missing, etc.), so this is never worse than what WorkerMode already required
-    /// (Hive:NativeVramMb configured and positive) to reach this call site.
+    /// (Hive:NativeVramMb configured and positive) to reach this call site. On Apple Silicon
+    /// the live Metal probe takes the place of nvidia-smi (see
+    /// <see cref="NativeVramProbe.TryQueryLiveGpuBudget"/>).
     /// </summary>
     private VramBudget BuildNativeHiveVramBudget() =>
-        NativeVramProbe.TryQueryLiveNvidiaBudget()
+        NativeVramProbe.TryQueryLiveGpuBudget()
         ?? new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0);
 }

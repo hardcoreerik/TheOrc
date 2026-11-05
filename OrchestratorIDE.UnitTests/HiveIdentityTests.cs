@@ -28,7 +28,11 @@ public sealed class HiveIdentityTests
     /// this does not fight any other fixture that also sets it.</summary>
     [OneTimeSetUp]
     public void InitSecretProtection() =>
+#if THEORC_NO_DPAPI
+        SecretProtection.Initialize(new AesGcmSecretProtector(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+#else
         SecretProtection.Initialize(new DpapiSecretProtector());
+#endif
 
     [SetUp]
     public void SetUp()

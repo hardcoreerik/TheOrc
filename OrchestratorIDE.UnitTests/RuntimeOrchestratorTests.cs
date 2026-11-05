@@ -266,21 +266,34 @@ public sealed class RuntimeOrchestratorTests
         var workerBinding = new RuntimeRoleBinding(RuntimeRole.Worker, asset, null);
         var researcherBinding = new RuntimeRoleBinding(RuntimeRole.Researcher, asset, null);
 
+        // Options are REQUIRED for the reuse discount to apply at all -- it exists only on the
+        // context-aware estimate path, where kvBytes prices the increment. This mirrors the fleet,
+        // whose workers all run with an explicit HIVE__NATIVECONTEXTSIZE.
+        var options = new RuntimeOptions(ContextLength: 2048, GpuLayers: -1);
+
         // Sized so ONE model plus a second context fits, but two full copies never could --
         // exactly the 6 GB box. If the second role were still charged a whole model it would be
         // denied here, which is what this test would have caught.
+        //
+        // Sized from the scheduler's own estimates rather than a multiple of the file size: the
+        // fixed runtime + compute-buffer allowances (~640 MB) don't scale with the model, so a
+        // flat "1.4x file size" was too small for models under ~2 GB. With a 1.5B Q4_K_M
+        // (1.1 GB) the first role was admitted DEGRADED (partial GPU), leaving ~11 MB -- far
+        // short of any second context, so the test failed for a sizing reason, not a reuse bug.
+        var fullFirstBytes = OrcScheduler.EstimateRequiredBytes(
+            workerBinding, options, baseWeightsAlreadyResident: false);
+        var reuseSecondBytes = OrcScheduler.EstimateRequiredBytes(
+            researcherBinding, options, baseWeightsAlreadyResident: true);
+        var totalBytes = fullFirstBytes + reuseSecondBytes + 64L * 1024 * 1024;
+        Assert.That(totalBytes, Is.LessThan(2 * fullFirstBytes),
+            "budget must stay too small for two full copies, or this test proves nothing");
+
         var loaded = false;
-        var totalBytes = (long)(sizeBytes * 1.4);
         VramBudget Provider() => new(totalBytes, loaded ? sizeBytes : 0L);
 
         await using var runtime = new LLamaSharpRuntime();
         await using var orchestrator = new RuntimeOrchestrator(
             runtime, scheduler: new OrcScheduler(), budgetProvider: Provider);
-
-        // Options are REQUIRED for the reuse discount to apply at all -- it exists only on the
-        // context-aware estimate path, where kvBytes prices the increment. This mirrors the fleet,
-        // whose workers all run with an explicit HIVE__NATIVECONTEXTSIZE.
-        var options = new RuntimeOptions(ContextLength: 2048, GpuLayers: -1);
 
         using var first = await orchestrator
             .GetConversationForBindingAsync(workerBinding, options)

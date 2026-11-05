@@ -23,6 +23,20 @@ public partial class FileExplorerPanel : UserControl
         ".pytest_cache", ".mypy_cache", ".ruff_cache"
     ];
 
+    // macOS only: home-directory folders the eager tree walk must not descend into unless
+    // the user picks one as the workspace root. ~/Library is huge and holds iCloud Drive
+    // ("Mobile Documents"), whose not-yet-downloaded placeholders block enumeration until
+    // they materialise; the rest are TCC-protected, so touching them parks the UI thread on
+    // a privacy prompt. With the default workspace (the home folder) either one hung
+    // MainWindow's constructor before the window ever appeared.
+    private static readonly HashSet<string> MacHomeSkipPaths = OperatingSystem.IsMacOS()
+        ? new HashSet<string>(
+            new[] { "Library", "Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures" }
+                .Select(d => Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), d)),
+            StringComparer.OrdinalIgnoreCase)
+        : [];
+
     public FileExplorerPanel()
     {
         InitializeComponent();
@@ -92,6 +106,7 @@ public partial class FileExplorerPanel : UserControl
         var isDir = Directory.Exists(path);
 
         if (isDir && SkipDirs.Contains(name) && !isRoot) return null;
+        if (isDir && !isRoot && MacHomeSkipPaths.Contains(path)) return null;
         if (!isRoot && name.StartsWith('.') &&
             name is not ".agent.md" and not ".gitignore" and not ".env.example") return null;
 

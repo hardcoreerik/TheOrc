@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <!--
+      On macOS/Linux hosts a net10.0-windows test assembly builds but `dotnet test` discovers
+      zero tests. The Windows TFM was only needed for the deleted WPF project; everything this
+      references (Avalonia, NativeRuntime) is plain net10.0, so use that off Windows.
+    -->
+    <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsTestProject>true</IsTestProject>
@@ -40,6 +46,20 @@
     -->
     <Compile Include="..\OrchestratorIDE.Daemon\DaemonConfig.cs" Link="Daemon\DaemonConfig.cs" />
   </ItemGroup>
+
+  <!--
+    DpapiSecretProtector is compiled into OrchestratorIDE.Avalonia only when it targets Windows
+    (see that csproj's _TargetsWindows). On a macOS/Linux build host it does not exist, so the
+    HIVE fixtures that initialize SecretProtection switch to an in-memory AES-GCM key there.
+    Same target-OS rule as the Avalonia project; Windows builds are unaffected.
+  -->
+  <PropertyGroup>
+    <_TheOrcTestTargetsWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</_TheOrcTestTargetsWindows>
+    <_TheOrcTestTargetsWindows Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</_TheOrcTestTargetsWindows>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(_TheOrcTestTargetsWindows)' != 'true'">
+    <DefineConstants>$(DefineConstants);THEORC_NO_DPAPI</DefineConstants>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
