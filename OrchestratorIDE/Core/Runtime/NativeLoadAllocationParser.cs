@@ -31,6 +31,21 @@ namespace OrchestratorIDE.Core.Runtime;
 /// pinned host-side staging memory for transfers, not GPU memory — confirmed by spike math:
 /// summing only CUDA<i>N</i> lines matched the independently-measured whole-GPU delta within
 /// ~20 MB, while including CPU_Mapped/CUDA_Host would have overcounted by exactly their size.
+///
+/// Apple Silicon (Metal) uses different device names, captured verbatim from a real
+/// Qwen2.5-1.5B-Instruct-Q4_K_M load on an M1 Max (LLamaSharp 0.27 osx-arm64):
+/// <code>
+/// load_tensors:   CPU_Mapped model buffer size =   125.19 MiB
+/// load_tensors:  MTL0_Mapped model buffer size =  1059.89 MiB
+/// llama_kv_cache:       MTL0 KV buffer size =    56.00 MiB
+/// sched_reserve:       MTL0 compute buffer size =   304.43 MiB
+/// sched_reserve:        CPU compute buffer size =    10.17 MiB
+/// </code>
+/// Unlike CUDA_Host, <c>MTL0_Mapped</c> IS GPU memory: the mmapped weights wrapped as a Metal
+/// buffer, counted against the device's working set (the same load logs
+/// <c>ggml_metal_log_allocated_size: allocated buffer, size = 1059.89 MiB</c>). So MTL<i>N</i>
+/// and MTL<i>N</i>_Mapped both count; CPU / CPU_Mapped still don't. Before this, every Metal
+/// line was dropped and the measurement read null on every Mac.
 /// </summary>
 public static class NativeLoadAllocationParser
 {
@@ -38,7 +53,8 @@ public static class NativeLoadAllocationParser
         @"(?<device>\S+)\s+(?<category>model|KV|compute) buffer size\s*=\s*(?<mib>[\d.]+)\s*Mi?B",
         RegexOptions.Compiled);
 
-    private static readonly Regex CudaDevice = new(@"^CUDA\d+$", RegexOptions.Compiled);
+    // CUDA0, CUDA1, ... (never CUDA_Host); on Apple Silicon MTL0 and MTL0_Mapped (see above).
+    private static readonly Regex GpuDevice = new(@"^(CUDA\d+|MTL\d+(_Mapped)?)$", RegexOptions.Compiled);
 
     /// <summary>
     /// Matches one log line. Returns the category ("model"/"KV"/"compute") and byte count if
@@ -51,7 +67,7 @@ public static class NativeLoadAllocationParser
         if (!m.Success)
             return null;
 
-        if (!CudaDevice.IsMatch(m.Groups["device"].Value))
+        if (!GpuDevice.IsMatch(m.Groups["device"].Value))
             return null;
 
         if (!double.TryParse(m.Groups["mib"].Value, System.Globalization.CultureInfo.InvariantCulture, out var mib))

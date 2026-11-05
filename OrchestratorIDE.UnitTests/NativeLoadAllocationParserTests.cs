@@ -55,6 +55,45 @@ public sealed class NativeLoadAllocationParserTests
         Assert.That(acc.TotalBytes, Is.EqualTo((long)(expectedMib * 1024 * 1024)));
     }
 
+    // Verbatim from a real Qwen2.5-1.5B-Instruct-Q4_K_M load on an M1 Max (Metal backend).
+    [TestCase("load_tensors:  MTL0_Mapped model buffer size =  1059.89 MiB", "model", 1059.89)]
+    [TestCase("llama_kv_cache:       MTL0 KV buffer size =    56.00 MiB", "KV", 56.00)]
+    [TestCase("sched_reserve:       MTL0 compute buffer size =   304.43 MiB", "compute", 304.43)]
+    public void TryParseVramLine_Matches_Real_Metal_Device_Lines(string line, string category, double mib)
+    {
+        var parsed = NativeLoadAllocationParser.TryParseVramLine(line);
+
+        Assert.That(parsed, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed!.Value.Category, Is.EqualTo(category));
+            Assert.That(parsed.Value.Bytes, Is.EqualTo((long)(mib * 1024 * 1024)));
+        });
+    }
+
+    [TestCase("sched_reserve:        CPU compute buffer size =    10.17 MiB")]
+    [TestCase("load_tensors:   CPU_Mapped model buffer size =   125.19 MiB")]
+    [TestCase("~llama_context:       MTL0 compute buffer size is 304.4336 MiB, matches expectation of 304.4336 MiB")]
+    [TestCase("load_tensors:  MTL0_Host model buffer size =  10.00 MiB")]
+    public void TryParseVramLine_Ignores_Metal_Host_Side_And_Destructor_Lines(string line) =>
+        Assert.That(NativeLoadAllocationParser.TryParseVramLine(line), Is.Null);
+
+    [Test]
+    public void Accumulator_Sums_A_Real_Metal_Load()
+    {
+        var acc = new NativeLoadAllocationAccumulator();
+        acc.Observe("load_tensors:   CPU_Mapped model buffer size =   125.19 MiB"); // excluded
+        acc.Observe("load_tensors:  MTL0_Mapped model buffer size =  1059.89 MiB");
+        acc.Observe("llama_context:        CPU  output buffer size =    23.18 MiB"); // excluded
+        acc.Observe("llama_kv_cache:       MTL0 KV buffer size =    56.00 MiB");
+        acc.Observe("sched_reserve:       MTL0 compute buffer size =   304.43 MiB");
+        acc.Observe("sched_reserve:        CPU compute buffer size =    10.17 MiB"); // excluded
+
+        // Each line is converted (and truncated) to bytes on its own before summing.
+        static long Bytes(double mib) => (long)(mib * 1024 * 1024);
+        Assert.That(acc.TotalBytes, Is.EqualTo(Bytes(1059.89) + Bytes(56.00) + Bytes(304.43)));
+    }
+
     [Test]
     public void Accumulator_TotalBytes_Is_Null_When_Nothing_Observed() =>
         Assert.That(new NativeLoadAllocationAccumulator().TotalBytes, Is.Null);
