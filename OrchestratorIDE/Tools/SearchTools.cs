@@ -64,6 +64,26 @@ public static class SearchTools
 
     private static string? FindRg()
     {
+        // macOS/Linux: ask bash (with the login PATH ShellResolver sets up) for rg's absolute
+        // path. The Windows probe below uses PowerShell's Get-Command, which threw here
+        // ("powershell" doesn't exist) and took grep_code down instead of reaching
+        // FallbackSearch. Returning the absolute path also matters: RgSearch starts rg directly,
+        // without the login PATH, so a bare "rg" from Homebrew wouldn't be found from Finder.
+        if (!OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var result = ShellTools.RunAsync("command -v rg", Environment.CurrentDirectory,
+                    CancellationToken.None).GetAwaiter().GetResult();
+                var lines = result.Split('\n', StringSplitOptions.TrimEntries);
+                if (lines.Length > 1 && lines[0] == "[exit 0]" &&
+                    Path.IsPathRooted(lines[1]) && File.Exists(lines[1]))
+                    return lines[1];
+            }
+            catch { /* no shell: use the built-in search */ }
+            return null;
+        }
+
         foreach (var candidate in new[] { "rg", "rg.exe" })
         {
             var path = ShellTools.RunAsync($"(Get-Command {candidate} -ErrorAction SilentlyContinue).Source",

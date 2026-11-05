@@ -305,6 +305,7 @@
     <Compile Include="..\OrchestratorIDE\Tools\FabricTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\SearchTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\ShellTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\ShellResolver.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\TestTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\WebTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\GraphTools.cs" />
