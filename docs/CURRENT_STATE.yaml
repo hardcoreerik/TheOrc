@@ -223,6 +223,10 @@ subsystems:
       Warband assets from a release). Current workflow verifies expected files
       exist; it does not launch/smoke-test packaged binaries. No SBOM, code
       signing, or notarization yet.
+      As of 2026-11-05 (PR #110) every workflow action is pinned to a commit
+      SHA, and .github/dependabot.yml schedules weekly NuGet and Actions
+      update PRs (Dependabot security alerts still need enabling in repo
+      settings).
 
   release_asset_audit:
     status: experimental
@@ -240,6 +244,21 @@ subsystems:
       recommended warnings to the affected historical GitHub release pages
       (drafted in RELEASE_ASSET_AUDIT.md, deliberately not auto-posted --
       editing a public release page needs an explicit decision).
+
+  macos_desktop:
+    status: experimental
+    note: >
+      Verified 2026-11-05 on Apple Silicon (M1 Max, 32 GB, macOS 27.2, .NET
+      10.0.403), PRs #107-#110: the solution builds; every ci.yml step passes
+      locally; UnitTests and HeadlessTests pass, and the THEORC_TEST_GGUF
+      real-model lanes pass on Metal; the app launches; native main chat runs
+      in-process on Metal with no Ollama (Qwen2.5-1.5B Q4_K_M, ~131 tok/s).
+      Metal memory feeds admission, the status bar and HIVE capability
+      ("metal", unified memory). Menus are in the macOS menu bar; shortcuts use
+      the command key. NOT working or not verified: the agent run_shell tool
+      (PowerShell-only; design issue pending), no signed .app bundle or
+      notarization, Intel Macs, and multi-machine HIVE jobs on a Mac worker.
+      CI still builds and tests on Windows only.
 
 warband:
   status: opt-in

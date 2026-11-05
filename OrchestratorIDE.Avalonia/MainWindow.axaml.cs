@@ -161,10 +161,9 @@ public partial class MainWindow : Window
             MainMenu.IsVisible = false;
             RootGrid.RowDefinitions[1].Height = new GridLength(0);
 
-            // Tooltips written as Windows shortcuts in XAML. "Code Agent" has no working
-            // keyboard shortcut (nothing handles Ctrl+Shift+A), so the Mac tooltip omits it.
+            // Tooltips are written as Windows shortcuts in XAML.
             ToolTip.SetTip(BtnExplorer, $"File Explorer ({PlatformShortcuts.Label("Ctrl+Shift+E")})");
-            ToolTip.SetTip(BtnAgent, "Code Agent");
+            ToolTip.SetTip(BtnAgent, $"Code Agent ({PlatformShortcuts.Label("Ctrl+Shift+A")})");
         }
 
         // Keyboard shortcuts — attached before panels are constructed
@@ -2280,6 +2279,13 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             OpenRulesFile();
+        }
+        // Ctrl+Shift+A (⇧⌘A on macOS): the Code Agent button's tooltip has always advertised
+        // this shortcut, but nothing handled it.
+        if (e.Key == Key.A && e.KeyModifiers == (cmd | KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            BtnAgent_Click(this, new RoutedEventArgs());
         }
         if (e.Key == Key.N && e.KeyModifiers == cmd)
         {
