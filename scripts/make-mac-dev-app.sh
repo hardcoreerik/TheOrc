@@ -2,26 +2,35 @@
 # Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# macOS: builds TheOrc.app, a launcher for the app built from THIS checkout, so the Dock,
-# Cmd-Tab and Finder show "TheOrc" and its icon. Started with `dotnet …dll` the app is the
-# dotnet host and the Dock labels it "dotnet": macOS takes the name from the app bundle, and a
-# bare dotnet process has none. This is not the signed, self-contained release bundle (that is
-# its own roadmap item); it runs the Debug (or --release) build in this repo, so rebuild as
-# usual and relaunch.
+# macOS: builds TheOrc.app from THIS checkout, so the Dock, Cmd-Tab and Finder show "TheOrc"
+# and its icon (started as `dotnet …dll` the app is the dotnet host and shows as "dotnet").
 #
-# Usage:  scripts/make-mac-dev-app.sh [--release] [--no-build] [path/to/TheOrc.app]
+# Two kinds of bundle:
+#   default       A launcher for the Debug (or --release) build in this repo: rebuild as usual
+#                 and relaunch. It runs Microsoft's dotnet, so macOS privacy permissions
+#                 (Screen Recording, folders, …) are asked for and granted to "dotnet".
+#   --standalone  The app itself, self-contained (.NET runtime included, no SDK needed) and
+#                 signed ad-hoc as its own program, so permissions are asked for TheOrc and
+#                 cover only TheOrc. Re-run the script after code changes; an ad-hoc signature
+#                 changes with every build, so macOS may ask for permissions again.
+#                 Not notarized (that needs an Apple Developer ID): fine on this Mac, but
+#                 Gatekeeper would block a copy downloaded on another one.
+#
+# Usage:  scripts/make-mac-dev-app.sh [--standalone | --release] [--no-build] [path/to/TheOrc.app]
 #         (default: ~/Applications/TheOrc.app; then open it, or drag it to the Dock)
 set -euo pipefail
 
 BUNDLE_ID="local.dev.theorc"
 CONFIG="Debug"
 BUILD=1
+STANDALONE=0
 OUT="$HOME/Applications/TheOrc.app"
 for arg in "$@"; do
   case "$arg" in
-    --release)  CONFIG="Release" ;;
-    --no-build) BUILD=0 ;;
-    -h|--help)  sed -n '5,15p' "$0"; exit 0 ;;
+    --release)    CONFIG="Release" ;;
+    --standalone) STANDALONE=1; CONFIG="Release" ;;
+    --no-build)   BUILD=0 ;;
+    -h|--help)    sed -n '5,23p' "$0"; exit 0 ;;
     -*)         echo "make-mac-dev-app: unknown option $arg" >&2; exit 2 ;;
     *)          OUT="$arg" ;;
   esac
@@ -45,11 +54,20 @@ done
 DOTNET="$(cd "$(dirname "$DOTNET")" && pwd -P)/$(basename "$DOTNET")"   # resolve symlinks
 DOTNET_HOME="$(dirname "$DOTNET")"
 
-if (( BUILD )); then
-  DOTNET_ROOT="$DOTNET_HOME" "$DOTNET" build "$PROJECT" -c "$CONFIG" -v q --nologo
-fi
-[[ -f "$DLL" ]] || { echo "make-mac-dev-app: no build at $DLL (run without --no-build)." >&2; exit 1; }
 [[ -f "$ICON" ]] || { echo "make-mac-dev-app: missing $ICON" >&2; exit 1; }
+if (( STANDALONE )); then
+  (( BUILD )) || { echo "make-mac-dev-app: --standalone always publishes; drop --no-build." >&2; exit 2; }
+  PUB="$(mktemp -d)"
+  trap 'rm -rf "$PUB"' EXIT
+  DOTNET_ROOT="$DOTNET_HOME" "$DOTNET" publish "$PROJECT" -c Release -r osx-arm64 --self-contained \
+    -p:DebugType=none -p:DebugSymbols=false -o "$PUB" -v q --nologo
+  [[ -x "$PUB/OrchestratorIDE.Avalonia" ]] || { echo "make-mac-dev-app: publish made no app executable." >&2; exit 1; }
+else
+  if (( BUILD )); then
+    DOTNET_ROOT="$DOTNET_HOME" "$DOTNET" build "$PROJECT" -c "$CONFIG" -v q --nologo
+  fi
+  [[ -f "$DLL" ]] || { echo "make-mac-dev-app: no build at $DLL (run without --no-build)." >&2; exit 1; }
+fi
 
 # Only ever replace a bundle this script made.
 if [[ -e "$OUT" ]]; then
@@ -88,15 +106,38 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint -s "$OUT/Contents/Info.plist"
 
-# exec keeps the bundle's process, so the Dock tile stays TheOrc's. The app writes its own log
-# (~/Library/Logs/TheOrc); stdout/stderr aren't kept.
-cat > "$OUT/Contents/MacOS/TheOrc" <<LAUNCHER
+if (( STANDALONE )); then
+  # Layout codesign accepts: Contents/MacOS may hold only code, so the published app lives in
+  # Contents/Resources/app. The .NET apphost (renamed TheOrc) stays in MacOS and finds the app
+  # through the DLL symlink; it treats the symlink's real folder as the app folder, so
+  # everything (runtime included) must sit together in Resources/app.
+  APP="$OUT/Contents/Resources/app"
+  mkdir -p "$APP"
+  cp -R "$PUB/." "$APP/"
+  # Native libraries for other OSes (Linux, Windows, Intel Mac) are never loaded here (~90 MB).
+  if [[ -d "$APP/runtimes" ]]; then
+    find "$APP/runtimes" -mindepth 1 -maxdepth 1 ! -name osx-arm64 -exec rm -rf {} +
+  fi
+  mv "$APP/OrchestratorIDE.Avalonia" "$OUT/Contents/MacOS/TheOrc"
+  ln -s ../Resources/app/OrchestratorIDE.Avalonia.dll "$OUT/Contents/MacOS/OrchestratorIDE.Avalonia.dll"
+
+  # Sign every native file, then the bundle as TheOrc (ad-hoc: no certificate needed).
+  while IFS= read -r -d '' f; do
+    if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f" 2>/dev/null; fi
+  done < <(find "$APP" -type f -print0)
+  codesign --force --sign - --identifier "$BUNDLE_ID" "$OUT" 2>/dev/null
+  codesign --verify --deep --strict "$OUT"
+else
+  # exec keeps the bundle's process, so the Dock tile stays TheOrc's. The app writes its own log
+  # (~/Library/Logs/TheOrc); stdout/stderr aren't kept.
+  cat > "$OUT/Contents/MacOS/TheOrc" <<LAUNCHER
 #!/bin/bash
 export DOTNET_ROOT="$DOTNET_HOME"
 cd "$REPO"
 exec "$DOTNET" "$DLL" "\$@" >/dev/null 2>&1
 LAUNCHER
-chmod 755 "$OUT/Contents/MacOS/TheOrc"
+  chmod 755 "$OUT/Contents/MacOS/TheOrc"
+fi
 
 # Register now so Finder, Spotlight and the Dock pick up the name and icon straight away.
 # (THEORC_NO_REGISTER=1 skips it, for tests that build throwaway bundles.)
@@ -104,5 +145,9 @@ if [[ "${THEORC_NO_REGISTER:-0}" != "1" ]]; then
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$OUT" || true
 fi
 
-echo "Built $OUT (TheOrc $VERSION, $CONFIG build from $REPO)."
+if (( STANDALONE )); then
+  echo "Built $OUT (TheOrc $VERSION, standalone, signed ad-hoc as $BUNDLE_ID, $(du -sh "$OUT" | cut -f1))."
+else
+  echo "Built $OUT (TheOrc $VERSION, launcher for the $CONFIG build in $REPO)."
+fi
 echo "Open it with:  open \"$OUT\""
