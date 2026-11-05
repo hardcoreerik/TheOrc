@@ -32,7 +32,16 @@ public sealed class AppLogTests
     private void Start(long maxBytes = AppLog.MaxBytesPerDay) =>
         AppLog.Initialize(_dir, () => _now, maxBytes);
 
-    private string Today => File.ReadAllText(Path.Combine(_dir, "theorc-2026-11-05.log"));
+    private string Today => ReadShared(Path.Combine(_dir, "theorc-2026-11-05.log"));
+
+    // AppLog keeps today's file open for writing. Windows refuses File.ReadAllText on it
+    // (that asks for FileShare.Read only), so read the way the app's Tail does.
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
 
     [Test]
     public void Off_until_initialized_and_after_shutdown()
@@ -115,7 +124,7 @@ public sealed class AppLogTests
         AppLog.Info("Test", "day two");
 
         Assert.That(Today, Does.Contain("day one").And.Not.Contain("day two"));
-        Assert.That(File.ReadAllText(Path.Combine(_dir, "theorc-2026-11-06.log")), Does.Contain("day two"));
+        Assert.That(ReadShared(Path.Combine(_dir, "theorc-2026-11-06.log")), Does.Contain("day two"));
     }
 
     [Test]
@@ -147,6 +156,7 @@ public sealed class AppLogTests
         Assert.That(new FileInfo(Path.Combine(_dir, "theorc-2026-11-05.log")).Length, Is.LessThan(4_400));
         Assert.That(log.Split("cap; nothing more is written today").Length - 1, Is.EqualTo(1));
         Assert.That(log, Does.Not.Contain("entry 199"));
+        Assert.That(log, Does.Not.Contain(Environment.NewLine + Environment.NewLine), "no blank line after the notice");
     }
 
     [Test]

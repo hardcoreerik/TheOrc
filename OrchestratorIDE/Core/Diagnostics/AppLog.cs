@@ -146,7 +146,7 @@ public static class AppLog
                 if (_writer!.BaseStream.Length + Encoding.UTF8.GetByteCount(line) > _maxBytes)
                 {
                     _capReached = true;
-                    _writer.WriteLine(Format(now, AppLogLevel.Warn, "AppLog",
+                    _writer.Write(Format(now, AppLogLevel.Warn, "AppLog",
                         $"Daily log reached its {_maxBytes / (1024 * 1024.0):0.##} MB cap; nothing more is written today."));
                     _writer.Flush();
                     return;
