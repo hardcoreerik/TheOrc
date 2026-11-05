@@ -65,6 +65,11 @@ public sealed record NativeBackendReport(
     public string Verdict =>
         SelectedCuda
             ? $"CUDA backend selected ({SelectedLlama})"
+            // Apple Silicon: LLamaSharp's only osx-arm64 build is Metal-enabled (it loads
+            // libggml-metal.dylib), so "CPU backend ... no CUDA GPU" was misleading there.
+            : DryRunSucceeded && OperatingSystem.IsMacOS() &&
+              RuntimeInformation.OSArchitecture == Architecture.Arm64
+                ? "Metal backend selected (osx-arm64 build); no CUDA on macOS"
             : CudaCapableGpu
                 ? $"CPU FALLBACK despite CUDA-capable GPU — selected {SelectedLlama}"
                 : $"CPU backend selected ({SelectedLlama}); no CUDA-capable GPU detected";
