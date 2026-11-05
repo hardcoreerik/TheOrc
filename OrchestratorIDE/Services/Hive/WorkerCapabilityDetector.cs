@@ -33,6 +33,8 @@ public static class WorkerCapabilityDetector
             // remains disabled until a backend-specific startup smoke supplies attestation.
             FreeVramMb = verifiedNativeBackend is "cuda12" or "metal" ? freeVramMb : 0,
             NativeBackend = verifiedNativeBackend is "cuda12" or "metal" ? verifiedNativeBackend : "cpu",
+            // Metal shares system RAM, so the matcher must not count RAM and VRAM twice.
+            IsUnifiedMemory = verifiedNativeBackend == "metal",
             NativeModelHashes = [.. bases],
             NativeAdapterHashes = [.. adapters],
             ContainerEngine = engine,

@@ -240,7 +240,8 @@ public partial class SettingsPanel : UserControl
                 {
                     var depot = ModelDepot.ScanSources(roots, includeOllamaModels: includeOllama);
                     return (depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf),
-                        NativeVramProbe.TryQueryLiveNvidiaBudget());
+                        // Metal on Apple Silicon, where DetectedVramGb is 0 (unified memory).
+                        NativeVramProbe.TryQueryLiveGpuBudget());
                 }).ConfigureAwait(true);
                 var hasBudget = liveBudget is not null || _current.DetectedVramGb > 0;
                 var ready = baseCount > 0 && hasBudget;

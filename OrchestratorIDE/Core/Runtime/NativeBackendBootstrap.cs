@@ -61,14 +61,28 @@ public sealed record NativeBackendReport(
     string SelectedMtmd,
     IReadOnlyList<string> Log)
 {
+    /// <summary>
+    /// Apple Silicon: LLamaSharp's only osx-arm64 build is Metal-enabled (it loads
+    /// libggml-metal.dylib), so a successful dry run there means the Metal backend.
+    /// </summary>
+    public bool SelectedMetal =>
+        !SelectedCuda && DryRunSucceeded && OperatingSystem.IsMacOS() &&
+        RuntimeInformation.OSArchitecture == Architecture.Arm64;
+
+    /// <summary>
+    /// The backend label a HIVE worker advertises (<c>WorkerCapabilities.NativeBackend</c> and
+    /// job attestation): "cuda12", "metal" or "cpu". Both the GUI worker and the Daemon used to
+    /// map only SelectedCuda → "cuda12" else "cpu", so every Apple Silicon worker was reported
+    /// as CPU with 0 free VRAM and never got GPU-sized work. Unchanged off macOS.
+    /// </summary>
+    public string HiveBackend => SelectedCuda ? "cuda12" : SelectedMetal ? "metal" : "cpu";
+
     /// <summary>One-line human-readable verdict for activity logs.</summary>
     public string Verdict =>
         SelectedCuda
             ? $"CUDA backend selected ({SelectedLlama})"
-            // Apple Silicon: LLamaSharp's only osx-arm64 build is Metal-enabled (it loads
-            // libggml-metal.dylib), so "CPU backend ... no CUDA GPU" was misleading there.
-            : DryRunSucceeded && OperatingSystem.IsMacOS() &&
-              RuntimeInformation.OSArchitecture == Architecture.Arm64
+            // "CPU backend ... no CUDA GPU" was misleading on Apple Silicon.
+            : SelectedMetal
                 ? "Metal backend selected (osx-arm64 build); no CUDA on macOS"
             : CudaCapableGpu
                 ? $"CPU FALLBACK despite CUDA-capable GPU — selected {SelectedLlama}"

@@ -142,6 +142,13 @@ public sealed record WorkerCapabilities
     public long AvailableMemoryMb    { get; init; }
     public long FreeVramMb           { get; init; }
     public string NativeBackend      { get; init; } = "cpu";
+    /// <summary>
+    /// True when the GPU shares system RAM (Apple Silicon / Metal). <see cref="FreeVramMb"/> is
+    /// then carved out of the same pool as <see cref="AvailableMemoryMb"/>, so a unit's RAM and
+    /// VRAM requirements must fit in that pool together. Older Warchiefs ignore the field
+    /// (System.Text.Json skips unknown members) and keep the old per-pool checks.
+    /// </summary>
+    public bool IsUnifiedMemory      { get; init; }
     public string[] NativeModelHashes { get; init; } = [];
     public string[] NativeAdapterHashes { get; init; } = [];
     public string ContainerEngine    { get; init; } = "";
@@ -213,6 +220,9 @@ public static class CampaignCapabilityMatcher
             return $"has {worker.AvailableMemoryMb} MB RAM available, needs {r.MinMemoryMb} MB";
         if (worker.FreeVramMb < r.MinVramMb)
             return $"has {worker.FreeVramMb} MB VRAM free, needs {r.MinVramMb} MB";
+        if (!FitsUnifiedMemory(worker, r))
+            return $"has {worker.AvailableMemoryMb} MB unified memory, needs {r.MinMemoryMb} MB RAM + " +
+                   $"{r.MinVramMb} MB VRAM from the same pool";
         if (r.Os.Length > 0 && !worker.Os.Contains(r.Os, StringComparison.OrdinalIgnoreCase))
             return $"runs OS '{worker.Os}', requirement is '{r.Os}'";
         if (r.Architecture.Length > 0 && !worker.Architecture.Equals(r.Architecture, StringComparison.OrdinalIgnoreCase))
@@ -252,6 +262,8 @@ public static class CampaignCapabilityMatcher
         var r = bundle.Requirements;
         if (worker.CpuCores < Math.Max(1, r.MinCpuCores) || worker.AvailableMemoryMb < r.MinMemoryMb || worker.FreeVramMb < r.MinVramMb)
             return false;
+        if (!FitsUnifiedMemory(worker, r))
+            return false;
         if (r.Os.Length > 0 && !worker.Os.Contains(r.Os, StringComparison.OrdinalIgnoreCase))
             return false;
         if (r.Architecture.Length > 0 && !worker.Architecture.Equals(r.Architecture, StringComparison.OrdinalIgnoreCase))
@@ -266,6 +278,15 @@ public static class CampaignCapabilityMatcher
             return false;
         return r.RequiredPacks.All(p => worker.InstalledPacks.Contains(p, StringComparer.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Separate-pool workers (discrete GPUs) always pass. A unified-memory worker must hold the
+    /// RAM and VRAM requirements in one pool: a 32 GB Mac can't take a unit needing 16 GB RAM
+    /// and 20 GB VRAM just because each figure passes on its own.
+    /// </summary>
+    private static bool FitsUnifiedMemory(WorkerCapabilities worker, ResourceRequirements r) =>
+        !worker.IsUnifiedMemory ||
+        worker.AvailableMemoryMb >= (long)Math.Max(0, r.MinMemoryMb) + Math.Max(0, r.MinVramMb);
 
     public static int Score(HiveTaskBundle bundle, WorkerCapabilities worker)
     {

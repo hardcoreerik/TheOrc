@@ -63,12 +63,15 @@ public static class NativeVramProbe
     /// "live probe already includes resident models" semantics RuntimeOrchestrator expects.
     /// Returns <see langword="null"/> anywhere else (non-macOS, Intel Macs — whose LLamaSharp
     /// osx-x64 backend is CPU-only — or any interop failure).
+    ///
+    /// <c>currentAllocatedSize</c> only counts THIS process, so it can't see Ollama, a second
+    /// TheOrc, the HIVE daemon or a browser holding the same unified memory. Free space is
+    /// therefore capped by the host's reclaimable memory as well (see
+    /// <see cref="CombineMetalWithHost"/>), so admission doesn't push the Mac into swap.
     /// </summary>
     public static VramBudget? TryQueryLiveMetalBudget()
     {
-        if (!OperatingSystem.IsMacOS() ||
-            System.Runtime.InteropServices.RuntimeInformation.OSArchitecture !=
-                System.Runtime.InteropServices.Architecture.Arm64)
+        if (!IsUnifiedMemoryHost)
             return null;
 
         try
@@ -82,7 +85,7 @@ public static class NativeVramProbe
                 var used  = MetalInterop.SendUInt64(device, MetalInterop.Sel("currentAllocatedSize"));
                 if (total == 0 || total > long.MaxValue || used > total)
                     return null;
-                return new VramBudget(TotalBytes: (long)total, ReservedBytes: (long)used);
+                return CombineMetalWithHost((long)total, (long)used, TryQueryHostAvailableBytes());
             }
             finally
             {
@@ -93,6 +96,65 @@ public static class NativeVramProbe
         catch
         {
             // Missing framework / selector — same best-effort contract as the nvidia-smi probe.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// True on Apple Silicon Macs, where the GPU shares system RAM (unified memory). HIVE uses it
+    /// so a worker's RAM and VRAM figures aren't counted as two separate pools.
+    /// </summary>
+    public static bool IsUnifiedMemoryHost =>
+        OperatingSystem.IsMacOS() &&
+        System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
+            System.Runtime.InteropServices.Architecture.Arm64;
+
+    /// <summary>
+    /// The live GPU budget for whatever this machine has: nvidia-smi first (unchanged behavior
+    /// on Windows/Linux), then Metal on Apple Silicon. Null when neither is available.
+    /// </summary>
+    public static VramBudget? TryQueryLiveGpuBudget() =>
+        TryQueryLiveNvidiaBudget() ?? TryQueryLiveMetalBudget();
+
+    /// <summary>
+    /// Metal's view (<paramref name="workingSetBytes"/> ceiling, <paramref name="processAllocatedBytes"/>
+    /// used by this process) capped by what the whole Mac can still hand out
+    /// (<paramref name="hostAvailableBytes"/>; null = unknown, no cap). Free = min(Metal free,
+    /// host available); the rest of the working set is reported as reserved, which is how
+    /// RuntimeOrchestrator already reads a live probe.
+    /// </summary>
+    public static VramBudget CombineMetalWithHost(long workingSetBytes, long processAllocatedBytes,
+        long? hostAvailableBytes)
+    {
+        var free = Math.Max(0, workingSetBytes - processAllocatedBytes);
+        if (hostAvailableBytes is { } host)
+            free = Math.Min(free, Math.Max(0, host));
+        return new VramBudget(TotalBytes: workingSetBytes, ReservedBytes: workingSetBytes - free);
+    }
+
+    /// <summary>
+    /// Memory the Mac can hand out without swapping: free + inactive + purgeable pages from
+    /// <c>host_statistics64(HOST_VM_INFO64)</c> (the same counters <c>vm_stat</c> prints).
+    /// Null off macOS or on any failure.
+    /// </summary>
+    public static long? TryQueryHostAvailableBytes()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return null;
+        try
+        {
+            // vm_statistics64 is 38 integer_t long (HOST_VM_INFO64_COUNT). Offsets in 32-bit
+            // words: free_count 0, inactive_count 2, purgeable_count 22.
+            var stats = new int[MachInterop.HostVmInfo64Count];
+            var count = MachInterop.HostVmInfo64Count;
+            if (MachInterop.host_statistics64(MachInterop.Host.Value, MachInterop.HostVmInfo64,
+                    stats, ref count) != 0)
+                return null;
+            var pages = (long)(uint)stats[0] + (uint)stats[2] + (uint)stats[22];
+            return pages * Environment.SystemPageSize;
+        }
+        catch
+        {
             return null;
         }
     }
@@ -112,6 +174,23 @@ public static class NativeVramProbe
 
         [System.Runtime.InteropServices.DllImport(Objc, EntryPoint = "objc_msgSend")]
         public static extern void SendVoid(IntPtr receiver, IntPtr selector);
+    }
+
+    private static class MachInterop
+    {
+        private const string LibSystem = "/usr/lib/libSystem.dylib";
+        public const int HostVmInfo64 = 4;
+        public const int HostVmInfo64Count = 38;
+
+        // Each mach_host_self() call adds a send right; fetch it once, since the status bar
+        // polls this every few seconds.
+        public static readonly Lazy<uint> Host = new(mach_host_self);
+
+        [System.Runtime.InteropServices.DllImport(LibSystem)]
+        public static extern uint mach_host_self();
+
+        [System.Runtime.InteropServices.DllImport(LibSystem)]
+        public static extern int host_statistics64(uint host, int flavor, [System.Runtime.InteropServices.Out] int[] info, ref int count);
     }
 
     /// <summary>
