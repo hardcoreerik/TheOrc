@@ -3138,6 +3138,11 @@ public partial class MainWindow : Window
         if (NativeVramProbe.TryQueryLiveNvidiaBudget() is { } liveBudget)
             return liveBudget;
 
+        // Apple Silicon: no nvidia-smi and no installer-detected VRAM (unified memory), so
+        // without this the native runtime is never built. Null on every other platform.
+        if (NativeVramProbe.TryQueryLiveMetalBudget() is { } metalBudget)
+            return metalBudget;
+
         var detectedVramGb = _activeRuntimeSettings.DetectedVramGb;
         if (detectedVramGb <= 0)
             return null;

@@ -53,6 +53,68 @@ public static class NativeVramProbe
     }
 
     /// <summary>
+    /// Apple Silicon equivalent of <see cref="TryQueryLiveNvidiaBudget"/>. Unified memory has no
+    /// separate VRAM figure (the installer's MacPlatformInstaller reports 0, so
+    /// <c>AppSettings.DetectedVramGb</c> is 0 too), which left every Apple Silicon Mac without a
+    /// budget and native admission fail-closed. Metal reports the real numbers directly:
+    /// <c>recommendedMaxWorkingSetSize</c> is the GPU working-set ceiling (the same limit
+    /// llama.cpp's Metal backend sizes against) and <c>currentAllocatedSize</c> is what this
+    /// process has allocated on the device right now, i.e. resident models — the same
+    /// "live probe already includes resident models" semantics RuntimeOrchestrator expects.
+    /// Returns <see langword="null"/> anywhere else (non-macOS, Intel Macs — whose LLamaSharp
+    /// osx-x64 backend is CPU-only — or any interop failure).
+    /// </summary>
+    public static VramBudget? TryQueryLiveMetalBudget()
+    {
+        if (!OperatingSystem.IsMacOS() ||
+            System.Runtime.InteropServices.RuntimeInformation.OSArchitecture !=
+                System.Runtime.InteropServices.Architecture.Arm64)
+            return null;
+
+        try
+        {
+            var device = MetalInterop.MTLCreateSystemDefaultDevice();
+            if (device == IntPtr.Zero)
+                return null;
+            try
+            {
+                var total = MetalInterop.SendUInt64(device, MetalInterop.Sel("recommendedMaxWorkingSetSize"));
+                var used  = MetalInterop.SendUInt64(device, MetalInterop.Sel("currentAllocatedSize"));
+                if (total == 0 || total > long.MaxValue || used > total)
+                    return null;
+                return new VramBudget(TotalBytes: (long)total, ReservedBytes: (long)used);
+            }
+            finally
+            {
+                // MTLCreateSystemDefaultDevice follows the Create rule (+1 retain).
+                MetalInterop.SendVoid(device, MetalInterop.Sel("release"));
+            }
+        }
+        catch
+        {
+            // Missing framework / selector — same best-effort contract as the nvidia-smi probe.
+            return null;
+        }
+    }
+
+    private static class MetalInterop
+    {
+        private const string Objc = "/usr/lib/libobjc.A.dylib";
+
+        [System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/Metal.framework/Metal")]
+        public static extern IntPtr MTLCreateSystemDefaultDevice();
+
+        [System.Runtime.InteropServices.DllImport(Objc, EntryPoint = "sel_registerName")]
+        public static extern IntPtr Sel(string name);
+
+        [System.Runtime.InteropServices.DllImport(Objc, EntryPoint = "objc_msgSend")]
+        public static extern ulong SendUInt64(IntPtr receiver, IntPtr selector);
+
+        [System.Runtime.InteropServices.DllImport(Objc, EntryPoint = "objc_msgSend")]
+        public static extern void SendVoid(IntPtr receiver, IntPtr selector);
+    }
+
+    /// <summary>
     /// Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3) — how much VRAM THIS
     /// PROCESS is actually using right now, via nvidia-smi's per-process accounting
     /// (<c>--query-compute-apps</c>), filtered to <see cref="Environment.ProcessId"/>.
