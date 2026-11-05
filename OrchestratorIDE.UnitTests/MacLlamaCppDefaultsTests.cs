@@ -30,7 +30,7 @@ public sealed class MacLlamaCppDefaultsTests
 
     private string Touch(string relative, DateTime? written = null)
     {
-        var path = Path.Combine(_dir, relative);
+        var path = Path.Combine(_dir, relative.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "x");
         if (written is { } w)
@@ -38,7 +38,7 @@ public sealed class MacLlamaCppDefaultsTests
         return path;
     }
 
-    private string Sub(string name) => Path.Combine(_dir, name);
+    private string Sub(string name) => Path.Combine(_dir, name.Replace('/', Path.DirectorySeparatorChar));
 
     // ── llama-server folder ──────────────────────────────────────────────────────────────
 
