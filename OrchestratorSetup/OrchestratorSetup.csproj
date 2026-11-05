@@ -44,17 +44,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+    <PackageReference Include="Avalonia" Version="12.1.5" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.5" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.5" />
     <!-- System.Text.Json is inbox in .NET 10 but kept explicit for IDE Intellisense -->
-    <PackageReference Include="System.Text.Json"  Version="10.0.8" NoWarn="NU1510" />
+    <PackageReference Include="System.Text.Json"  Version="10.0.14" NoWarn="NU1510" />
     <!-- WMI managed API (Windows-only at runtime) — required for Win32_VideoController and
          ComputerSystem queries. References fine under plain net10.0; HardwareDetector.Detect
          gates the actual calls behind a runtime OperatingSystem.IsWindows() check (see that
          method's own comment for why a runtime check, not #if WINDOWS, is the right tool here). -->
-    <PackageReference Include="System.Management"  Version="9.0.0" />
+    <PackageReference Include="System.Management"  Version="9.0.22" />
     <!-- Registry access for UninstallService's Apps & Features entry (Windows-only at
          runtime; every call site is already wrapped in try/catch, so a non-Windows runtime
          safely no-ops rather than throwing; see UninstallService's class doc comment).
