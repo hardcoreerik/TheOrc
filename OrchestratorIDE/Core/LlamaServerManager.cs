@@ -105,6 +105,8 @@ public sealed class LlamaServerManager : IDisposable
             return false;
         }
 
+        if (!OperatingSystem.IsMacOS())
+            NoMmapMode = ProbeNoMmapFlag(exePath);
         var args = BuildArgs();
         Log($"Launching: {Path.GetFileName(exePath)} {args}");
 
@@ -218,6 +220,72 @@ public sealed class LlamaServerManager : IDisposable
         return null;
     }
 
+    /// <summary>How this llama-server spells "don't memory-map the model".</summary>
+    internal enum NoMmapFlag { None, LegacyNoMmap, LoadModeNone }
+
+    /// <summary>
+    /// Which flag <see cref="BuildArgs"/> sends. Defaults to the original --no-mmap;
+    /// <see cref="StartAsync"/> sets it from the binary's own --help before launching.
+    /// </summary>
+    internal NoMmapFlag NoMmapMode { get; set; } = NoMmapFlag.LegacyNoMmap;
+
+    /// <summary>
+    /// llama.cpp replaced --no-mmap with --load-mode (b12128 rejects --no-mmap with "invalid
+    /// argument" and exits; its help no longer lists it, and documents "--load-mode MODE …
+    /// none: no special loading mode"). Older builds only know --no-mmap.
+    /// </summary>
+    internal static NoMmapFlag DetectNoMmapFlag(string helpText) =>
+        helpText.Contains("--load-mode", StringComparison.Ordinal) ? NoMmapFlag.LoadModeNone
+        : helpText.Contains("--no-mmap", StringComparison.Ordinal) ? NoMmapFlag.LegacyNoMmap
+        : NoMmapFlag.None;
+
+    private static readonly Dictionary<string, NoMmapFlag> _noMmapByExe = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Asks the binary (`llama-server --help`, once per path, 10 s cap). If that fails for any
+    /// reason, keeps the original --no-mmap so nothing changes for a binary we can't read.
+    /// </summary>
+    internal static NoMmapFlag ProbeNoMmapFlag(string exePath)
+    {
+        lock (_noMmapByExe)
+        {
+            if (_noMmapByExe.TryGetValue(exePath, out var known))
+                return known;
+        }
+        var result = NoMmapFlag.LegacyNoMmap;
+        try
+        {
+            var psi = new ProcessStartInfo(exePath)
+            {
+                WorkingDirectory       = Path.GetDirectoryName(exePath) ?? "",
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+            psi.ArgumentList.Add("--help");
+            using var p = Process.Start(psi);
+            if (p is not null)
+            {
+                var stdout = p.StandardOutput.ReadToEndAsync();
+                var stderr = p.StandardError.ReadToEndAsync();
+                if (p.WaitForExit(10_000))
+                {
+                    var help = stdout.Result + stderr.Result;
+                    if (help.Length > 0)
+                        result = DetectNoMmapFlag(help);
+                }
+                else
+                {
+                    try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                }
+            }
+        }
+        catch { /* keep --no-mmap */ }
+        lock (_noMmapByExe) _noMmapByExe[exePath] = result;
+        return result;
+    }
+
     internal string BuildArgs()
     {
         var sb = new StringBuilder();
@@ -236,11 +304,18 @@ public sealed class LlamaServerManager : IDisposable
         if (Threads > 0)
             sb.Append($" --threads {Threads}");
 
-        // Disable memory-mapping for broader Windows compat. Not on macOS: current llama.cpp
-        // rejects --no-mmap ("invalid argument", replaced by --load-mode) and exits, and with
-        // unified memory Metal uses the mapped model directly, so the default is right there.
+        // Disable memory-mapping for broader Windows compat, with whichever flag this
+        // llama-server understands: current builds reject --no-mmap ("invalid argument") and
+        // exit, and older ones don't know its replacement, --load-mode none (see
+        // DetectNoMmapFlag). Not on macOS: with unified memory Metal uses the mapped model
+        // directly, so llama.cpp's default (mmap) is right there.
         if (!OperatingSystem.IsMacOS())
-            sb.Append(" --no-mmap");
+        {
+            if (NoMmapMode == NoMmapFlag.LoadModeNone)
+                sb.Append(" --load-mode none");
+            else if (NoMmapMode == NoMmapFlag.LegacyNoMmap)
+                sb.Append(" --no-mmap");
+        }
 
         // LoRA adapter (optional)
         if (!string.IsNullOrWhiteSpace(LoraPath) && File.Exists(LoraPath))
