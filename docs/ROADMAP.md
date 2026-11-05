@@ -587,9 +587,7 @@ First run on real Mac hardware (M1 Max, 32 GB, macOS 27.2, .NET 10.0.403). **Ver
 - Explorer loading is lazy (#109, all platforms).
 
 **Next, roughly in priority order** (ranked from a survey of 16 comparable projects, plus what the bring-up found; ✅ = done above):
-1. **`run_shell` per-OS shell** — the agent can't run shell commands on macOS/Linux (always `powershell`).
-   - Proposal: keep Windows byte-identical; use `bash -c` plus login-shell PATH resolution on Unix (the Goose/Codex pattern).
-   - Needs a maintainer decision first: it's security-relevant because `ToolPolicyEngine` reads the command text. A design issue is drafted.
+1. ✅ **`run_shell` per-OS shell** — macOS/Linux now run `/bin/bash -c` with the login-shell PATH; Windows is byte-identical (PowerShell). The same command text reaches `ToolPolicyEngine`, the approval prompt and bash, so policy and approval are unchanged. Still open: POSIX-specific policy patterns (item 6).
 2. **Process-tree kill on cancel + streamed output cap** (all platforms).
    - Cancelling `run_shell` today leaves the process running.
    - Output is fully buffered before truncation.
