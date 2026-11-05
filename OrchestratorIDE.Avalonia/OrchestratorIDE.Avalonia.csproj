@@ -30,6 +30,8 @@
   <PropertyGroup>
     <_TargetsWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</_TargetsWindows>
     <_TargetsWindows Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</_TargetsWindows>
+    <_TargetsMacOS Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('osx'))</_TargetsMacOS>
+    <_TargetsMacOS Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('OSX'))</_TargetsMacOS>
   </PropertyGroup>
 
   <!--
@@ -117,6 +119,12 @@
     <EmbeddedResource Include="..\OrchestratorIDE\Resources\curated-models.json" Link="Resources\curated-models.json" />
     <EmbeddedResource Include="..\OrchestratorIDE\Resources\model-wiki-observations.json" Link="Resources\model-wiki-observations.json" />
     <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- macOS app icon (Dock, Cmd-Tab). Built from Assets/icon.png by Assets/macos/make-icon.swift;
+       set at startup by UI/MacDockIcon.cs. Not part of Windows or Linux builds. -->
+  <ItemGroup Condition="'$(_TargetsMacOS)' == 'true'">
+    <Content Include="..\Assets\macos\TheOrc.icns" Link="Assets\TheOrc.icns" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--
