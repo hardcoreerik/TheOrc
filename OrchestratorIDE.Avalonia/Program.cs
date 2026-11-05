@@ -29,7 +29,22 @@ internal static class Program
             return;
         }
 
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        // Persistent log file (see AppLog): activity, crashes and llama.cpp errors.
+        Core.Diagnostics.AppLog.Initialize();
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            Core.Diagnostics.AppLog.Exception("Crash", e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString()),
+                $"Unhandled exception (terminating: {e.IsTerminating})");
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+            Core.Diagnostics.AppLog.Exception("Background task", e.Exception, "Unobserved task exception");
+
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        finally
+        {
+            Core.Diagnostics.AppLog.Shutdown();
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp()

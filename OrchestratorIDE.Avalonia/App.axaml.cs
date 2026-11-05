@@ -43,6 +43,9 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             desktop.MainWindow = new MainWindow();
+        // Log UI-thread exceptions; doesn't mark them handled, so behavior is unchanged.
+        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, e) =>
+            Core.Diagnostics.AppLog.Exception("UI thread", e.Exception, "Unhandled UI-thread exception");
         base.OnFrameworkInitializationCompleted();
     }
 }

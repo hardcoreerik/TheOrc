@@ -323,6 +323,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         var backendReport = NativeBackendBootstrap.EnsureConfigured(line =>
         {
             _loadMeasurement.Observe(line);
+            OrchestratorIDE.Core.Diagnostics.AppLog.Native(line);   // warnings/errors only; no-op unless the app enabled logging
             if (diagnosticsEnabled)
                 Console.WriteLine($"[NativeLog] {line}");
         });
