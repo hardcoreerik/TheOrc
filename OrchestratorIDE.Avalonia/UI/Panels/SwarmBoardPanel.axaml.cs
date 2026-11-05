@@ -597,7 +597,7 @@ public partial class SwarmBoardPanel : UserControl
 
     private void OnStreamWheel(object? sender, PointerWheelEventArgs e)
     {
-        if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+        if ((e.KeyModifiers & PlatformShortcuts.Command) == 0) return;  // ⌘-scroll on macOS
         e.Handled = true;
         _streamFontSize    = Math.Clamp(_streamFontSize + (e.Delta.Y > 0 ? 1.0 : -1.0), 8, 28);
         TbStream.FontSize  = _streamFontSize;
