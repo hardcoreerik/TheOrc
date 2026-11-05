@@ -23,26 +23,29 @@ public partial class FileExplorerPanel : UserControl
         ".pytest_cache", ".mypy_cache", ".ruff_cache"
     ];
 
-    // macOS only: home-directory folders the eager tree walk must not descend into unless
-    // the user picks one as the workspace root. ~/Library is huge and holds iCloud Drive
-    // ("Mobile Documents"), whose not-yet-downloaded placeholders block enumeration until
-    // they materialise; the rest are TCC-protected, so touching them parks the UI thread on
-    // a privacy prompt. With the default workspace (the home folder) either one hung
-    // MainWindow's constructor before the window ever appeared.
-    private static readonly HashSet<string> MacHomeSkipPaths = OperatingSystem.IsMacOS()
-        ? new HashSet<string>(
-            new[] { "Library", "Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures" }
-                .Select(d => Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), d)),
-            StringComparer.OrdinalIgnoreCase)
-        : [];
+    // macOS only: ~/Library stays out of the tree unless the user picks it as the workspace
+    // root (Finder hides it too). It is huge and holds iCloud Drive ("Mobile Documents"),
+    // whose not-yet-downloaded placeholders block enumeration until they materialise. Other
+    // home folders load on demand like any folder: expanding a TCC-protected one (Desktop,
+    // Documents, ...) shows macOS's normal privacy prompt on a background thread instead of
+    // hanging the UI.
+    private static readonly string? MacHomeLibrary = OperatingSystem.IsMacOS()
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library")
+        : null;
 
     public FileExplorerPanel()
     {
         InitializeComponent();
         FileTree.ItemsSource = _roots;
+        FileTree.AddHandler(TreeViewItem.ExpandedEvent, FileTree_ItemExpanded);
     }
 
+    /// <summary>
+    /// Shows <paramref name="rootPath"/> in the tree. Folders load lazily, one level at a time,
+    /// on a background thread: the old eager walk (depth 5, on the UI thread, inside
+    /// MainWindow's constructor) froze startup on big trees and hung outright on folders whose
+    /// enumeration blocks (iCloud placeholders, privacy prompts, slow network shares).
+    /// </summary>
     public void LoadWorkspace(string rootPath)
     {
         if (!Directory.Exists(rootPath)) return;
@@ -50,8 +53,33 @@ public partial class FileExplorerPanel : UserControl
         TbWorkspaceLabel.Text = Path.GetFileName(rootPath);
         _roots.Clear();
 
-        var root = BuildNode(rootPath, isRoot: true);
-        if (root != null) _roots.Add(root);
+        var root = CreateNode(rootPath, isDir: true);
+        _roots.Add(root);
+        // Pre-load the first level so expanding the root is instant.
+        _ = EnsureChildrenLoadedAsync(root);
+    }
+
+    private void FileTree_ItemExpanded(object? sender, RoutedEventArgs e)
+    {
+        if (e.Source is TreeViewItem { DataContext: FileNode node })
+            _ = EnsureChildrenLoadedAsync(node);
+    }
+
+    /// <summary>
+    /// Replaces a folder's "Loading…" placeholder with its real children. Enumeration runs on
+    /// the thread pool; the collection is updated back on the caller's (UI) context. Loads at
+    /// most once per node.
+    /// </summary>
+    internal static async Task EnsureChildrenLoadedAsync(FileNode node)
+    {
+        if (node.IsFile || node.LoadState != FileNodeLoadState.NotLoaded) return;
+        node.LoadState = FileNodeLoadState.Loading;
+
+        var children = await Task.Run(() => ListChildren(node.FullPath));
+
+        node.Children.Clear();
+        foreach (var child in children) node.Children.Add(child);
+        node.LoadState = FileNodeLoadState.Loaded;
     }
 
     public async void OpenFolderDialog()
@@ -98,18 +126,42 @@ public partial class FileExplorerPanel : UserControl
 #endif
     }
 
-    private static FileNode? BuildNode(string path, bool isRoot = false, int depth = 0)
+    /// <summary>
+    /// One level of <paramref name="dirPath"/>: folders first, then files, by name, with the
+    /// same filters the eager walk used. Child folders are not enumerated; each gets a
+    /// placeholder child so the tree still shows its expand arrow. An unreadable folder
+    /// yields no children, as before.
+    /// </summary>
+    internal static List<FileNode> ListChildren(string dirPath)
     {
-        if (depth > 5) return null;
+        string[] entries;
+        try { entries = Directory.GetFileSystemEntries(dirPath); }
+        catch { return []; /* permission denied, vanished, or a cloud-storage error */ }
 
-        var name  = Path.GetFileName(path);
-        var isDir = Directory.Exists(path);
+        var nodes = new List<FileNode>(entries.Length);
+        foreach (var entry in entries)
+        {
+            var isDir = Directory.Exists(entry);
+            if (IsHidden(entry, Path.GetFileName(entry), isDir)) continue;
+            nodes.Add(CreateNode(entry, isDir));
+        }
 
-        if (isDir && SkipDirs.Contains(name) && !isRoot) return null;
-        if (isDir && !isRoot && MacHomeSkipPaths.Contains(path)) return null;
-        if (!isRoot && name.StartsWith('.') &&
-            name is not ".agent.md" and not ".gitignore" and not ".env.example") return null;
+        return nodes
+            .OrderBy(n => n.IsFile ? 1 : 0)
+            .ThenBy(n => n.Name.ToLower())
+            .ToList();
+    }
 
+    private static bool IsHidden(string path, string name, bool isDir) =>
+        (isDir && SkipDirs.Contains(name)) ||
+        (isDir && MacHomeLibrary is not null &&
+            string.Equals(path, MacHomeLibrary, StringComparison.OrdinalIgnoreCase)) ||
+        (name.StartsWith('.') &&
+            name is not ".agent.md" and not ".gitignore" and not ".env.example");
+
+    private static FileNode CreateNode(string path, bool isDir)
+    {
+        var name = Path.GetFileName(path);
         var node = new FileNode
         {
             Name     = name,
@@ -117,24 +169,7 @@ public partial class FileExplorerPanel : UserControl
             IsFile   = !isDir,
             Icon     = isDir ? "📁" : GetFileIcon(name),
         };
-
-        if (isDir)
-        {
-            try
-            {
-                var entries = Directory.GetFileSystemEntries(path)
-                    .OrderBy(e => Directory.Exists(e) ? 0 : 1)
-                    .ThenBy(e => Path.GetFileName(e).ToLower());
-
-                foreach (var entry in entries)
-                {
-                    var child = BuildNode(entry, depth: depth + 1);
-                    if (child != null) node.Children.Add(child);
-                }
-            }
-            catch { /* permission denied */ }
-        }
-
+        if (isDir) node.Children.Add(FileNode.CreatePlaceholder());
         return node;
     }
 
@@ -162,5 +197,19 @@ public class FileNode
     public string FullPath { get; set; } = "";
     public string Icon     { get; set; } = "📄";
     public bool   IsFile   { get; set; }
+    /// <summary>The "Loading…" row a folder shows until it is first expanded.</summary>
+    public bool   IsPlaceholder { get; init; }
     public ObservableCollection<FileNode> Children { get; } = [];
+
+    internal FileNodeLoadState LoadState { get; set; }
+
+    internal static FileNode CreatePlaceholder() => new()
+    {
+        Name          = "Loading…",
+        Icon          = "⏳",
+        IsPlaceholder = true,
+        LoadState     = FileNodeLoadState.Loaded,
+    };
 }
+
+internal enum FileNodeLoadState { NotLoaded, Loading, Loaded }
