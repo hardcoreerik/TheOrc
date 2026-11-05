@@ -1,0 +1,34 @@
+# Dependabot version updates: weekly checks for NuGet packages and GitHub Actions.
+# Security alerts/updates are a separate switch in the repo's Settings → Code security
+# (needs an admin); this file only schedules the regular version-update PRs.
+#
+# Minor and patch bumps are grouped into one PR per ecosystem to keep the noise down.
+# Majors arrive one PR each. Review LLamaSharp bumps with care: its native backends are pinned
+# to a specific llama.cpp ABI (docs/NATIVE_RUNTIME_V2_SPEC.md).
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directories:
+      - "/OrchestratorIDE.Avalonia"
+      - "/OrchestratorIDE.Avalonia.HeadlessTests"
+      - "/OrchestratorIDE.Daemon"
+      - "/OrchestratorIDE.NativeRuntime"
+      - "/OrchestratorIDE.UITests"
+      - "/OrchestratorIDE.UnitTests"
+      - "/OrchestratorSetup"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      nuget-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Workflow actions are pinned to commit SHAs (with the version in a comment);
+  # Dependabot keeps those SHAs current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
