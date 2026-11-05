@@ -218,7 +218,7 @@ public sealed class LlamaServerManager : IDisposable
         return null;
     }
 
-    private string BuildArgs()
+    internal string BuildArgs()
     {
         var sb = new StringBuilder();
 
@@ -236,8 +236,11 @@ public sealed class LlamaServerManager : IDisposable
         if (Threads > 0)
             sb.Append($" --threads {Threads}");
 
-        // Disable memory-mapping for broader Windows compat
-        sb.Append(" --no-mmap");
+        // Disable memory-mapping for broader Windows compat. Not on macOS: current llama.cpp
+        // rejects --no-mmap ("invalid argument", replaced by --load-mode) and exits, and with
+        // unified memory Metal uses the mapped model directly, so the default is right there.
+        if (!OperatingSystem.IsMacOS())
+            sb.Append(" --no-mmap");
 
         // LoRA adapter (optional)
         if (!string.IsNullOrWhiteSpace(LoraPath) && File.Exists(LoraPath))

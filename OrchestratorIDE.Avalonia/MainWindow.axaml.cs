@@ -2972,10 +2972,23 @@ public partial class MainWindow : Window
     private LlamaServerManager? BuildServerManager(AppSettings s)
     {
         if (s.Backend != InferenceBackend.LlamaCpp) return null;
+        var runtimePath = s.LlamaCppRuntimePath;
+        var modelPath   = s.LlamaCppModelPath;
+        if (OperatingSystem.IsMacOS())
+        {
+            // No installer has filled these in on a Mac run from source: find llama-server and
+            // a model the way the installer would. Values set in Settings always win.
+            runtimePath = MacLlamaCppDefaults.ResolveRuntimePath(runtimePath);
+            modelPath   = MacLlamaCppDefaults.ResolveModelPath(modelPath, s);
+            if (runtimePath != s.LlamaCppRuntimePath || modelPath != s.LlamaCppModelPath)
+                AddActivity(new ActivityEvent(ActivityKind.Info, "llama.cpp",
+                    $"Auto-detected (set in Settings to override): llama-server in {runtimePath}, model {Path.GetFileName(modelPath)}",
+                    DateTime.Now));
+        }
         var mgr = new LlamaServerManager
         {
-            RuntimePath = s.LlamaCppRuntimePath,
-            ModelPath   = s.LlamaCppModelPath,
+            RuntimePath = runtimePath,
+            ModelPath   = modelPath,
             Port        = s.LlamaCppPort,
             GpuLayers   = s.LlamaCppGpuLayers,
             ContextSize = s.LlamaCppContextSize,

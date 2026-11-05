@@ -154,6 +154,7 @@
     <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ICustomTool.cs" />
     <Compile Include="..\OrchestratorIDE\Core\LlamaServerManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\MacLlamaCppDefaults.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ModelProfiles.cs" />
     <Compile Include="..\OrchestratorIDE\Core\NativeToolCapability.cs" />
     <Compile Include="..\OrchestratorIDE\Core\OllamaClient.cs" />
