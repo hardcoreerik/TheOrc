@@ -586,30 +586,35 @@ First run on real Mac hardware (M1 Max, 32 GB, macOS 27.2, .NET 10.0.403). **Ver
 - Menus are in the macOS menu bar, the app menu has "About TheOrc", and shortcuts use ⌘.
 - Explorer loading is lazy (#109, all platforms).
 
-**Next, roughly in priority order** (ranked from a survey of 16 comparable projects, plus what the bring-up found; ✅ = done above):
-1. ✅ **`run_shell` per-OS shell** — macOS/Linux now run `/bin/bash -c` with the login-shell PATH; Windows is byte-identical (PowerShell). The same command text reaches `ToolPolicyEngine`, the approval prompt and bash, so policy and approval are unchanged. Still open: POSIX-specific policy patterns (item 6).
-2. **Process-tree kill on cancel + streamed output cap** (all platforms).
+**Next, roughly in priority order.** Each item is labeled by where it comes from:
+- *[Phase 4 plan]*: already in `NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md` Phase 4 (bounded shell/build/test).
+- *[Mac port]*: decided for the macOS port (Garth, Mac collaborator).
+- *[suggested]*: a proposal from the bring-up and a survey of 16 comparable projects, not yet agreed by the maintainer.
+
+✅ = done.
+1. ✅ *[Mac port]* **`run_shell` per-OS shell** — macOS/Linux now run `/bin/bash -c` with the login-shell PATH; Windows is byte-identical (PowerShell). The same command text reaches `ToolPolicyEngine`, the approval prompt and bash, so policy and approval are unchanged. Still open: POSIX-specific policy patterns (item 6).
+2. *[Phase 4 plan: cancellation, line/output caps, streaming log events]* **Process-tree kill on cancel + streamed output cap** (all platforms).
    - Cancelling `run_shell` today leaves the process running.
    - Output is fully buffered before truncation.
-3. **Signed `.app` bundle** in `release.yml` (Info.plist, icon, entitlements, ad-hoc sign first; Velopack sign/notarize/update later), replacing `MacPlatformInstaller`'s symlink launcher.
+3. *[Mac port]* **Signed `.app` bundle** in `release.yml` (Info.plist, icon, entitlements, ad-hoc sign first; Velopack sign/notarize/update later), replacing `MacPlatformInstaller`'s symlink launcher.
    - Without a bundle, macOS attributes privacy prompts to the launching process.
-4. **Incremental CodeGraph**: key files by path, size and mtime (then a content hash) in `theorc.db`, and re-index only what changed (Continue/Aider pattern).
+4. *[suggested]* **Incremental CodeGraph**: key files by path, size and mtime (then a content hash) in `theorc.db`, and re-index only what changed (Continue/Aider pattern).
    - Also refuse or cap a recursive index of a home folder; with no top-level `.csproj` it currently indexes the first project found below.
-5. **Fit instead of refuse**: when admission fails, search a smaller `n_ctx` / fewer GPU layers with the existing byte-exact predictor (llama.cpp `--fit` style), always shown to the user. Changes Windows behavior, so it needs a setting.
-6. **Command policy table** for `run_shell` (Codex `execpolicy`-style Allow / Prompt / Forbidden prefix rules, separate POSIX and PowerShell classifiers) instead of substring lists. Changes what's blocked, so it should be opt-in first.
-7. **HIVE scheduling polish**:
+5. *[suggested]* **Fit instead of refuse**: when admission fails, search a smaller `n_ctx` / fewer GPU layers with the existing byte-exact predictor (llama.cpp `--fit` style), always shown to the user. Changes Windows behavior, so it needs a setting.
+6. *[suggested; Phase 4 asks for "explicit denials for destructive or high-risk operations" but doesn't choose a mechanism]* **Command policy table** for `run_shell` (Codex `execpolicy`-style Allow / Prompt / Forbidden prefix rules, separate POSIX and PowerShell classifiers) instead of substring lists. Changes what's blocked, so it should be opt-in first.
+7. *[suggested]* **HIVE scheduling polish**:
    - model-locality scoring;
    - periodic capability re-detect;
    - a protocol version in `/hive/info`;
    - a real multi-machine run with a Mac worker.
-8. **OS sandbox for `run_shell`** (macOS `sandbox-exec`, Linux Landlock), after 1 and 6.
-9. **Evidence runs on the Mac**, no code needed:
+8. *[suggested]* **OS sandbox for `run_shell`** (macOS `sandbox-exec`, Linux Landlock), after 1 and 6.
+9. *[Mac port]* **Evidence runs on the Mac**, no code needed:
    - the CF-7 Context Fabric benchmark;
    - the Orcish Tongue grammar check on Metal. Its persistent-role path isn't grammar-constrained until `fix/native-runtime-grammar-and-admission` lands.
-10. **Smaller gaps**:
+10. **Smaller gaps** *[Mac port unless noted]*:
     - The Update panel says "Could not reach GitHub" for any null result.
-    - Intel Macs are untested.
-    - CI builds on Windows only; a `macos-latest` job would catch Mac regressions.
+    - Intel Macs: out of scope (the target is M1 and newer).
+    - CI builds on Windows only; a macOS job (GitHub's `macos-14`+ runners are Apple Silicon) would catch Mac regressions.
 
 ---
 
