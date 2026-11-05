@@ -66,8 +66,7 @@ public static partial class ReviewGateService
         await p.WaitForExitAsync(ct);
         var stdout = await stdoutTask;
 
-        // gate-review.ps1 exit 3 = codex not found
-        if (p.ExitCode == 3) return null;
+        if (!ScriptReviewed(p.ExitCode)) return null;   // codex not found: gate skipped
 
         // Prefer the file written by the script over raw stdout (richer content)
         var verdictFile = Directory.Exists(reviewDir)
@@ -83,6 +82,22 @@ public static partial class ReviewGateService
 
         return ParseVerdict(raw, verdictFile ?? "");
     }
+
+    /// <summary>
+    /// gate-review.ps1's exit code: 0 = reviewed (parse the verdict), 3 = codex.exe not found
+    /// (false: gate skipped). Anything else throws, so SwarmSession logs "Gate review failed"
+    /// instead of reading the script's error text as a review with no findings, which used to
+    /// come back as <see cref="GateVerdict.Clean"/> (2 = timed out, 4 = staging empty/missing,
+    /// or a PowerShell error).
+    /// </summary>
+    internal static bool ScriptReviewed(int exitCode) => exitCode switch
+    {
+        0 => true,
+        3 => false,
+        2 => throw new TimeoutException("Codex gate review timed out (gate-review.ps1 exit 2)"),
+        4 => throw new InvalidOperationException("Gate review found no staged files (gate-review.ps1 exit 4)"),
+        _ => throw new InvalidOperationException($"Gate review script failed (gate-review.ps1 exit {exitCode})"),
+    };
 
     private static string? ResolveScript(string workspaceRoot)
     {
