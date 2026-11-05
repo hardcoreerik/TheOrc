@@ -55,7 +55,7 @@ public sealed class RoslynIndexer
 
         // Discover csproj (prefer top-level to keep project scoping simple for v1)
         var topCsproj = Directory.EnumerateFiles(normalizedDir, "*.csproj", SearchOption.TopDirectoryOnly).FirstOrDefault();
-        var anyCsproj = topCsproj ?? Directory.EnumerateFiles(normalizedDir, "*.csproj", SearchOption.AllDirectories)
+        var anyCsproj = topCsproj ?? Directory.EnumerateFiles(normalizedDir, "*.csproj", RecursiveSkipInaccessible)
             .FirstOrDefault(f => !IsUnderObjOrBin(f));
 
         Compilation? compilation = null;
@@ -479,11 +479,27 @@ public sealed class RoslynIndexer
         return list;
     }
 
+    /// <summary>
+    /// Same as <see cref="SearchOption.AllDirectories"/> (no attributes skipped, Win32 wildcard
+    /// matching), except folders the process can't read are skipped instead of throwing. Before
+    /// this, one protected folder anywhere under the workspace (<c>~/.Trash</c> on macOS, a
+    /// profile junction on Windows) aborted the <c>*.csproj</c> search with
+    /// <see cref="UnauthorizedAccessException"/>, or made <see cref="CollectSourceFiles"/>
+    /// return no files at all.
+    /// </summary>
+    private static readonly EnumerationOptions RecursiveSkipInaccessible = new()
+    {
+        RecurseSubdirectories = true,
+        IgnoreInaccessible    = true,
+        AttributesToSkip      = 0,
+        MatchType             = MatchType.Win32,
+    };
+
     private static List<string> CollectSourceFiles(string root)
     {
         try
         {
-            return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            return Directory.EnumerateFiles(root, "*.cs", RecursiveSkipInaccessible)
                 .Where(f => !IsUnderObjOrBin(f))
                 .Where(f => !IsGeneratedFile(f))
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
