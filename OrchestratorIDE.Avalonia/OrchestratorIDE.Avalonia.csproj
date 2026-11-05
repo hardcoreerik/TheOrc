@@ -290,6 +290,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Swarm\FileOwnershipLedger.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\OllamaReviewService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\ReviewGateService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\ReviewGateService.Unix.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\SwarmConfigAdvisor.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\SwarmRunMetrics.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\WorktreeManager.cs" />

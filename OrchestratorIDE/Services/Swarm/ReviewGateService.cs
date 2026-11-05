@@ -10,7 +10,7 @@ namespace OrchestratorIDE.Services.Swarm;
 /// gate-review.ps1 (which calls Codex CLI in a temp git repo). Returns a
 /// structured verdict the UI can surface before the user applies staged output.
 /// </summary>
-public static class ReviewGateService
+public static partial class ReviewGateService
 {
     public enum GateVerdict { Clean, Minor, Blocker }
 
@@ -38,6 +38,10 @@ public static class ReviewGateService
     {
         var script = ResolveScript(workspaceRoot);
         if (script is null) return null;
+
+        // macOS/Linux: same steps without Windows PowerShell (ReviewGateService.Unix.cs).
+        if (!OperatingSystem.IsWindows())
+            return await RunUnixAsync(stagingDir, workspaceRoot, focus, ct: ct);
 
         var reviewDir   = Path.Combine(workspaceRoot, ".orc", "reviews");
         var beforeFiles = Directory.Exists(reviewDir)
