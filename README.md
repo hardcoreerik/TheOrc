@@ -2,7 +2,7 @@
 
 ![TheOrc Banner](Assets/banner.png)
 
-[![Platform](https://img.shields.io/badge/platform-Windows-0B6DFF?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(experimental)-0B6DFF?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-6B38FB?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Local](https://img.shields.io/badge/local--first-cloud--optional-21C55D?style=for-the-badge)](#quick-start)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-39FF6A?style=for-the-badge)](LICENSE)
@@ -508,6 +508,8 @@ dotnet run --project OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj
 
 **Requirements:** Windows 10/11 · .NET 10 · [Ollama](https://ollama.com) · 8 GB VRAM minimum (16 GB recommended for running a full swarm)
 
+**macOS (experimental):** Apple Silicon · .NET 10 SDK. Builds and runs from source, with native chat on Metal (no Ollama needed). The agent shell tool doesn't work on macOS yet, and there's no signed `.app`. See `macos_desktop` in [docs/CURRENT_STATE.yaml](docs/CURRENT_STATE.yaml).
+
 Ollama is the easiest path to get running, which is why it's the default here — it is not the only one. Native in-process inference and a standalone llama.cpp server are both real, supported lanes with zero Ollama dependency; see [docs/RUNTIME_SUPPORT_MATRIX.md](docs/RUNTIME_SUPPORT_MATRIX.md) for what's default, what's opt-in, and how fallback between them actually works.
 
 ### Grab a model and go
@@ -583,7 +585,7 @@ HIVE MIND lets multiple TheOrc machines coordinate over your local network — o
 The long game: TheOrc writes its own training goals, runs them through the swarm, and feeds the results back into ORC ACADEMY — closing the loop with minimal human input. The Pit Boss pipeline makes the dataset generation side of this almost free. The remaining work is getting the swarm to generate and judge its own goals.
 
 ### 💻 Cross-platform
-TheOrc's desktop shell is Avalonia (.NET), built to run on Windows, macOS, and Linux from one codebase — not yet verified on real Mac/Linux hardware. Ollama already runs everywhere; the daemon (Warband) is already cross-platform too.
+TheOrc's desktop shell is Avalonia (.NET), built to run on Windows, macOS, and Linux from one codebase. Verified on Apple Silicon (November 2026): build, tests and native Metal chat; Linux desktop is not yet verified on real hardware. Ollama already runs everywhere; the daemon (Warband) is already cross-platform too.
 
 ---
 
@@ -598,7 +600,7 @@ Seriously. HIVE MIND has proven single-task dispatch across real machines — wh
 | **High VRAM card (24 GB+)** | Larger model support, bigger context, faster worker throughput |
 | **Low-spec machine (4–8 GB VRAM / CPU-only)** | Minimum viable swarm, small model combinations |
 | **Second Windows machine (any spec)** | Scaling HIVE MIND from one proven worker to routine multi-worker job routing |
-| **Mac (Apple Silicon)** | Groundwork for the cross-platform path |
+| **Mac (Apple Silicon)** | Verified on an M1 Max; more Macs (other chips, 8–16 GB RAM, Intel) would widen coverage |
 
 Drop a note in [Issues](https://github.com/hardcoreerik/TheOrc/issues) with the tag `test-lab` or reach out directly. Hardware contributors are credited in [docs/SPONSOR_TEST_LAB.md](docs/SPONSOR_TEST_LAB.md).
 

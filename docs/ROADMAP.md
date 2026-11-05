@@ -576,6 +576,43 @@ Full spec: [`INSTALLER_REVAMP_SPEC.md`](INSTALLER_REVAMP_SPEC.md). `Orchestrator
 ### Multi-OS release pipeline — macOS app/setup and Linux/macOS Warband artifacts shipped
 Full spec: [`MULTI_OS_RELEASE_SPEC.md`](MULTI_OS_RELEASE_SPEC.md). This closed the first release-engineering gap the installer entry above left open. v1.11.2 publishes Windows app/setup artifacts, macOS `osx-arm64` app/setup artifacts, and raw Warband archives for `linux-x64` and `osx-arm64`. The manifest's `app.download_url` is OS-keyed; `InstallerState`'s exe/install paths go through `PlatformInstaller.Current`; `LlamaCppResolver` is OS+arch-aware with a real `metal` variant; `ZipExtractService` supports `.tar.gz`; binary placement sets the Unix executable bit; and `UpdateChecker`, `SelfUpdater`, and `LlamaServerManager` no longer assume Windows binary names only. **Remaining gaps**: full Linux desktop app publishing, Linux/macOS Ollama installer automation, real cross-OS hardware verification, AppImage/`.dmg` packaging, and macOS notarization.
 
+
+### macOS on Apple Silicon — verified 2026-11-05 (PRs #107–#110); `macos_desktop: experimental`
+First run on real Mac hardware (M1 Max, 32 GB, macOS 27.2, .NET 10.0.403). **Verified:**
+- The solution builds; every `ci.yml` step passes locally; UnitTests, HeadlessTests and the `THEORC_TEST_GGUF` real-model lanes pass on Metal.
+- Native main chat runs in-process on Metal with no Ollama (Qwen2.5-1.5B Q4_K_M, ~131 tok/s, 0.13 s TTFT).
+- Admission, the status bar and HIVE capability read live Metal memory: unified memory, capped by host free pages.
+- Load-time memory is measured from Metal's `MTL0` lines.
+- Menus are in the macOS menu bar, the app menu has "About TheOrc", and shortcuts use ⌘.
+- Explorer loading is lazy (#109, all platforms).
+
+**Next, roughly in priority order** (ranked from a survey of 16 comparable projects, plus what the bring-up found; ✅ = done above):
+1. **`run_shell` per-OS shell** — the agent can't run shell commands on macOS/Linux (always `powershell`).
+   - Proposal: keep Windows byte-identical; use `bash -c` plus login-shell PATH resolution on Unix (the Goose/Codex pattern).
+   - Needs a maintainer decision first: it's security-relevant because `ToolPolicyEngine` reads the command text. A design issue is drafted.
+2. **Process-tree kill on cancel + streamed output cap** (all platforms).
+   - Cancelling `run_shell` today leaves the process running.
+   - Output is fully buffered before truncation.
+3. **Signed `.app` bundle** in `release.yml` (Info.plist, icon, entitlements, ad-hoc sign first; Velopack sign/notarize/update later), replacing `MacPlatformInstaller`'s symlink launcher.
+   - Without a bundle, macOS attributes privacy prompts to the launching process.
+4. **Incremental CodeGraph**: key files by path, size and mtime (then a content hash) in `theorc.db`, and re-index only what changed (Continue/Aider pattern).
+   - Also refuse or cap a recursive index of a home folder; with no top-level `.csproj` it currently indexes the first project found below.
+5. **Fit instead of refuse**: when admission fails, search a smaller `n_ctx` / fewer GPU layers with the existing byte-exact predictor (llama.cpp `--fit` style), always shown to the user. Changes Windows behavior, so it needs a setting.
+6. **Command policy table** for `run_shell` (Codex `execpolicy`-style Allow / Prompt / Forbidden prefix rules, separate POSIX and PowerShell classifiers) instead of substring lists. Changes what's blocked, so it should be opt-in first.
+7. **HIVE scheduling polish**:
+   - model-locality scoring;
+   - periodic capability re-detect;
+   - a protocol version in `/hive/info`;
+   - a real multi-machine run with a Mac worker.
+8. **OS sandbox for `run_shell`** (macOS `sandbox-exec`, Linux Landlock), after 1 and 6.
+9. **Evidence runs on the Mac**, no code needed:
+   - the CF-7 Context Fabric benchmark;
+   - the Orcish Tongue grammar check on Metal. Its persistent-role path isn't grammar-constrained until `fix/native-runtime-grammar-and-admission` lands.
+10. **Smaller gaps**:
+    - The Update panel says "Could not reach GitHub" for any null result.
+    - Intel Macs are untested.
+    - CI builds on Windows only; a `macos-latest` job would catch Mac regressions.
+
 ---
 
 ## WARBANDS — Cloud & Headless Deployment
@@ -755,7 +792,7 @@ Reference points: [Playwright docs](https://playwright.dev/docs/intro),
 | **Tool Editor hot-reload (Phase 6/7)** | Stub only | Roslyn pipeline is complex; pay-off unclear until tool definitions are more dynamic |
 | **HIVE MIND C2 (RPC model chain)** | Groundwork laid | llama.cpp RPC plumbing exists; full SwarmSession routing to RPC workers not wired; blocked on Phase 3B |
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
-| **Cross-platform desktop (Mac / Linux)** | WPF deleted 2026-06-20, Avalonia is the only desktop shell | macOS `osx-arm64` app/setup artifacts ship in v1.11.2; full Linux desktop publishing and real cross-OS hardware soak remain open. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) ships Linux/macOS artifacts — see WARBANDS above. |
+| **Cross-platform desktop (Mac / Linux)** | WPF deleted 2026-06-20, Avalonia is the only desktop shell | macOS on Apple Silicon verified from source 2026-11-05 (`macos_desktop: experimental`, see the macOS section above); `osx-arm64` app/setup artifacts ship since v1.11.2. Full Linux desktop publishing and real Linux hardware soak remain open. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) ships Linux/macOS artifacts — see WARBANDS above. |
 | **On-platform self-improvement (TheOrc trains itself)** | **Shipped for the first Foundry track (v1.12.0)** | `theorc-toolcaller` r3 was trained on organic data captured from TheOrc's own real Swarm/OrcChat usage, adversarially evaluated, and promoted — see [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md). Still gated by human review at every stage; no autonomous promotion. |
 | **Reviewer adapter (local model trained to review TheOrc's own code, replacing Codex)** | PARKED 2026-06-13 — investigation concluded, build not started | B-3/B-4 baseline series proved prompt-engineering alone has a hard ceiling on `qwen2.5-coder:14b` (0/3 Codex catches); Stage 1 SFT needs off-machine compute that went to ORC ACADEMY training instead. Still considered valuable — not cancelled. See [`reviewer-adapter/00-index.md`](reviewer-adapter/00-index.md) for the resume plan and phase gate. |
 
