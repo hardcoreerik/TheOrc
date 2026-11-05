@@ -114,3 +114,42 @@ jobs:
             exit 1
           }
           Write-Host "Version hygiene OK: $ver matches AssemblyVersion/FileVersion and has a README changelog section."
+
+  # macOS on Apple Silicon (the Mac port's target: M1 and newer). Same build and test steps
+  # as the Windows job, minus the PowerShell version check (already covered there). Real-model
+  # lanes (THEORC_TEST_GGUF) skip as on Windows. Added with the macOS port so a change that
+  # only breaks the Mac shows up on the PR instead of on someone's Mac later.
+  build-macos:
+    name: Build (macOS, Apple Silicon)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore OrchestratorIDE.slnx
+
+      - name: Build OrchestratorIDE.Avalonia
+        run: dotnet build OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj --configuration Release --no-restore --no-incremental
+
+      - name: Build OrchestratorIDE.Daemon
+        run: dotnet build OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj --configuration Release --no-restore --no-incremental
+
+      - name: Build OrchestratorSetup
+        run: dotnet build OrchestratorSetup/OrchestratorSetup.csproj --configuration Release --no-restore --no-incremental
+
+      # Compiles on macOS via EnableWindowsTargeting; FlaUI tests still only run on Windows.
+      - name: Build UITests
+        run: dotnet build OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj --configuration Release --no-restore --no-incremental
+
+      - name: Run UnitTests
+        run: dotnet test OrchestratorIDE.UnitTests/OrchestratorIDE.UnitTests.csproj --configuration Release
+
+      - name: Run Avalonia HeadlessTests
+        run: dotnet test OrchestratorIDE.Avalonia.HeadlessTests/OrchestratorIDE.Avalonia.HeadlessTests.csproj --configuration Release --no-restore

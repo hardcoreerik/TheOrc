@@ -141,6 +141,10 @@ public sealed class AppleSiliconMemoryTests
         Assert.That(host, Is.Not.Null.And.GreaterThan(0));
 
         var budget = NativeVramProbe.TryQueryLiveMetalBudget();
+        // GitHub's macOS runners are VMs that may expose no Metal device. Only there is a
+        // missing budget a skip; on a real Mac it must be present.
+        if (budget is null && Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+            Assert.Ignore("No Metal device on this CI runner (VM); host-memory checks above still ran.");
         Assert.That(budget, Is.Not.Null);
         Assert.That(budget!.TotalBytes, Is.GreaterThan(0));
         Assert.That(budget.ReservedBytes, Is.InRange(0, budget.TotalBytes));
