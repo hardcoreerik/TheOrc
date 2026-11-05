@@ -2,9 +2,14 @@
 # Security alerts/updates are a separate switch in the repo's Settings → Code security
 # (needs an admin); this file only schedules the regular version-update PRs.
 #
-# Minor and patch bumps are grouped into one PR per ecosystem to keep the noise down.
-# Majors arrive one PR each. Review LLamaSharp bumps with care: its native backends are pinned
-# to a specific llama.cpp ABI (docs/NATIVE_RUNTIME_V2_SPEC.md).
+# Grouping (one PR per group, across all project directories). The two catch-all groups
+# exclude the family groups' patterns, so no package can land in two groups:
+#   - Packages that must move together get their own group at every update level:
+#     LLamaSharp (native backends are pinned to a specific llama.cpp ABI, see
+#     docs/NATIVE_RUNTIME_V2_SPEC.md; review these with care), Avalonia, SQLitePCLRaw (the
+#     bundle and its native lib/provider), and the test stack (NUnit 5 needs NUnit3TestAdapter 6).
+#   - Everything else: minor + patch together in one PR; each major in one PR per package
+#     (group-by: dependency-name), not one per project directory.
 version: 2
 updates:
   - package-ecosystem: "nuget"
@@ -20,8 +25,21 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
+      llamasharp:
+        patterns: ["LLamaSharp*"]
+      avalonia:
+        patterns: ["Avalonia*"]
+      sqlite-native:
+        patterns: ["SQLitePCLRaw*"]
+      test-stack:
+        patterns: ["NUnit*", "Microsoft.NET.Test.Sdk"]
       nuget-minor-and-patch:
         update-types: ["minor", "patch"]
+        exclude-patterns: ["LLamaSharp*", "Avalonia*", "SQLitePCLRaw*", "NUnit*", "Microsoft.NET.Test.Sdk"]
+      nuget-major:
+        group-by: dependency-name
+        update-types: ["major"]
+        exclude-patterns: ["LLamaSharp*", "Avalonia*", "SQLitePCLRaw*", "NUnit*", "Microsoft.NET.Test.Sdk"]
 
   # Workflow actions are pinned to commit SHAs (with the version in a comment);
   # Dependabot keeps those SHAs current.
