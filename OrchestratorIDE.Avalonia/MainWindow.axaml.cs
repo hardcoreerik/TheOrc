@@ -160,6 +160,11 @@ public partial class MainWindow : Window
             NativeMenu.SetMenu(this, NativeMenuMirror.Build(MainMenu));
             MainMenu.IsVisible = false;
             RootGrid.RowDefinitions[1].Height = new GridLength(0);
+
+            // Tooltips written as Windows shortcuts in XAML. "Code Agent" has no working
+            // keyboard shortcut (nothing handles Ctrl+Shift+A), so the Mac tooltip omits it.
+            ToolTip.SetTip(BtnExplorer, $"File Explorer ({PlatformShortcuts.Label("Ctrl+Shift+E")})");
+            ToolTip.SetTip(BtnAgent, "Code Agent");
         }
 
         // Keyboard shortcuts — attached before panels are constructed
@@ -2244,6 +2249,8 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object? sender, KeyEventArgs e)
     {
+        // ⌘ on macOS, Ctrl elsewhere (unchanged off macOS).
+        var cmd = PlatformShortcuts.Command;
         if (e.Key == Key.F1 && e.KeyModifiers == KeyModifiers.None)
         {
             e.Handled = true;
@@ -2254,32 +2261,32 @@ public partial class MainWindow : Window
             e.Handled = true;
             ToggleRecording();
         }
-        if (e.Key == Key.K && e.KeyModifiers == KeyModifiers.Control)
+        if (e.Key == Key.K && e.KeyModifiers == cmd)
         {
             e.Handled = true;
             OpenCommandPalette();
         }
-        if (e.Key == Key.E && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        if (e.Key == Key.E && e.KeyModifiers == (cmd | KeyModifiers.Shift))
         {
             e.Handled = true;
             SidebarContent.Content = _explorerPanel;
         }
-        if (e.Key == Key.C && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        if (e.Key == Key.C && e.KeyModifiers == (cmd | KeyModifiers.Shift))
         {
             e.Handled = true;
             ToggleEditorPane();
         }
-        if (e.Key == Key.R && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        if (e.Key == Key.R && e.KeyModifiers == (cmd | KeyModifiers.Shift))
         {
             e.Handled = true;
             OpenRulesFile();
         }
-        if (e.Key == Key.N && e.KeyModifiers == KeyModifiers.Control)
+        if (e.Key == Key.N && e.KeyModifiers == cmd)
         {
             e.Handled = true;
             Menu_NewSession(this, new RoutedEventArgs());
         }
-        if (e.Key == Key.O && e.KeyModifiers == KeyModifiers.Control)
+        if (e.Key == Key.O && e.KeyModifiers == cmd)
         {
             e.Handled = true;
             _explorerPanel.OpenFolderDialog();
@@ -2342,12 +2349,12 @@ public partial class MainWindow : Window
     {
         var list = new List<PaletteCommand>
         {
-            new() { Id="show.explorer",   Label="Show File Explorer",      Detail="Open the workspace file browser",                             Icon="📁", Shortcut="Ctrl+Shift+E", SortOrder=10, Keywords=["file","explorer","sidebar"] },
+            new() { Id="show.explorer",   Label="Show File Explorer",      Detail="Open the workspace file browser",                             Icon="📁", Shortcut=PlatformShortcuts.Label("Ctrl+Shift+E"), SortOrder=10, Keywords=["file","explorer","sidebar"] },
             new() { Id="mode.plan",       Label="Switch to Plan mode",     Detail="Agent produces a plan for review — no tools run",             Icon="●",  Shortcut="",             SortOrder=20, Keywords=["plan","mode"] },
             new() { Id="mode.execute",    Label="Switch to Execute mode",  Detail="Agent uses tools and can write files",                         Icon="▶",  Shortcut="",             SortOrder=21, Keywords=["execute","run","mode"] },
             new() { Id="model.picker",    Label="Change Model…",           Detail="Open the model picker flyout",                                Icon="⚙",  Shortcut="",             SortOrder=30, Keywords=["model","switch","llm"] },
             new() { Id="open.folder",     Label="Open Folder…",            Detail="Choose a new workspace folder",                               Icon="📁", Shortcut="",             SortOrder=35, Keywords=["folder","open","workspace"] },
-            new() { Id="edit.rules",      Label="Edit Rules File",         Detail="Open .agent.md in the code editor",                           Icon="📋", Shortcut="Ctrl+Shift+R", SortOrder=37, Keywords=["rules","agent","md"] },
+            new() { Id="edit.rules",      Label="Edit Rules File",         Detail="Open .agent.md in the code editor",                           Icon="📋", Shortcut=PlatformShortcuts.Label("Ctrl+Shift+R"), SortOrder=37, Keywords=["rules","agent","md"] },
             new() { Id="workspace.rules", Label="Workspace Rules…",        Detail="Apply a rules preset or edit .agent.md for this workspace",   Icon="📝", Shortcut="",             SortOrder=38, Keywords=["workspace","rules","pentest","security"] },
             new() { Id="show.settings",   Label="Settings",                Detail="Configure Ollama host, model, workspace",                     Icon="⚙",  Shortcut="",             SortOrder=39, Keywords=["settings","config","ollama"] },
             new() { Id="session.new",     Label="New Session",             Detail="Clear conversation history and start fresh",                  Icon="⬡",  Shortcut="",             SortOrder=40, Keywords=["new","clear","session"] },

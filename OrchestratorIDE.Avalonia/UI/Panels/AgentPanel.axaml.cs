@@ -50,7 +50,7 @@ public partial class AgentPanel : UserControl
             Content = "Orchestrator IDE ready.\n\n"
                     + "● Plan mode  — ask the agent to plan a task. Review before executing.\n"
                     + "▶ Execute mode — agent runs with tools, each file write shows a diff for approval.\n\n"
-                    + "Tip: Start with Plan mode. Ctrl+K opens the command palette.",
+                    + $"Tip: Start with Plan mode. {PlatformShortcuts.Label("Ctrl+K")} opens the command palette.",
             Status  = MessageStatus.Complete,
         });
 
