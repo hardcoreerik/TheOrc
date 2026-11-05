@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using OrchestratorIDE.Services.Hive;
@@ -26,7 +27,16 @@ public partial class App : Application
         // macOS builds the app menu ("About …", "Hide …", "Quit") from Application.Name, which
         // otherwise reads "Avalonia Application". macOS-only so nothing changes elsewhere.
         if (OperatingSystem.IsMacOS())
+        {
             Name = "TheOrc";
+
+            // An Application-level NativeMenu becomes the app menu's items, replacing Avalonia's
+            // default "About Avalonia" (Services / Hide / Quit are still added by macOS).
+            var about = new NativeMenuItem("About TheOrc");
+            about.Click += (_, _) => UI.Windows.AboutWindow.ShowFor(
+                (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow);
+            NativeMenu.SetMenu(this, new NativeMenu { about });
+        }
     }
 
     public override void OnFrameworkInitializationCompleted()
