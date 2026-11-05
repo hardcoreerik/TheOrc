@@ -152,6 +152,16 @@ public partial class MainWindow : Window
         _activeRuntimeSettings = _settings.CreateSnapshot();
         InitializeComponent();
 
+        // macOS: menus belong in the system menu bar, not inside the window. Mirror the XAML
+        // menu (still the single source of truth, see NativeMenuMirror) and collapse its row.
+        // Windows/Linux keep the in-window menu exactly as before.
+        if (OperatingSystem.IsMacOS())
+        {
+            NativeMenu.SetMenu(this, NativeMenuMirror.Build(MainMenu));
+            MainMenu.IsVisible = false;
+            RootGrid.RowDefinitions[1].Height = new GridLength(0);
+        }
+
         // Keyboard shortcuts — attached before panels are constructed
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
 

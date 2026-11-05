@@ -47,7 +47,7 @@
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="32,26,*,30">
+    <Grid x:Name="RootGrid" RowDefinitions="32,26,*,30">
 
         <!-- ── Title bar ──────────────────────────────────────────── -->
         <Border Grid.Row="0" Background="#0E0E0E"
@@ -170,7 +170,7 @@
         </Border>
 
         <!-- ── Menu bar ───────────────────────────────────────────── -->
-        <Menu Grid.Row="1"
+        <Menu x:Name="MainMenu" Grid.Row="1"
               Background="#141814" Foreground="#D4D4D4"
               BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
               FontSize="12">
