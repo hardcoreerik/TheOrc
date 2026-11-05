@@ -185,7 +185,7 @@ public static class TestTools
     private static string GetTestCommand(Language lang) => lang switch
     {
         Language.DotNet => "dotnet test --no-build --logger \"console;verbosity=normal\"",
-        Language.Python => "python -m pytest -v --tb=short",
+        Language.Python => $"{PythonCommand} -m pytest -v --tb=short",
         Language.Node   => "npm test --if-present",
         Language.Rust   => "cargo test",
         Language.Go     => "go test ./...",
@@ -222,6 +222,12 @@ public static class TestTools
     /// Python has no single build step — compile-check each changed .py file.
     /// Falls back to checking all .py files in the top two levels.
     /// </summary>
+    /// <summary>
+    /// "python" on Windows (unchanged). macOS and most Linux distros ship only python3 (on
+    /// macOS, "python" doesn't exist unless the user aliases it), so run_tests used it there.
+    /// </summary>
+    internal static string PythonCommand => OperatingSystem.IsWindows() ? "python" : "python3";
+
     private static string? BuildPyCompileCommand(string root)
     {
         var pyFiles = Directory.GetFiles(root, "*.py", SearchOption.TopDirectoryOnly)
@@ -235,6 +241,6 @@ public static class TestTools
 
         // python -m py_compile file1.py file2.py ...
         var files = string.Join(" ", pyFiles.Take(30).Select(f => $"\"{f}\""));
-        return $"python -m py_compile {files}";
+        return $"{PythonCommand} -m py_compile {files}";
     }
 }

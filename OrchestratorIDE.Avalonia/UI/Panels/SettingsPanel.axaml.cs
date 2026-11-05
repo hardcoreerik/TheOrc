@@ -1249,6 +1249,7 @@ public partial class SettingsPanel : UserControl
 
     private static void OpenInExplorer(string path)
     {
+        if (OperatingSystem.IsMacOS()) { MacFinder.Reveal(path); return; }   // explorer.exe only exists on Windows
         try { Process.Start(new ProcessStartInfo("explorer.exe", path) { UseShellExecute = true }); }
         catch { /* non-fatal */ }
     }
