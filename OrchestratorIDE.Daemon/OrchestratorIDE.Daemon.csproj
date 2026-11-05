@@ -97,8 +97,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Playwright"              Version="1.61.0"  />
-    <PackageReference Include="Microsoft.Data.Sqlite"             Version="10.0.9"  />
+    <PackageReference Include="Microsoft.Playwright"              Version="1.64.1"  />
+    <PackageReference Include="Microsoft.Data.Sqlite"             Version="10.0.14"  />
     <!-- Same SQLitePCLRaw pins as OrchestratorIDE.Avalonia. Microsoft.Data.Sqlite alone pulls
          SQLitePCLRaw.lib.e_sqlite3 2.1.11, which bundles a SQLite affected by CVE-2025-6965
          (GHSA-2m69-gcr7-jv3q, high). 3.50.3 ships a fixed SQLite. -->
@@ -106,9 +106,9 @@
     <PackageReference Include="SQLitePCLRaw.core"                 Version="3.0.3"   />
     <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3"   Version="3.0.3"   />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3"        Version="3.50.3"  />
-    <PackageReference Include="System.Text.Json"                  Version="10.0.8"  />
-    <PackageReference Include="Microsoft.Extensions.Hosting"      Version="10.0.0"   />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
+    <PackageReference Include="System.Text.Json"                  Version="10.0.14"  />
+    <PackageReference Include="Microsoft.Extensions.Hosting"      Version="10.0.14"   />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
   </ItemGroup>
 
 </Project>
