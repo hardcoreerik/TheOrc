@@ -255,6 +255,12 @@
                 <MenuItem Header="Troubleshooting"
                           AutomationProperties.AutomationId="Help.Troubleshooting"
                           Click="Menu_HelpTroubleshooting"/>
+                <MenuItem Header="Open Logs Folder"
+                          AutomationProperties.AutomationId="Help.OpenLogs"
+                          Click="Menu_OpenLogs"/>
+                <MenuItem Header="Copy Diagnostics"
+                          AutomationProperties.AutomationId="Help.CopyDiagnostics"
+                          Click="Menu_CopyDiagnostics"/>
                 <MenuItem Header="Model Guide"
                           AutomationProperties.AutomationId="Help.ModelGuide"
                           Click="Menu_HelpModelGuide"/>

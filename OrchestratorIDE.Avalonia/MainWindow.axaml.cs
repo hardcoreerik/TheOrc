@@ -1989,6 +1989,12 @@ public partial class MainWindow : Window
 
     private void AddActivity(ActivityEvent ev) => Dispatcher.UIThread.InvokeAsync(() =>
     {
+        if (ev.Kind != ActivityKind.Debug)
+            Core.Diagnostics.AppLog.Write(
+                ev.Kind switch { ActivityKind.Error => Core.Diagnostics.AppLogLevel.Error,
+                                 ActivityKind.Warning => Core.Diagnostics.AppLogLevel.Warn,
+                                 _ => Core.Diagnostics.AppLogLevel.Info },
+                ev.Label, ev.Detail);
         _allActivityItems.Add(ev);
         if (_allActivityItems.Count > 5000) _allActivityItems.RemoveAt(0);
 
@@ -3784,6 +3790,37 @@ public partial class MainWindow : Window
 
     private void Menu_HelpTrainingPitGuide(object? sender, RoutedEventArgs e)
         => HelpWindow.ShowGuide(this, "TRAINING_PIT_GUIDE.md");
+
+    // ── Diagnostics (AppLog) ──────────────────────────────────────────────────
+
+    /// <summary>Opens the folder holding TheOrc's daily log files.</summary>
+    private void Menu_OpenLogs(object? sender, RoutedEventArgs e)
+    {
+        var dir = Core.Diagnostics.AppLog.LogDirectory ?? Core.Diagnostics.AppLog.DefaultDirectory;
+        try { Directory.CreateDirectory(dir); } catch { /* reveal still tries */ }
+        if (OperatingSystem.IsMacOS())
+            MacFinder.Reveal(dir);
+        else if (OperatingSystem.IsWindows())
+        {
+            try { System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\""); }
+            catch { /* non-fatal */ }
+        }
+        SetStatus($"Logs: {dir}");
+    }
+
+    /// <summary>
+    /// Copies a bug-report block to the clipboard: version/OS/hardware, the log file's path and
+    /// the last 200 log lines (already redacted when written).
+    /// </summary>
+    private async void Menu_CopyDiagnostics(object? sender, RoutedEventArgs e)
+    {
+        var text = Core.Diagnostics.AppLog.DiagnosticsReport(maxLines: 200);
+        if (TopLevel.GetTopLevel(this)?.Clipboard is IClipboard cb)
+        {
+            await cb.SetTextAsync(text);
+            SetStatus("Diagnostics copied to the clipboard — paste it into a bug report.");
+        }
+    }
 
     private async Task Menu_CheckUpdatesAsync(bool force)
     {
