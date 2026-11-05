@@ -201,18 +201,138 @@ public sealed class ScreenRecorder : IDisposable
 }
 #else
 /// <summary>
-/// Screen recording requires WPF — not available in the Avalonia build.
-/// This stub preserves the public API so cross-platform code compiles unchanged.
+/// The Avalonia build's recorder. Windows/Linux: a no-op stub, as before (the recorder above
+/// needs WPF). macOS: records the whole screen with the system's own
+/// <c>/usr/sbin/screencapture -v</c> (cursor and clicks shown, no shutter sound) into
+/// <c>~/Library/Application Support/OrchestratorIDE/Recordings/recording_&lt;timestamp&gt;.mov</c>,
+/// and stops it the way its "Press Ctrl-C to stop" means: SIGINT, which finishes the movie.
+/// macOS asks the user once to allow Screen Recording for TheOrc; if that's refused the movie
+/// is never written and <see cref="OnStopped"/> reports an empty path.
 /// </summary>
 public sealed class ScreenRecorder : IDisposable
 {
-    public event Action<string>? OnTick { add { } remove { } }
-    public event Action<string>? OnStopped { add { } remove { } }
-    public bool IsRecording => false;
+    private const string FolderName = "Recordings";
+    private const int    SigInt     = 2;
 
-    public void Start(object target) { }
-    public void Stop() { }
-    public void Dispose() { }
-    public static void OpenRecordingsFolder() { }
+    /// <summary>Elapsed time as mm:ss, once a second while recording (macOS).</summary>
+    public event Action<string>? OnTick;
+
+    /// <summary>The finished movie's path, or "" when nothing was written (macOS).</summary>
+    public event Action<string>? OnStopped;
+
+    // Swappable for tests (a stand-in recorder and a temp folder).
+    internal static string  ScreencapturePath   = "/usr/sbin/screencapture";
+    internal static string? DirectoryOverride;
+
+    private readonly object        _gate = new();
+    private System.Diagnostics.Process? _process;
+    private System.Threading.Timer?     _ticker;
+    private string                 _file = "";
+    private Task<string>?          _stderr;
+    private DateTime               _startedUtc;
+
+    public static string RecordingsDirectory => DirectoryOverride ?? Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OrchestratorIDE", FolderName);
+
+    public bool IsRecording
+    {
+        get { lock (_gate) return _process is { HasExited: false }; }
+    }
+
+    public void Start(object target)
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        lock (_gate)
+        {
+            if (_process is { HasExited: false })
+                return;
+            Directory.CreateDirectory(RecordingsDirectory);
+            _file = Path.Combine(RecordingsDirectory, $"recording_{DateTime.Now:yyyyMMdd_HHmmss}.mov");
+
+            var psi = new System.Diagnostics.ProcessStartInfo(ScreencapturePath)
+            {
+                UseShellExecute        = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                CreateNoWindow         = true,
+            };
+            foreach (var a in new[] { "-v", "-C", "-k", "-x", _file })
+                psi.ArgumentList.Add(a);
+
+            var p = System.Diagnostics.Process.Start(psi)
+                ?? throw new InvalidOperationException("screencapture didn't start");
+            p.EnableRaisingEvents = true;
+            p.Exited += (_, _) => Finish(p);
+            _ = p.StandardOutput.ReadToEndAsync();
+            _stderr = p.StandardError.ReadToEndAsync();
+            _process    = p;
+            _startedUtc = DateTime.UtcNow;
+            _ticker     = new System.Threading.Timer(_ =>
+            {
+                var t = DateTime.UtcNow - _startedUtc;
+                OnTick?.Invoke($"{(int)t.TotalMinutes:00}:{t.Seconds:00}");
+            }, null, 1000, 1000);
+            if (p.HasExited)   // exited before Exited was hooked up
+                ThreadPool.QueueUserWorkItem(_ => Finish(p));
+        }
+    }
+
+    public void Stop()
+    {
+        System.Diagnostics.Process? p;
+        lock (_gate) p = _process;
+        if (p is null || p.HasExited)
+            return;
+        try
+        {
+            kill(p.Id, SigInt);   // screencapture writes out the movie and exits
+            if (!p.WaitForExit(10_000))
+                p.Kill();
+        }
+        catch { /* already gone */ }
+    }
+
+    private void Finish(System.Diagnostics.Process p)
+    {
+        string file;
+        Task<string>? stderr;
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_process, p))
+                return;   // already reported
+            _process = null;
+            _ticker?.Dispose();
+            _ticker = null;
+            file = _file;
+            stderr = _stderr;
+        }
+        var saved = File.Exists(file) && new FileInfo(file).Length > 0;
+        if (!saved)
+        {
+            // Keep screencapture's own reason for the bug report (Help › Copy Diagnostics).
+            var exit = -1;
+            try { exit = p.ExitCode; } catch { /* unknown */ }
+            var why = "";
+            try { why = stderr is not null && stderr.Wait(2000) ? stderr.Result.Trim() : ""; } catch { /* none */ }
+            Diagnostics.AppLog.Warn("Recording",
+                $"screencapture exited {exit} without a movie{(why.Length > 0 ? ": " + why : "")}");
+        }
+        p.Dispose();
+        OnStopped?.Invoke(saved ? file : "");
+    }
+
+    public void Dispose() => Stop();
+
+    public static void OpenRecordingsFolder()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        try { Directory.CreateDirectory(RecordingsDirectory); } catch { /* Reveal still tries */ }
+        UI.MacFinder.Reveal(RecordingsDirectory);
+    }
+
+    [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.dylib", SetLastError = true)]
+    private static extern int kill(int pid, int sig);
 }
 #endif

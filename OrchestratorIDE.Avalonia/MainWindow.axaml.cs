@@ -211,6 +211,15 @@ public partial class MainWindow : Window
         _recorder.OnStopped += path => Dispatcher.UIThread.InvokeAsync(() =>
         {
             BdrRecording.IsVisible = false;
+            if (path.Length == 0)
+            {
+                // macOS: nothing written, almost always Screen Recording not allowed yet.
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Recording",
+                    "No recording was saved. Allow Screen Recording for TheOrc in System Settings › Privacy & Security, then try again.",
+                    DateTime.Now));
+                SetStatus("Recording not saved — check Screen Recording permission");
+                return;
+            }
             AddActivity(new ActivityEvent(ActivityKind.Info, "Recording saved",
                 Path.GetFileName(path), DateTime.Now));
             SetStatus("Recording saved — F12 to record again");
