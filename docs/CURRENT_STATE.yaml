@@ -255,10 +255,11 @@ subsystems:
       in-process on Metal with no Ollama (Qwen2.5-1.5B Q4_K_M, ~131 tok/s).
       Metal memory feeds admission, the status bar and HIVE capability
       ("metal", unified memory). Menus are in the macOS menu bar; shortcuts use
-      the command key. NOT working or not verified: the agent run_shell tool
-      (PowerShell-only; design issue pending), no signed .app bundle or
-      notarization, Intel Macs, and multi-machine HIVE jobs on a Mac worker.
-      CI still builds and tests on Windows only.
+      the command key. The agent run_shell / run_tests tools run bash on macOS
+      (PowerShell unchanged on Windows), verified end to end in the GUI agent.
+      NOT working or not verified: no signed .app bundle or notarization, Intel
+      Macs (out of scope: the target is M1 and newer), and multi-machine HIVE
+      jobs on a Mac worker. CI still builds and tests on Windows only.
 
 warband:
   status: opt-in

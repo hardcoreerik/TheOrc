@@ -161,6 +161,9 @@ public partial class MainWindow : Window
             MainMenu.IsVisible = false;
             RootGrid.RowDefinitions[1].Height = new GridLength(0);
 
+            // "Open in Explorer" opens Finder on macOS (MacFinder); the native menu mirrors this header.
+            MiOpenExplorer.Header = "Reveal in Finder";
+
             // Tooltips are written as Windows shortcuts in XAML.
             ToolTip.SetTip(BtnExplorer, $"File Explorer ({PlatformShortcuts.Label("Ctrl+Shift+E")})");
             ToolTip.SetTip(BtnAgent, $"Code Agent ({PlatformShortcuts.Label("Ctrl+Shift+A")})");

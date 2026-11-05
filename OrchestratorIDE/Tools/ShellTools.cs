@@ -19,22 +19,15 @@ public static class ShellTools
     public static void Register(ToolRegistry registry, string workspaceRoot,
         Func<string, string, string, CancellationToken, Task<bool>>? onSandboxBypass = null)
     {
+        var text = ToolText.For(ShellResolver.Current);
         registry.Register(new ToolDefinition
         {
             Name = "run_shell",
-            Description =
-                "Run a PowerShell command in the workspace. " +
-                "Use env_setup to source an environment script BEFORE the command — " +
-                "both run in the same process so variables like IDF_PATH survive. " +
-                "Example: env_setup='. C:\\esp-idf\\export.ps1', command='idf.py build'. " +
-                "Blocked: destructive commands.",
+            Description = text.Description,
             Parameters = new()
             {
-                ["command"]   = new("string", "The PowerShell command to run."),
-                ["env_setup"] = new("string",
-                    "Optional. A PowerShell snippet run BEFORE command in the same process. " +
-                    "Use this to source environment scripts (e.g. '. C:\\esp-idf\\export.ps1'). " +
-                    "The environment it sets is visible to command."),
+                ["command"]   = new("string", text.Command),
+                ["env_setup"] = new("string", text.EnvSetup),
                 ["cwd"]       = new("string", "Working directory (default: workspace root)."),
                 ["reason"]    = new("string", "Why this command needs to run."),
             },
@@ -86,22 +79,14 @@ public static class ShellTools
 
     public static async Task<string> RunAsync(string cmd, string cwd, CancellationToken ct, int maxBytes = 32_000)
     {
-        // Use -EncodedCommand to avoid all quote-escaping fragility.
-        // PowerShell -EncodedCommand expects UTF-16LE base64.
-        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(cmd));
-
-        var psi = new ProcessStartInfo
-        {
-            FileName  = "powershell",
-            Arguments = $"-NoProfile -NonInteractive -EncodedCommand {encoded}",
-            WorkingDirectory = cwd,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        // PowerShell on Windows (unchanged); bash on macOS/Linux. See ShellResolver.
+        var psi = ShellResolver.CreateStartInfo(cmd, cwd);
 
         using var proc = Process.Start(psi) ?? throw new Exception("Failed to start process");
+        // Unix only (Windows doesn't redirect stdin): give the command EOF instead of a
+        // terminal it can block on.
+        if (psi.RedirectStandardInput)
+            proc.StandardInput.Close();
         var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
         var stderrTask = proc.StandardError.ReadToEndAsync(ct);
 
@@ -113,5 +98,35 @@ public static class ShellTools
         if (combined.Length > maxBytes) combined = combined[..maxBytes] + "\n… [truncated]";
 
         return $"[exit {proc.ExitCode}]\n{combined}";
+    }
+
+    /// <summary>
+    /// What the model is told about run_shell. Windows: the original PowerShell wording,
+    /// unchanged. macOS/Linux: the same instructions for bash, so models write commands the
+    /// shell will actually run.
+    /// </summary>
+    internal sealed record ToolText(string Description, string Command, string EnvSetup)
+    {
+        public static ToolText For(ShellPlatform platform) => platform == ShellPlatform.Windows
+            ? new(
+                "Run a PowerShell command in the workspace. " +
+                "Use env_setup to source an environment script BEFORE the command — " +
+                "both run in the same process so variables like IDF_PATH survive. " +
+                "Example: env_setup='. C:\\esp-idf\\export.ps1', command='idf.py build'. " +
+                "Blocked: destructive commands.",
+                "The PowerShell command to run.",
+                "Optional. A PowerShell snippet run BEFORE command in the same process. " +
+                "Use this to source environment scripts (e.g. '. C:\\esp-idf\\export.ps1'). " +
+                "The environment it sets is visible to command.")
+            : new(
+                "Run a shell command (bash) in the workspace. " +
+                "Use env_setup to source an environment script BEFORE the command — " +
+                "both run in the same shell so exported variables like IDF_PATH survive. " +
+                "Example: env_setup='source ~/esp/esp-idf/export.sh', command='idf.py build'. " +
+                "Blocked: destructive commands.",
+                "The bash command to run.",
+                "Optional. A bash snippet run BEFORE command in the same shell. " +
+                "Use this to source environment scripts (e.g. 'source ./env.sh'). " +
+                "The environment it sets is visible to command.");
     }
 }

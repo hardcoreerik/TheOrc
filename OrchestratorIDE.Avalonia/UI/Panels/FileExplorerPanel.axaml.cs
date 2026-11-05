@@ -38,6 +38,8 @@ public partial class FileExplorerPanel : UserControl
         InitializeComponent();
         FileTree.ItemsSource = _roots;
         FileTree.AddHandler(TreeViewItem.ExpandedEvent, FileTree_ItemExpanded);
+        if (OperatingSystem.IsMacOS())
+            ToolTip.SetTip(BtnReveal, "Reveal in Finder");
     }
 
     /// <summary>
@@ -123,6 +125,8 @@ public partial class FileExplorerPanel : UserControl
                 System.Diagnostics.Process.Start("explorer.exe", $"\"{path}\"");
         }
         catch { /* non-fatal */ }
+#else
+        MacFinder.Reveal(path);   // no-op off macOS
 #endif
     }
 

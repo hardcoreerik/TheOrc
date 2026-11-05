@@ -179,7 +179,7 @@
             <MenuItem Header="_File">
                 <MenuItem Header="Open Folder…"       Click="Menu_OpenFolder"/>
                 <MenuItem x:Name="MiOpenRecent" Header="Open Recent" IsEnabled="False"/>
-                <MenuItem Header="Open in Explorer"   Click="Menu_OpenExplorer"/>
+                <MenuItem x:Name="MiOpenExplorer" Header="Open in Explorer"   Click="Menu_OpenExplorer"/>
                 <Separator/>
                 <MenuItem Header="New Session"        Click="Menu_NewSession"/>
                 <Separator/>
