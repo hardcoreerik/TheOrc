@@ -215,7 +215,8 @@ public partial class MainWindow : Window
             {
                 // macOS: nothing written, almost always Screen Recording not allowed yet.
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Recording",
-                    "No recording was saved. Allow Screen Recording for TheOrc in System Settings › Privacy & Security, then try again.",
+                    "No recording was saved. Allow Screen Recording for TheOrc in System Settings › Privacy & Security, then reopen TheOrc. " +
+                    "If TheOrc is already on there, remove it (–) and press F12 again: a rebuilt TheOrc.app has a new signature.",
                     DateTime.Now));
                 SetStatus("Recording not saved — check Screen Recording permission");
                 return;
