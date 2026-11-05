@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <!--
+      On macOS/Linux hosts a net10.0-windows test assembly builds but `dotnet test` discovers
+      zero tests. The Windows TFM was only needed for the deleted WPF project; everything this
+      references (Avalonia, NativeRuntime) is plain net10.0, so use that off Windows.
+    -->
+    <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsTestProject>true</IsTestProject>
