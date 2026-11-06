@@ -2214,6 +2214,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             // ── Execute each tool call ────────────────────────────────────
             foreach (var tc in pendingTcs)
             {
+                FillMissingWritePath(tc, task);
                 var argSummary = string.Join(", ", tc.Arguments
                     .Take(2).Select(kv =>
                     {
@@ -2264,6 +2265,15 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 // does not exist) will not start working: stop the worker with the error.
                 if (IsToolFailure(result))
                 {
+                    if (result.StartsWith("[ERROR] write_file needs a", StringComparison.Ordinal))
+                    {
+                        // Diagnostic: what did the model actually write? (head and tail, one line)
+                        var raw = content.Replace('\n', ' ');
+                        var head = raw[..Math.Min(220, raw.Length)];
+                        var tail = raw.Length > 220 ? raw[^Math.Min(220, raw.Length - 220)..] : "";
+                        Activity($"🩺 raw write_file call — head: {head} … tail: {tail}", agentKey);
+                        _trace?.WriteEvent("write_file_no_path_raw", content);
+                    }
                     var key = tc.Name + "|" + string.Join("|", tc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
                     failedCalls[key] = failedCalls.GetValueOrDefault(key) + 1;
                     if (failedCalls[key] >= MaxIdenticalToolFailures)
@@ -2321,6 +2331,21 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     // context with room left to generate.
     private const int PromptHistoryBudgetChars = 16_000;
     private const int PromptMessageCapChars    = 4_000;
+
+    private static readonly Regex _taskFileRegex =
+        new(@"[A-Za-z0-9_./\-]+\.[A-Za-z0-9]{1,5}\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Gemma 4 often writes `write_file{content:..., reason:...}` and leaves out the path. When the
+    /// task title names exactly one file ("Write textstats/stats.py"), that is the path.
+    /// </summary>
+    internal static void FillMissingWritePath(ToolCall tc, SwarmTask task)
+    {
+        if (tc.Name != "write_file") return;
+        if (tc.Arguments.TryGetValue("path", out var p) && !string.IsNullOrWhiteSpace(p?.ToString())) return;
+        var files = _taskFileRegex.Matches(task.Title ?? "").Select(m => m.Value).Distinct().ToList();
+        if (files.Count == 1) tc.Arguments["path"] = files[0];
+    }
 
     internal static bool IsToolFailure(string result) =>
         result.StartsWith("[ERROR]", StringComparison.Ordinal)

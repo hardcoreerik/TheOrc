@@ -227,4 +227,16 @@ public sealed class SwarmQualityTests
         Assert.That(seen, Is.EqualTo(1.08f));
         Assert.That(SwarmSession.BossRepeatPenalty, Is.GreaterThan(1f).And.LessThan(1.2f));
     }
+
+    [Test]
+    public void FillMissingWritePath_UsesTheSingleFileInTheTaskTitle()
+    {
+        var tc = new OrchestratorIDE.Models.ToolCall { Name = "write_file", Arguments = new Dictionary<string, object?> { ["content"] = "x" } };
+        SwarmSession.FillMissingWritePath(tc, new SwarmTask { Title = "Write textstats/stats.py" });
+        Assert.That(tc.Arguments["path"], Is.EqualTo("textstats/stats.py"));
+
+        var two = new OrchestratorIDE.Models.ToolCall { Name = "write_file", Arguments = new Dictionary<string, object?> { ["content"] = "x" } };
+        SwarmSession.FillMissingWritePath(two, new SwarmTask { Title = "Write a.py and b.py" });
+        Assert.That(two.Arguments.ContainsKey("path"), Is.False);
+    }
 }
