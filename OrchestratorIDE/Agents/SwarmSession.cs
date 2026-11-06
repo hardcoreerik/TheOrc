@@ -2385,11 +2385,14 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         string outputDir, string targetLanguage)
     {
         // Collect files actually on disk (workers may have written more than FILE: markers show)
+        // Subfolders too: workers write packages (textstats/stats.py), and top-level-only made the
+        // Tester fall back to a main.py that didn't exist. Relative, '/'-separated, no hidden or
+        // cache folders.
         var files = Directory.Exists(outputDir)
-            ? Directory.GetFiles(outputDir, "*.*", SearchOption.TopDirectoryOnly)
-                       .Select(Path.GetFileName)
-                       .Where(f => !string.IsNullOrWhiteSpace(f))
-                       .Select(f => f!)
+            ? Directory.GetFiles(outputDir, "*.*", SearchOption.AllDirectories)
+                       .Select(f => Path.GetRelativePath(outputDir, f).Replace('\\', '/'))
+                       .Where(f => !f.Split('/').Any(part => part.StartsWith('.') || part == "__pycache__"))
+                       .Order(StringComparer.Ordinal)
                        .ToList()
             : [];
         var onDisk = files.Count > 0 ? string.Join(", ", files) : "(none yet)";
@@ -2442,7 +2445,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             Path.GetFileNameWithoutExtension(f) is var n &&
             (n.StartsWith("test_", StringComparison.OrdinalIgnoreCase) || n.EndsWith("_test", StringComparison.OrdinalIgnoreCase) ||
              n.EndsWith(".test", StringComparison.OrdinalIgnoreCase) || n.EndsWith(".spec", StringComparison.OrdinalIgnoreCase));
+        static bool IsPackageInit(string f) => Path.GetFileName(f).Equals("__init__.py", StringComparison.OrdinalIgnoreCase);
         var entry = sources.FirstOrDefault(f => f.Equals(usual, StringComparison.OrdinalIgnoreCase))
+                    ?? sources.FirstOrDefault(f => !IsTest(f) && !IsPackageInit(f))
                     ?? sources.FirstOrDefault(f => !IsTest(f))
                     ?? sources.FirstOrDefault()
                     ?? usual;

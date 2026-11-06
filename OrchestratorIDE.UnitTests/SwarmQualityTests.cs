@@ -128,4 +128,13 @@ public sealed class SwarmQualityTests
         Assert.That(SwarmSession.TesterTarget("JavaScript", ["app.js", "app.test.js"], "python3"),
             Is.EqualTo(("app.js", "node --check \"app.js\"")));
     }
+
+    [Test]
+    public void Files_in_a_package_folder_are_found_and_init_is_not_the_entry_point()
+    {
+        // Run 5 on Metal: the worker wrote textstats/__init__.py and textstats/stats.py.
+        var (entry, cmd) = SwarmSession.TesterTarget("Python", ["textstats/__init__.py", "textstats/stats.py"], "python3");
+        Assert.That(entry, Is.EqualTo("textstats/stats.py"));
+        Assert.That(cmd, Is.EqualTo("python3 -m py_compile \"textstats/__init__.py\" \"textstats/stats.py\""));
+    }
 }
