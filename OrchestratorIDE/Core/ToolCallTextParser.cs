@@ -128,7 +128,7 @@ public static class ToolCallTextParser
     ];
 
     private static readonly Regex _gemmaKeyRegex =
-        new(@"(?:^|,)\s*(" + string.Join("|", _gemmaArgNames) + @"):", RegexOptions.Compiled);
+        new(@"(?:^|,)\s*[""']?(" + string.Join("|", _gemmaArgNames) + @")[""']?:", RegexOptions.Compiled);
 
     internal static List<ToolCall> ParseGemmaCalls(string text)
     {
@@ -191,6 +191,11 @@ public static class ToolCallTextParser
         return args.Count > 0 ? args : null;
     }
 
+    // Models often wrap bare values in plain quotes ("a.py"); a shell would then run the whole
+    // quoted string as one command name, and a path would contain literal quote characters.
+    private static string UnwrapQuotes(string v) =>
+        v.Length >= 2 && (v[0] == '"' || v[0] == '\'') && v[^1] == v[0] ? v[1..^1] : v;
+
     // key:value,key2:value2}   (no delimiters, so split at known argument names only)
     private static Dictionary<string, object?>? ParseGemmaBareArgs(string text, int pos, int limit)
     {
@@ -206,7 +211,7 @@ public static class ToolCallTextParser
         {
             var valStart = keys[k].Index + keys[k].Length;
             var valEnd   = k + 1 < keys.Count ? keys[k + 1].Index : body.Length;
-            args[keys[k].Groups[1].Value] = body[valStart..valEnd].Trim();
+            args[keys[k].Groups[1].Value] = UnwrapQuotes(body[valStart..valEnd].Trim());
         }
         return args;
     }
