@@ -152,4 +152,54 @@ public sealed class SwarmQualityTests
         Assert.That(SwarmSession.TesterTestCommands("JavaScript", ["tests/test_a.py"], "python3"), Is.Empty);
         Assert.That(SwarmSession.TesterTestCommands("Python", ["textstats/stats.py"], "python3"), Is.Empty);
     }
+
+    // ── Worker prompt growth (a 41111-token prompt killed a run on an 8192-token context) ──
+
+    private static AgentMessage Msg(MessageRole r, string c) => new() { Role = r, Content = c };
+
+    [Test]
+    public void TrimHistory_KeepsSystemFirstUserAndNewest_DropsOldest()
+    {
+        var h = new List<AgentMessage> { Msg(MessageRole.System, "sys"), Msg(MessageRole.User, "task") };
+        for (var i = 0; i < 20; i++) h.Add(Msg(MessageRole.Assistant, new string('a', 3000) + i));
+        var view = SwarmSession.TrimHistoryForPrompt(h);
+        Assert.That(view[0].Content, Is.EqualTo("sys"));
+        Assert.That(view[1].Content, Is.EqualTo("task"));
+        Assert.That(view[^1].Content, Is.EqualTo(h[^1].Content));
+        Assert.That(view.Where(m => m.Role != MessageRole.System).Sum(m => m.Content.Length), Is.LessThanOrEqualTo(16_000 + 4_100));
+        Assert.That(h, Has.Count.EqualTo(22), "the real history is untouched");
+    }
+
+    [Test]
+    public void TrimHistory_CapsOneHugeMessage_AndNeverStartsOnOrphanToolResult()
+    {
+        var h = new List<AgentMessage>
+        {
+            Msg(MessageRole.System, "sys"), Msg(MessageRole.User, "task"),
+            Msg(MessageRole.Assistant, new string('x', 30_000)),
+            Msg(MessageRole.User, "[Tool result: list_files]\n" + new string('y', 9_000)),
+            Msg(MessageRole.Assistant, new string('z', 9_000)),
+            Msg(MessageRole.User, "[Tool result: write_file]\nok"),
+            Msg(MessageRole.Assistant, "done?"),
+        };
+        var view = SwarmSession.TrimHistoryForPrompt(h);
+        Assert.That(view.Max(m => m.Content.Length), Is.LessThan(4_100));
+        var firstRest = view.Skip(2).First();
+        Assert.That(firstRest.Content, Does.Not.StartWith("[Tool result:"));
+    }
+
+    [Test]
+    public void TrimHistory_ShortHistory_Unchanged()
+    {
+        var h = new List<AgentMessage> { Msg(MessageRole.System, "s"), Msg(MessageRole.User, "u"), Msg(MessageRole.Assistant, "a") };
+        Assert.That(SwarmSession.TrimHistoryForPrompt(h).Select(m => m.Content), Is.EqualTo(new[] { "s", "u", "a" }));
+    }
+
+    [TestCase("[ERROR] Access to the path 'x' is denied.", true)]
+    [TestCase("[SANDBOX BLOCKED] write_file: ...", true)]
+    [TestCase("[exit 127] [stderr] /bin/bash: python3: command not found", true)]
+    [TestCase("[OK] Wrote 3 lines to a.py", false)]
+    [TestCase("[exit 1] AssertionError", false)]
+    public void IsToolFailure_Classifies(string result, bool expected) =>
+        Assert.That(SwarmSession.IsToolFailure(result), Is.EqualTo(expected));
 }
