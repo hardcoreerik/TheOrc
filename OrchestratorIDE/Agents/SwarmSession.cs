@@ -1620,6 +1620,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                Python:     python -m py_compile main.py  (or the entry file from your task)
                JavaScript: node --check index.js
             3. Smoke run — run_shell to attempt a brief import/load with a short timeout.
+               Run Python tests as modules from the workspace root (python3 -m tests.test_x),
+               never as python3 tests/test_x.py: that cannot import the project's packages.
                Python:     python -c "import ast; [compile statements check]"
                or simply:  python main.py  with a 5-second timeout if safe.
             4. Report results using EXACTLY this format — no other text:
@@ -2033,6 +2035,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     {
         const int MaxWorkerSteps = 16;
         var finalSb = new StringBuilder();
+        var failedCalls = new Dictionary<string, int>();   // identical call -> times it errored
 
         // Convert ToolDefinition objects → serializable JsonObject schemas INLINE.
         // We build JsonObject nodes directly instead of going through SchemaGenerator
@@ -2100,16 +2103,21 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             var pendingTcs = new List<ToolCall>();
             var contentSb  = new StringBuilder();
 
+            // The Native Runtime's context is small (8192 tokens) and history grows by a whole
+            // generation per step: a worker in a retry loop reached a 41111-token prompt and
+            // the run died. Each call gets a bounded view; `history` itself stays complete.
+            var view = TrimHistoryForPrompt(history);
+
             var stream = nodeOllama is not null
                 ? nodeOllama.StreamCompletionAsync(
-                    model, history,
+                    model, view,
                     tools:       toolsPayload,
                     temperature: 0.25,
                     maxTokens:   8192,
                     onToolCall:  tc => pendingTcs.Add(tc),
                     ct:          ct)
                 : _ollama.StreamCompletionAsync(
-                    model, history,
+                    model, view,
                     tools:       toolsPayload,
                     temperature: 0.25,
                     maxTokens:   8192,
@@ -2208,6 +2216,22 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                         : "[ERROR] No tool registry available";
                 }
 
+                // The same call failing over and over (a write the OS refuses, a command that
+                // does not exist) will not start working: stop the worker with the error.
+                if (IsToolFailure(result))
+                {
+                    var key = tc.Name + "|" + string.Join("|", tc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
+                    failedCalls[key] = failedCalls.GetValueOrDefault(key) + 1;
+                    if (failedCalls[key] >= MaxIdenticalToolFailures)
+                    {
+                        var msg = $"Stopped: {tc.Name} failed {MaxIdenticalToolFailures} times with the same arguments. Last error: {result}";
+                        Activity($"⛔ {task.Title} — {msg[..Math.Min(300, msg.Length)]}", agentKey);
+                        finalSb.Append("\nSTATUS: FAIL\nERRORS: ").Append(msg);
+                        task.Result = StripGemma4Artifacts(finalSb.ToString());
+                        return;
+                    }
+                }
+
                 // Log file writes specially
                 if (tc.Name == "write_file" && tc.Arguments.TryGetValue("path", out var pathObj))
                 {
@@ -2218,7 +2242,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 }
                 else if (tc.Name != "ask_user")
                 {
-                    var snip = result.Length > 80 ? result[..80].Replace('\n', ' ') + "…" : result.Replace('\n', ' ');
+                    var snip = result.Length > 240 ? result[..240].Replace('\n', ' ') + "…" : result.Replace('\n', ' ');
                     Activity($"  ↳ {snip}", agentKey);
                 }
 
@@ -2243,6 +2267,64 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // Same cleanup as the Boss's output: Gemma 4 control tokens leaked into worker results
         // (e.g. a Tester note ending in "<|channel>thought") and from there into the log/report.
         task.Result = StripGemma4Artifacts(finalSb.ToString());
+    }
+
+    private const int MaxIdenticalToolFailures = 3;
+
+    // Budget for the non-system messages of one worker call, in characters (~3.5 chars per
+    // token): with the system prompt and tool schemas this keeps a call inside an 8192-token
+    // context with room left to generate.
+    private const int PromptHistoryBudgetChars = 16_000;
+    private const int PromptMessageCapChars    = 4_000;
+
+    internal static bool IsToolFailure(string result) =>
+        result.StartsWith("[ERROR]", StringComparison.Ordinal)
+        || result.StartsWith("[SANDBOX BLOCKED]", StringComparison.Ordinal)
+        || result.StartsWith("[REJECTED]", StringComparison.Ordinal)
+        || result.Contains("[exit 127]", StringComparison.Ordinal);
+
+    /// <summary>
+    /// A bounded copy of <paramref name="history"/> for one model call: system messages and the
+    /// first user message are kept, every other message is capped in length, and the oldest are
+    /// dropped (a tool result is never left without the call before it) until it fits the budget.
+    /// The newest messages always stay.
+    /// </summary>
+    internal static List<AgentMessage> TrimHistoryForPrompt(
+        IReadOnlyList<AgentMessage> history,
+        int budgetChars = PromptHistoryBudgetChars,
+        int messageCapChars = PromptMessageCapChars)
+    {
+        var firstUser = history.ToList().FindIndex(m => m.Role == MessageRole.User);
+        var pinned = new List<AgentMessage>();
+        var rest   = new List<AgentMessage>();
+        for (var i = 0; i < history.Count; i++)
+        {
+            var m = history[i];
+            if (m.Role == MessageRole.System || i == firstUser) pinned.Add(m);
+            else rest.Add(m.Content.Length > messageCapChars
+                ? m.WithContent(m.Content[..(messageCapChars * 3 / 4)] + "\n…[trimmed]…\n" + m.Content[^(messageCapChars / 4)..])
+                : m);
+        }
+
+        var total = pinned.Where(m => m.Role != MessageRole.System).Sum(m => m.Content.Length)
+                    + rest.Sum(m => m.Content.Length);
+        var drop = 0;
+        while (total > budgetChars && rest.Count - drop > 2)
+        {
+            total -= rest[drop].Content.Length;
+            drop++;
+        }
+        // Do not start on a tool result whose call was dropped.
+        while (drop < rest.Count - 2 && (rest[drop].Role == MessageRole.Tool
+               || rest[drop].Content.StartsWith("[Tool result:", StringComparison.Ordinal)))
+            drop++;
+
+        var result = new List<AgentMessage>(pinned.Count + rest.Count - drop);
+        // Keep original ordering: system first, then the pinned first user message.
+        result.AddRange(pinned.Where(m => m.Role == MessageRole.System));
+        result.AddRange(pinned.Where(m => m.Role != MessageRole.System));
+        result.AddRange(rest.Skip(drop));
+        return result;
     }
 
     /// <summary>
@@ -2415,9 +2497,46 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 Step 1: list_files — confirm the files above exist.
                 Step 2: run_shell("{syntaxCmd}") — check for syntax errors.
                 Step 3: If Python, also run: run_shell("{TestTools.PythonCommand} -c \\"import importlib.util; spec=importlib.util.spec_from_file_location('m','{entryPoint}'); m=importlib.util.module_from_spec(spec)\\"")
+                {TesterTestSteps(targetLanguage, files, TestTools.PythonCommand)}
                 Step 4: Report STATUS: PASS or STATUS: FAIL with the exact error text.
                 """,
         };
+    }
+
+    /// <summary>
+    /// Run commands for Python test files, as modules from the workspace root
+    /// (<c>python3 -m tests.test_stats</c>). Running <c>python3 tests/test_stats.py</c> puts
+    /// <c>tests/</c> on the import path, not the root, so <c>from textstats.stats import …</c>
+    /// failed with "No module named 'textstats'" and the Tester reported a false FAIL on good code.
+    /// </summary>
+    internal static List<string> TesterTestCommands(
+        string targetLanguage, IReadOnlyList<string> files, string python)
+    {
+        var commands = new List<string>();
+        if (!string.IsNullOrWhiteSpace(targetLanguage) && targetLanguage != "Python") return commands;
+        foreach (var f in files)
+        {
+            if (!f.EndsWith(".py", StringComparison.OrdinalIgnoreCase)) continue;
+            var name = Path.GetFileNameWithoutExtension(f);
+            if (!(name.StartsWith("test_", StringComparison.OrdinalIgnoreCase)
+                  || name.EndsWith("_test", StringComparison.OrdinalIgnoreCase))) continue;
+            var parts = f[..^3].Split('/');
+            // A folder or file that is not a valid module name (dots, dashes) cannot be run with -m.
+            if (parts.Any(p => p.Length == 0 || !(char.IsLetter(p[0]) || p[0] == '_')
+                               || !p.All(c => char.IsLetterOrDigit(c) || c == '_'))) continue;
+            commands.Add($"{python} -m {string.Join(".", parts)}");
+        }
+        return commands;
+    }
+
+    private static string TesterTestSteps(
+        string targetLanguage, IReadOnlyList<string> files, string python)
+    {
+        var cmds = TesterTestCommands(targetLanguage, files, python);
+        if (cmds.Count == 0) return "";
+        return "Step 3b: Run the test files from the workspace root, exactly like this (a script run by path " +
+               "cannot import the project's packages):\n    " +
+               string.Join("\n    ", cmds.Select(c => $"run_shell(\"{c}\")"));
     }
 
     /// <summary>
