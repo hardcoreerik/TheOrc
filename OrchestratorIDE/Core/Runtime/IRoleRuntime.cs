@@ -70,6 +70,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         "<|user|>",
         "<|end|>",
         "<|im_end|>",
+        "im_end|>",      // the same token with its "<|" lost to tokenisation: seen as "|im_end|>|im_end|>…"
         "[/INST]",
         "\nUser:",
         "\nHuman:",
@@ -377,6 +378,25 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         (vocab.EOS is { } eos && token.Equals(eos)) ||
         (vocab.EOT is { } eot && token.Equals(eot));
 
+    /// <summary>
+    /// True when the last 120 characters are one short unit (1-12 chars) repeated back to back,
+    /// e.g. "|im_end|>|im_end|>…": a degenerate loop that would otherwise run to the token limit.
+    /// </summary>
+    internal static bool TailIsRepeating(StringBuilder output)
+    {
+        const int window = 120;
+        if (output.Length < window) return false;
+        var tail = output.ToString(output.Length - window, window);
+        for (var unit = 1; unit <= 12; unit++)
+        {
+            var ok = true;
+            for (var i = unit; i < window; i++)
+                if (tail[i] != tail[i - unit]) { ok = false; break; }
+            if (ok && tail.Distinct().Count() > 1) return true;
+        }
+        return false;
+    }
+
     private static bool EndsWithAntiPrompt(StringBuilder output)
     {
         if (output.Length == 0)
@@ -468,6 +488,8 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 yield return text;
 
                 if (EndsWithAntiPrompt(outputBuilder))
+                    break;
+                if (i % 8 == 0 && TailIsRepeating(outputBuilder))
                     break;
             }
 
