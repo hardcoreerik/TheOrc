@@ -58,4 +58,17 @@ public class ListFilesToolTests
         }
         finally { try { Directory.Delete(root, true); } catch { } }
     }
+
+    [Test]
+    public void RunPythonToolsAsModules_RewritesBarePytestAndPip()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("Windows is left alone");
+        Assert.Multiple(() =>
+        {
+            Assert.That(OrchestratorIDE.Tools.ShellTools.RunPythonToolsAsModules("pytest tests/test_stats.py"), Is.EqualTo("python3 -m pytest tests/test_stats.py"));
+            Assert.That(OrchestratorIDE.Tools.ShellTools.RunPythonToolsAsModules("pip install pytest && pytest -q"), Is.EqualTo("python3 -m pip install pytest && python3 -m pytest -q"));
+            Assert.That(OrchestratorIDE.Tools.ShellTools.RunPythonToolsAsModules("python3 -m pytest"), Is.EqualTo("python3 -m pytest"));
+            Assert.That(OrchestratorIDE.Tools.ShellTools.RunPythonToolsAsModules("echo pytest_helper"), Is.EqualTo("echo pytest_helper"));
+        });
+    }
 }

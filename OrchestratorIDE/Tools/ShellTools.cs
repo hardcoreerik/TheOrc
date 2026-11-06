@@ -72,10 +72,24 @@ public static class ShellTools
                 if (policy.BlockReason is not null)
                     return policy.BlockReason;
 
-                return await RunAsync(fullCmd, cwd, ct);
+                return await RunAsync(RunPythonToolsAsModules(fullCmd), cwd, ct);
             }
         });
     }
+
+    private static readonly System.Text.RegularExpressions.Regex _bareTool =
+        new(@"(^|&&|\|\||;)(\s*)(pytest|pip3?)(?=\s|$)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// A bare `pytest` / `pip` is usually not on the PATH of a GUI-launched app (a user-site install
+    /// puts it in a folder the PATH misses), so a worker got "command not found" while
+    /// `python3 -m pytest` worked. Running them as modules is the same program, found the same way
+    /// the interpreter is. Windows is left alone.
+    /// </summary>
+    internal static string RunPythonToolsAsModules(string cmd) =>
+        OperatingSystem.IsWindows()
+            ? cmd
+            : _bareTool.Replace(cmd, m => $"{m.Groups[1].Value}{m.Groups[2].Value}python3 -m {(m.Groups[3].Value == "pytest" ? "pytest" : "pip")}");
 
     public static async Task<string> RunAsync(string cmd, string cwd, CancellationToken ct, int maxBytes = 32_000)
     {
