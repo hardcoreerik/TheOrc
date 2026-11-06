@@ -36,4 +36,26 @@ public class ListFilesToolTests
         }
         finally { try { Directory.Delete(Path.GetFullPath(Path.Combine(root, "..", "..", "..", "..", "..")), true); } catch { } }
     }
+
+    // A write_file call with no "path" resolved to the workspace folder and failed with
+    // "Access to the path '<workspace>' is denied" (seen on every write of a Gemma 4 Swarm run).
+    [Test]
+    public async Task WriteFile_WithoutPath_SaysPathIsMissing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "orc-wf-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(root);
+        try
+        {
+            var reg = new ToolRegistry(new ApprovalQueue { AutoApprove = true });
+            FileTools.Register(reg, root);
+            var noPath = await reg.ExecuteAsync(new ToolCall { Name = "write_file", Arguments = new() { ["content"] = "x = 1" } }, CancellationToken.None);
+            Assert.That(noPath, Does.StartWith("[ERROR]").And.Contain("\"path\"").And.Contain("content"));
+            var dotPath = await reg.ExecuteAsync(new ToolCall { Name = "write_file", Arguments = new() { ["path"] = ".", ["content"] = "x" } }, CancellationToken.None);
+            Assert.That(dotPath, Does.StartWith("[ERROR]"));
+            var ok = await reg.ExecuteAsync(new ToolCall { Name = "write_file", Arguments = new() { ["path"] = "a/b.py", ["content"] = "x = 1" } }, CancellationToken.None);
+            Assert.That(ok, Does.StartWith("[OK]"));
+            Assert.That(File.ReadAllText(Path.Combine(root, "a", "b.py")), Is.EqualTo("x = 1"));
+        }
+        finally { try { Directory.Delete(root, true); } catch { } }
+    }
 }

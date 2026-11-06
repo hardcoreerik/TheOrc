@@ -78,6 +78,14 @@ public static class FileTools
             RequiresApproval = false,
             Handler = async (args, ct) =>
             {
+                // A call without a usable "path" resolved to the workspace folder itself, and the
+                // write failed with "Access to the path '<workspace>' is denied" -- a message that
+                // sends the model (and us) hunting for a permissions problem. Say what is wrong.
+                var rawPath = args.TryGetValue("path", out var rp) ? rp?.ToString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(rawPath) || Directory.Exists(Resolve(workspaceRoot, args)))
+                    return "[ERROR] write_file needs a \"path\": the file to write, relative to the workspace root " +
+                           $"(for example \"textstats/stats.py\"). This call had: {string.Join(", ", args.Keys)}.";
+
                 var path    = Resolve(workspaceRoot, args);
                 var content = args.TryGetValue("content", out var c) ? c?.ToString() ?? "" : "";
                 var reason  = args.TryGetValue("reason",  out var r) ? r?.ToString() ?? "" : "";

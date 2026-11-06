@@ -2065,6 +2065,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         const int MaxWorkerSteps = 16;
         var finalSb = new StringBuilder();
         var failedCalls = new Dictionary<string, int>();   // identical call -> times it errored
+        var sameCalls   = new Dictionary<string, int>();   // identical call -> times it ran at all
 
         // Convert ToolDefinition objects → serializable JsonObject schemas INLINE.
         // We build JsonObject nodes directly instead of going through SchemaGenerator
@@ -2246,6 +2247,19 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                         : "[ERROR] No tool registry available";
                 }
 
+                // The same call again and again, failing or not (a Tester ran `ls -R` 40 times in a
+                // row), is a loop: it cannot change anything the model has not already seen.
+                var callKey = tc.Name + "|" + string.Join("|", tc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
+                sameCalls[callKey] = sameCalls.GetValueOrDefault(callKey) + 1;
+                if (sameCalls[callKey] >= MaxIdenticalToolCalls)
+                {
+                    var msg = $"Stopped: {tc.Name} was called {MaxIdenticalToolCalls} times with the same arguments, a loop. Last result: {result}";
+                    Activity($"⛔ {task.Title} — {msg[..Math.Min(300, msg.Length)]}", agentKey);
+                    finalSb.Append("\nSTATUS: FAIL\nERRORS: ").Append(msg);
+                    task.Result = StripGemma4Artifacts(finalSb.ToString());
+                    return;
+                }
+
                 // The same call failing over and over (a write the OS refuses, a command that
                 // does not exist) will not start working: stop the worker with the error.
                 if (IsToolFailure(result))
@@ -2300,6 +2314,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     }
 
     private const int MaxIdenticalToolFailures = 3;
+    private const int MaxIdenticalToolCalls    = 5;
 
     // Budget for the non-system messages of one worker call, in characters (~3.5 chars per
     // token): with the system prompt and tool schemas this keeps a call inside an 8192-token
