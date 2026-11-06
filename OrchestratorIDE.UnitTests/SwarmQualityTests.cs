@@ -239,4 +239,16 @@ public sealed class SwarmQualityTests
         SwarmSession.FillMissingWritePath(two, new SwarmTask { Title = "Write a.py and b.py" });
         Assert.That(two.Arguments.ContainsKey("path"), Is.False);
     }
+
+    [Test]
+    public void GroundTruthFixTask_IsNamedAfterTheFailingFile()
+    {
+        var output = "..F\n>       assert top_words(text) == {}\nE       TypeError: missing n\n\ntests/test_stats.py:15: TypeError\nFAILED tests/test_stats.py::test_top_words";
+        var task = SwarmSession.BuildGroundTruthFixTask(output, "Python");
+        Assert.That(task.Title, Is.EqualTo("Fix tests/test_stats.py"));
+        Assert.That(task.Description, Does.Contain("TypeError"));
+        var tc = new OrchestratorIDE.Models.ToolCall { Name = "write_file", Arguments = new Dictionary<string, object?> { ["content"] = "x" } };
+        SwarmSession.FillMissingWritePath(tc, task);
+        Assert.That(tc.Arguments["path"], Is.EqualTo("tests/test_stats.py"));
+    }
 }

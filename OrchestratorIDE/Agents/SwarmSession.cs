@@ -638,6 +638,35 @@ public class SwarmSession
                     ? plannedTesterVerdict
                     : plannedTesterVerdict + "\n" + testerVerdict;
 
+            // ── Phase 3b: ground truth ───────────────────────────────────────────────
+            // A Tester model reports what it believes, and a small one says PASS over a failing
+            // suite (a run reported PASS while pytest failed). Run the tests ourselves.
+            if (!ct.IsCancellationRequested)
+            {
+                var truth = await RunGroundTruthTestsAsync(ct);
+                if (truth is { Ran: true, ExitCode: not 0 })
+                {
+                    Activity($"⚠ pytest fails (exit {truth.ExitCode}) — Boss spawning a fix task from the real output", "boss");
+                    _trace?.WriteEvent("ground_truth_failed", truth.Output);
+                    var gtFix = BuildGroundTruthFixTask(truth.Output, _targetLanguage);
+                    Tasks.Add(gtFix);
+                    OnTasksPlanned?.Invoke(Tasks);
+                    await RunWorkerAsync(gtFix, findings, ct);
+                    truth = await RunGroundTruthTestsAsync(ct);
+                }
+                if (truth is { Ran: true })
+                {
+                    var line = truth.ExitCode == 0
+                        ? "GROUND TRUTH: pytest passes."
+                        : $"STATUS: FAIL | GROUND TRUTH: pytest still fails (exit {truth.ExitCode}): {TailLines(truth.Output, 6)}";
+                    Activity($"🧪 {line}", "boss");
+                    _trace?.WriteEvent("ground_truth_result", line);
+                    testerVerdict = truth.ExitCode == 0
+                        ? (testerVerdict is null ? line : testerVerdict + "\n" + line)
+                        : line + (testerVerdict is null ? "" : "\n(Tester model said: " + testerVerdict + ")");
+                }
+            }
+
             // ── Phase 4: Boss merge → final_report.md ────────────────────────
             Activity("Boss merging results → writing final_report.md", "boss");
             _trace?.WriteEvent("phase_start", "Boss merge");
@@ -2345,6 +2374,81 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         if (tc.Arguments.TryGetValue("path", out var p) && !string.IsNullOrWhiteSpace(p?.ToString())) return;
         var files = _taskFileRegex.Matches(task.Title ?? "").Select(m => m.Value).Distinct().ToList();
         if (files.Count == 1) tc.Arguments["path"] = files[0];
+    }
+
+    internal sealed record GroundTruth(bool Ran, int ExitCode, string Output);
+
+    /// <summary>Runs the staged project's pytest suite (Python projects with a tests folder only).</summary>
+    private async Task<GroundTruth> RunGroundTruthTestsAsync(CancellationToken ct)
+    {
+        var dir = OutputProjectDir;
+        try
+        {
+            if (!Directory.Exists(dir)) return new(false, 0, "");
+            if (!string.IsNullOrWhiteSpace(_targetLanguage) && !_targetLanguage.Contains("python", StringComparison.OrdinalIgnoreCase))
+                return new(false, 0, "");
+            var hasTests = Directory.EnumerateFiles(dir, "test_*.py", SearchOption.AllDirectories).Any()
+                        || Directory.EnumerateFiles(dir, "*_test.py", SearchOption.AllDirectories).Any();
+            if (!hasTests) return new(false, 0, "");
+
+            var psi = new System.Diagnostics.ProcessStartInfo("/usr/bin/env")
+            {
+                WorkingDirectory = dir,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+            };
+            foreach (var a in new[] { "python3", "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider" })
+                psi.ArgumentList.Add(a);
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null) return new(false, 0, "");
+            var stdout = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderr = proc.StandardError.ReadToEndAsync(ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(90));
+            try { await proc.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { try { proc.Kill(true); } catch { } return new(false, 0, "pytest timed out"); }
+            var output = (await stdout + "\n" + await stderr).Trim();
+            // No pytest on this machine is "could not check", not a failure of the project.
+            if (output.Contains("No module named pytest", StringComparison.Ordinal)) return new(false, 0, output);
+            return new(true, proc.ExitCode, output);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new(false, 0, ex.Message);
+        }
+    }
+
+    private static string TailLines(string text, int n) =>
+        string.Join(" ", text.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)).TakeLast(n).Select(l => l.Trim()));
+
+    private static readonly Regex _pyLocationRegex = new(@"(?<![/\w])((?:[\w.-]+/)*[\w.-]+\.py):\d+", RegexOptions.Compiled);
+
+    /// <summary>A fix task built from the real pytest output. The first relative file in the
+    /// traceback names the task, so a write_file call that omits its path can be filled in.</summary>
+    internal static SwarmTask BuildGroundTruthFixTask(string pytestOutput, string targetLanguage)
+    {
+        var file = _pyLocationRegex.Matches(pytestOutput).Select(m => m.Groups[1].Value)
+            .FirstOrDefault(f => !f.StartsWith("/") && !f.Contains("site-packages"));
+        var tail = pytestOutput.Length > 2500 ? pytestOutput[^2500..] : pytestOutput;
+        return new SwarmTask
+        {
+            Role     = SwarmWorkerRole.Coder,
+            Priority = 4,
+            Title    = file is null ? "Fix failing tests" : $"Fix {file}",
+            Description = $"""
+                pytest was run on the project and FAILED. Fix the cause.
+
+                PYTEST OUTPUT:
+                {tail}
+
+                INSTRUCTIONS:
+                - read_file the file named in the failure, then write_file the corrected whole file. Always pass "path" and "content".
+                - Decide whether the test or the code is wrong; a test must call functions with the arguments they require.
+                - Keep every existing function; do not add new files.
+                - Afterwards run_shell "python3 -m pytest -q" once to check, then stop.
+                LANGUAGE: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
+                """,
+        };
     }
 
     internal static bool IsToolFailure(string result) =>
