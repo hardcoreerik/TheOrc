@@ -2214,6 +2214,14 @@ public partial class MainWindow : Window
         }
         else
         {
+            if (!ScreenRecorder.IsSupported)
+            {
+                // The recorder is a no-op stub here; don't show "REC" for a recording that isn't happening.
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Recording",
+                    "Screen recording isn't available on this OS in this build yet (macOS only).", DateTime.Now));
+                SetStatus("Screen recording isn't available on this OS yet");
+                return;
+            }
             try
             {
                 _recorder.Start(this);

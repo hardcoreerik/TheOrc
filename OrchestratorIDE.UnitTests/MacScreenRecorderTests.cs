@@ -105,3 +105,12 @@ public sealed class MacScreenRecorderTests
     public void Stop_without_a_recording_is_a_no_op() =>
         Assert.DoesNotThrow(() => new ScreenRecorder().Stop());
 }
+
+/// <summary>F12 only claims to record where the recorder works (macOS in this build).</summary>
+[TestFixture]
+public sealed class ScreenRecorderSupportTests
+{
+    [Test]
+    public void Recording_is_reported_as_supported_only_on_macos() =>
+        Assert.That(ScreenRecorder.IsSupported, Is.EqualTo(OperatingSystem.IsMacOS()));
+}
