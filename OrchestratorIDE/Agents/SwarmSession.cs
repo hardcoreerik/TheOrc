@@ -1204,6 +1204,7 @@ public class SwarmSession
         - If no research is needed, skip RESEARCHER and assign CODER/UIDEVELOPER/TESTER tasks directly
         - TESTER tasks verify code that already exists in the workspace — they do NOT receive output from CODER tasks in the same run
         - Descriptions must be self-contained — minions cannot ask follow-up questions
+        - Keep each description to 2-4 sentences (under 80 words): name the file and each function signature once. Do NOT list edge cases, return values or examples, and never repeat a phrase
         - Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER/TESTER
         - Prefer 3 priority-2 tasks when the goal has distinct implementation concerns
 
@@ -1226,7 +1227,7 @@ public class SwarmSession
               "role": "RESEARCHER",
               "priority": 1,
               "title": "Short descriptive title",
-              "description": "Detailed, self-contained instructions for this minion. Use \\n for line breaks inside this string."
+              "description": "Self-contained instructions for this minion, 2-4 sentences. Use \\n for line breaks inside this string."
             }
           ]
         }
@@ -1286,7 +1287,7 @@ You returned this plan, which is INVALID (an empty or catch-all task, or not val
 
 REQUIREMENTS YOU MUST FOLLOW NOW:
 1. You MUST output between 3 and 4 tasks. Never 1.
-2. Every "description" field MUST be at least 3 sentences describing exactly what to build.
+2. Every "description" field MUST be 2-4 sentences (under 80 words) saying exactly what to build. Never repeat a phrase.
 3. Task titles MUST name the output file (e.g. "Write csv_cleaner.py").
 4. Do NOT output title:"Execute goal" or description:"" — these are rejected.
 
@@ -1322,6 +1323,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         return nonEmpty == 0;
     }
 
+    internal const float BossRepeatPenalty = 1.08f;
+
     private async Task<string> StreamBossAsync(
         string sysPrompt, string goalWithLang, double temperature, CancellationToken ct)
     {
@@ -1336,6 +1339,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // truncated mid-string (or never started), presenting as json_invalid
         // collapse. max_tokens overrides the Modelfile's num_predict 2048.
         var tokens = 0;
+        // A mild repeat penalty for the plan only (Native Runtime; other backends ignore it):
+        // Gemma 4 26B's plans collapsed into "…is an[] empty list is an[] empty list…" twice in a row.
+        using var penalty = SamplingHints.WithRepeatPenalty(BossRepeatPenalty);
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: temperature, maxTokens: 8192, ct: ct))
         {

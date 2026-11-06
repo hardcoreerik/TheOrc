@@ -422,9 +422,14 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+        // SamplingHints: a per-call repeat penalty (the Swarm Boss sets one). Off unless > 1.
+        var repeatPenalty = SamplingHints.RepeatPenalty is { } rp && rp > 1f ? rp : 1f;
         using var sampler = new DefaultSamplingPipeline
         {
-            Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
+            Temperature   = (float)Math.Clamp(temperature, 0.0, 2.0),
+            RepeatPenalty = repeatPenalty,
+            // Look back far enough to catch a phrase on repeat; the default window is shorter.
+            PenaltyCount  = repeatPenalty > 1f ? 128 : new DefaultSamplingPipeline().PenaltyCount,
         };
 
         var promptTokens = _runtime.TokenizePromptForLoadedModel(history, tools);

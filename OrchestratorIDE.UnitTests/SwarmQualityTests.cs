@@ -202,4 +202,29 @@ public sealed class SwarmQualityTests
     [TestCase("[exit 1] AssertionError", false)]
     public void IsToolFailure_Classifies(string result, bool expected) =>
         Assert.That(SwarmSession.IsToolFailure(result), Is.EqualTo(expected));
+
+    // ── Boss repetition loop, round 2: short descriptions + a Boss-only repeat penalty ──
+
+    [Test]
+    public void SamplingHints_ScopeSetsAndRestores()
+    {
+        Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.Null);
+        using (OrchestratorIDE.Core.Runtime.SamplingHints.WithRepeatPenalty(1.1f))
+        {
+            Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.EqualTo(1.1f));
+            using (OrchestratorIDE.Core.Runtime.SamplingHints.WithRepeatPenalty(1.2f))
+                Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.EqualTo(1.2f));
+            Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.EqualTo(1.1f));
+        }
+        Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.Null);
+    }
+
+    [Test]
+    public async Task SamplingHints_FlowsThroughAsyncCalls_NotToSiblings()
+    {
+        using var _ = OrchestratorIDE.Core.Runtime.SamplingHints.WithRepeatPenalty(1.08f);
+        var seen = await Task.Run(async () => { await Task.Yield(); return OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty; });
+        Assert.That(seen, Is.EqualTo(1.08f));
+        Assert.That(SwarmSession.BossRepeatPenalty, Is.GreaterThan(1f).And.LessThan(1.2f));
+    }
 }
