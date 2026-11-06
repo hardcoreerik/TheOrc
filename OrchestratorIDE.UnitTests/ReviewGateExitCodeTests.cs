@@ -32,4 +32,36 @@ public sealed class ReviewGateExitCodeTests
         var ex = Assert.Throws<InvalidOperationException>(() => ReviewGateService.ScriptReviewed(exitCode));
         Assert.That(ex!.Message, Does.Contain($"exit {exitCode}"));
     }
+
+    // ── Verdict text ──────────────────────────────────────────────────────────────────
+
+    [Test]
+    public void Clean_needs_the_word_CLEAN_and_findings_still_win()
+    {
+        Assert.That(ReviewGateService.ParseVerdict("# Gate review\n\nCLEAN", "").Verdict, Is.EqualTo(ReviewGateService.GateVerdict.Clean));
+        var r = ReviewGateService.ParseVerdict("BLOCKER a.cs:3 — null deref\nMINOR b.cs:1 — naming", "");
+        Assert.That(r.Verdict, Is.EqualTo(ReviewGateService.GateVerdict.Blocker));
+        Assert.That(r.Findings, Has.Count.EqualTo(2));
+    }
+
+    [TestCase("")]
+    [TestCase("   \n")]
+    [TestCase("Error: request failed with status 401")]
+    [TestCase("I can't review this.")]
+    public void A_reply_with_no_findings_and_no_CLEAN_is_a_failure(string raw) =>
+        Assert.Throws<InvalidOperationException>(() => ReviewGateService.ParseVerdict(raw, ""));
+
+    [Test]
+    public void The_gate_only_counts_workspaces_that_ship_its_script()
+    {
+        var ws = Path.Combine(Path.GetTempPath(), "orc-gate-ws-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(ws, "Tools"));
+        try
+        {
+            Assert.That(ReviewGateService.HasGateScript(ws), Is.False);
+            File.WriteAllText(Path.Combine(ws, "Tools", "gate-review.ps1"), "");
+            Assert.That(ReviewGateService.HasGateScript(ws), Is.True);
+        }
+        finally { Directory.Delete(ws, recursive: true); }
+    }
 }

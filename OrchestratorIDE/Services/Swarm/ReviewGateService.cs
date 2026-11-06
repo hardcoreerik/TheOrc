@@ -99,6 +99,9 @@ public static partial class ReviewGateService
         _ => throw new InvalidOperationException($"Gate review script failed (gate-review.ps1 exit {exitCode})"),
     };
 
+    /// <summary>Whether <paramref name="workspaceRoot"/> ships the gate script (the gate only runs where it does).</summary>
+    public static bool HasGateScript(string workspaceRoot) => ResolveScript(workspaceRoot) is not null;
+
     private static string? ResolveScript(string workspaceRoot)
     {
         var candidates = new[]
@@ -125,11 +128,26 @@ public static partial class ReviewGateService
         }
     }
 
-    private static GateResult ParseVerdict(string raw, string verdictFile)
+    private static readonly Regex CleanRe = new(@"\bCLEAN\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The prompt asks Codex for BLOCKER/MINOR lines "or the single word CLEAN". A reply with
+    /// neither (empty, an error, a refusal) is not a pass: it used to come back as
+    /// <see cref="GateVerdict.Clean"/>. It now throws, so SwarmSession logs "Gate review failed".
+    /// </summary>
+    internal static GateResult ParseVerdict(string raw, string verdictFile)
     {
         var findings = new List<GateFinding>();
         foreach (Match m in FindingRe.Matches(raw))
             findings.Add(new GateFinding(m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value));
+
+        if (findings.Count == 0 && !CleanRe.IsMatch(raw))
+        {
+            var text = raw.Trim();
+            throw new InvalidOperationException(
+                "Gate review gave no findings and no CLEAN verdict" +
+                (text.Length == 0 ? " (empty reply)" : $": {text[..Math.Min(200, text.Length)]}"));
+        }
 
         var verdict = findings.Any(f => f.Severity == "BLOCKER") ? GateVerdict.Blocker
                     : findings.Any(f => f.Severity == "MINOR")   ? GateVerdict.Minor
