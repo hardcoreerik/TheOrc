@@ -828,6 +828,43 @@ public class SwarmSession
 
     private void Activity(string msg, string agentKey = "boss") => OnActivity?.Invoke(agentKey, msg);
 
+    /// <summary>
+    /// Posts "still working" lines while a model call runs. A local model can spend minutes reading
+    /// a prompt before its first token, and a long generation looks the same as a hung run.
+    /// </summary>
+    private sealed class Heartbeat : IDisposable
+    {
+        private readonly CancellationTokenSource _cts = new();
+
+        public Heartbeat(Action<string> post, string what, Func<int> charsSoFar, TimeSpan? interval = null)
+        {
+            var every = interval ?? TimeSpan.FromSeconds(20);
+            var started = DateTime.UtcNow;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        await Task.Delay(every, _cts.Token);
+                        post(FormatBeat(what, (int)(DateTime.UtcNow - started).TotalSeconds, charsSoFar()));
+                    }
+                }
+                catch (OperationCanceledException) { }
+            });
+        }
+
+        public void Dispose() { _cts.Cancel(); _cts.Dispose(); }
+    }
+
+    internal static string FormatBeat(string what, int seconds, int chars) =>
+        chars == 0
+            ? $"⏳ {what}: {seconds}s, reading the prompt (no output yet)"
+            : $"⏳ {what}: {seconds}s, {chars:N0} characters written";
+
+    private Heartbeat Beat(string what, string agentKey, Func<int> charsSoFar) =>
+        new(m => Activity(m, agentKey), what, charsSoFar);
+
     private static string AgentKey(SwarmWorkerRole role) => role switch
     {
         SwarmWorkerRole.Researcher  => "researcher",
@@ -1387,6 +1424,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // A mild repeat penalty for the plan only (Native Runtime; other backends ignore it):
         // Gemma 4 26B's plans collapsed into "…is an[] empty list is an[] empty list…" twice in a row.
         using var penalty = SamplingHints.WithRepeatPenalty(BossRepeatPenalty);
+        using var planBeat = Beat("Boss is planning", "boss", () => sb.Length);
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: temperature, maxTokens: 8192, ct: ct))
         {
@@ -1547,6 +1585,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         OnBossToken?.Invoke("\n\n──── ⬡ TheOrc is merging results ────\n\n");
 
         var result = new StringBuilder();
+        using var mergeBeat = Beat("Boss is merging results", "boss", () => result.Length);
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: 0.2, maxTokens: 3072, ct: ct))
         {
@@ -2199,6 +2238,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                     onToolCall:  tc => pendingTcs.Add(tc),
                     ct:          ct);
 
+            using var workerBeat = Beat($"{task.Title} (step {step + 1})", agentKey, () => contentSb.Length);
             await foreach (var token in stream)
             {
                 contentSb.Append(token);

@@ -267,4 +267,11 @@ public sealed class SwarmQualityTests
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    [Test]
+    public void FormatBeat_SaysReadingThePromptUntilOutputArrives()
+    {
+        Assert.That(SwarmSession.FormatBeat("Write a.py (step 2)", 40, 0), Does.Contain("reading the prompt"));
+        Assert.That(SwarmSession.FormatBeat("Write a.py (step 2)", 60, 1500), Does.Contain("1,500 characters"));
+    }
 }
