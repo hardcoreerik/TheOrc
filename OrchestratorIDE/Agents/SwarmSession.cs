@@ -643,6 +643,22 @@ public class SwarmSession
             // suite (a run reported PASS while pytest failed). Run the tests ourselves.
             if (!ct.IsCancellationRequested)
             {
+                // A test file the plan promised but nobody wrote: pytest has nothing to run and
+                // would pass vacuously, as the Tester model did. Have it written first.
+                var missingTests = FindMissingPlannedTestFile(Tasks, OutputProjectDir);
+                if (missingTests is not null)
+                {
+                    Activity($"⚠ {missingTests} was never written — Boss spawning a task to write it", "boss");
+                    _trace?.WriteEvent("missing_test_file", missingTests);
+                    var writeTests = BuildWriteTestsTask(missingTests, userGoal, OutputProjectDir, _targetLanguage);
+                    Tasks.Add(writeTests);
+                    OnTasksPlanned?.Invoke(Tasks);
+                    await RunWorkerAsync(writeTests, findings, ct);
+                    if (!File.Exists(Path.Combine(OutputProjectDir, missingTests)))
+                        testerVerdict = $"STATUS: FAIL | {missingTests} was never written, so the tests were not run"
+                                        + (testerVerdict is null ? "" : "\n(Tester model said: " + testerVerdict + ")");
+                }
+
                 var truth = await RunGroundTruthTestsAsync(ct);
                 if (truth is { Ran: true, ExitCode: not 0 })
                 {
@@ -2447,6 +2463,48 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 - Keep every existing function; do not add new files.
                 - Afterwards run_shell "python3 -m pytest -q" once to check, then stop.
                 LANGUAGE: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
+                """,
+        };
+    }
+
+    private static readonly Regex _testPathRegex =
+        new(@"(?<![\w/.-])((?:[\w.-]+/)*(?:test_[\w.-]+|[\w.-]+_test)\.py)\b", RegexOptions.Compiled);
+
+    /// <summary>The first test file named in a task title that is not in the project folder.</summary>
+    internal static string? FindMissingPlannedTestFile(IEnumerable<SwarmTask> tasks, string projectDir)
+    {
+        foreach (var t in tasks)
+        {
+            var m = _testPathRegex.Match(t.Title ?? "");
+            if (m.Success && !File.Exists(Path.Combine(projectDir, m.Groups[1].Value)))
+                return m.Groups[1].Value;
+        }
+        return null;
+    }
+
+    private static SwarmTask BuildWriteTestsTask(string testFile, string goal, string projectDir, string language)
+    {
+        var sources = Directory.Exists(projectDir)
+            ? Directory.EnumerateFiles(projectDir, "*.py", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(projectDir, f))
+                .Where(f => !f.Contains("test", StringComparison.OrdinalIgnoreCase) && !f.StartsWith("."))
+                .Take(8)
+            : [];
+        return new SwarmTask
+        {
+            Role     = SwarmWorkerRole.Coder,
+            Priority = 4,
+            Title    = $"Write {testFile}",
+            Description = $"""
+                The project goal required tests, but {testFile} does not exist yet.
+
+                GOAL: {goal}
+
+                INSTRUCTIONS:
+                - read_file the source files ({string.Join(", ", sources)}) so every test calls a function with the arguments it really takes.
+                - write_file {testFile} with plain-assert tests (test_ functions), always passing "path" and "content".
+                - Afterwards run_shell "python3 -m pytest -q" once, then stop.
+                LANGUAGE: {(string.IsNullOrWhiteSpace(language) ? "Python" : language)}
                 """,
         };
     }

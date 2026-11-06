@@ -251,4 +251,20 @@ public sealed class SwarmQualityTests
         SwarmSession.FillMissingWritePath(tc, task);
         Assert.That(tc.Arguments["path"], Is.EqualTo("tests/test_stats.py"));
     }
+
+    [Test]
+    public void FindMissingPlannedTestFile_FlagsAPromisedTestFileThatIsNotThere()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "orc-missing-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var tasks = new[] { new SwarmTask { Title = "Write textstats/stats.py" }, new SwarmTask { Title = "Write and run tests/test_stats.py" } };
+            Assert.That(SwarmSession.FindMissingPlannedTestFile(tasks, dir), Is.EqualTo("tests/test_stats.py"));
+            Directory.CreateDirectory(Path.Combine(dir, "tests"));
+            File.WriteAllText(Path.Combine(dir, "tests", "test_stats.py"), "x");
+            Assert.That(SwarmSession.FindMissingPlannedTestFile(tasks, dir), Is.Null);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
