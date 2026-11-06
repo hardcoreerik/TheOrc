@@ -202,4 +202,69 @@ public sealed class SwarmQualityTests
     [TestCase("[exit 1] AssertionError", false)]
     public void IsToolFailure_Classifies(string result, bool expected) =>
         Assert.That(SwarmSession.IsToolFailure(result), Is.EqualTo(expected));
+
+    // ── Boss repetition loop, round 2: short descriptions + a Boss-only repeat penalty ──
+
+    [Test]
+    public void SamplingHints_ScopeSetsAndRestores()
+    {
+        Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.Null);
+        using (OrchestratorIDE.Core.Runtime.SamplingHints.WithRepeatPenalty(1.1f))
+        {
+            Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.EqualTo(1.1f));
+            using (OrchestratorIDE.Core.Runtime.SamplingHints.WithRepeatPenalty(1.2f))
+                Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.EqualTo(1.2f));
+            Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.EqualTo(1.1f));
+        }
+        Assert.That(OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty, Is.Null);
+    }
+
+    [Test]
+    public async Task SamplingHints_FlowsThroughAsyncCalls_NotToSiblings()
+    {
+        using var _ = OrchestratorIDE.Core.Runtime.SamplingHints.WithRepeatPenalty(1.08f);
+        var seen = await Task.Run(async () => { await Task.Yield(); return OrchestratorIDE.Core.Runtime.SamplingHints.RepeatPenalty; });
+        Assert.That(seen, Is.EqualTo(1.08f));
+        Assert.That(SwarmSession.BossRepeatPenalty, Is.GreaterThan(1f).And.LessThan(1.2f));
+    }
+
+    [Test]
+    public void FillMissingWritePath_UsesTheSingleFileInTheTaskTitle()
+    {
+        var tc = new OrchestratorIDE.Models.ToolCall { Name = "write_file", Arguments = new Dictionary<string, object?> { ["content"] = "x" } };
+        SwarmSession.FillMissingWritePath(tc, new SwarmTask { Title = "Write textstats/stats.py" });
+        Assert.That(tc.Arguments["path"], Is.EqualTo("textstats/stats.py"));
+
+        var two = new OrchestratorIDE.Models.ToolCall { Name = "write_file", Arguments = new Dictionary<string, object?> { ["content"] = "x" } };
+        SwarmSession.FillMissingWritePath(two, new SwarmTask { Title = "Write a.py and b.py" });
+        Assert.That(two.Arguments.ContainsKey("path"), Is.False);
+    }
+
+    [Test]
+    public void GroundTruthFixTask_IsNamedAfterTheFailingFile()
+    {
+        var output = "..F\n>       assert top_words(text) == {}\nE       TypeError: missing n\n\ntests/test_stats.py:15: TypeError\nFAILED tests/test_stats.py::test_top_words";
+        var task = SwarmSession.BuildGroundTruthFixTask(output, "Python");
+        Assert.That(task.Title, Is.EqualTo("Fix tests/test_stats.py"));
+        Assert.That(task.Description, Does.Contain("TypeError"));
+        var tc = new OrchestratorIDE.Models.ToolCall { Name = "write_file", Arguments = new Dictionary<string, object?> { ["content"] = "x" } };
+        SwarmSession.FillMissingWritePath(tc, task);
+        Assert.That(tc.Arguments["path"], Is.EqualTo("tests/test_stats.py"));
+    }
+
+    [Test]
+    public void FindMissingPlannedTestFile_FlagsAPromisedTestFileThatIsNotThere()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "orc-missing-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var tasks = new[] { new SwarmTask { Title = "Write textstats/stats.py" }, new SwarmTask { Title = "Write and run tests/test_stats.py" } };
+            Assert.That(SwarmSession.FindMissingPlannedTestFile(tasks, dir), Is.EqualTo("tests/test_stats.py"));
+            Directory.CreateDirectory(Path.Combine(dir, "tests"));
+            File.WriteAllText(Path.Combine(dir, "tests", "test_stats.py"), "x");
+            Assert.That(SwarmSession.FindMissingPlannedTestFile(tasks, dir), Is.Null);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }

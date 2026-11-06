@@ -125,10 +125,22 @@ public static class ToolCallTextParser
         "path", "content", "command", "reason", "query", "pattern", "directory", "old_string",
         "new_string", "url", "text", "selector", "file", "glob", "include", "max_results",
         "start_line", "end_line", "symbol", "depth", "timeout", "name", "id",
+        "file_path", "filepath", "filename", "file_name", "filePath", "relative_path", "target_file",
     ];
 
+    // Names models use for the file path; a tool that wants "path" gets it under that name.
+    private static readonly string[] _pathAliases =
+        ["file_path", "filepath", "filename", "file_name", "filePath", "relative_path", "target_file"];
+
+    private static void NormalizePathAlias(Dictionary<string, object?> args)
+    {
+        if (args.ContainsKey("path")) return;
+        foreach (var alias in _pathAliases)
+            if (args.Remove(alias, out var v)) { args["path"] = v; return; }
+    }
+
     private static readonly Regex _gemmaKeyRegex =
-        new(@"(?:^|,)\s*(" + string.Join("|", _gemmaArgNames) + @"):", RegexOptions.Compiled);
+        new(@"(?:^|,)\s*[""']?(" + string.Join("|", _gemmaArgNames) + @")[""']?:", RegexOptions.Compiled);
 
     internal static List<ToolCall> ParseGemmaCalls(string text)
     {
@@ -147,6 +159,7 @@ public static class ToolCallTextParser
                 : ParseGemmaBareArgs(text, bodyStart, segEnd);
 
             if (args is null) continue;
+            NormalizePathAlias(args);
             calls.Add(new ToolCall
             {
                 Id           = Guid.NewGuid().ToString("N")[..8],
@@ -191,6 +204,11 @@ public static class ToolCallTextParser
         return args.Count > 0 ? args : null;
     }
 
+    // Models often wrap bare values in plain quotes ("a.py"); a shell would then run the whole
+    // quoted string as one command name, and a path would contain literal quote characters.
+    private static string UnwrapQuotes(string v) =>
+        v.Length >= 2 && (v[0] == '"' || v[0] == '\'') && v[^1] == v[0] ? v[1..^1] : v;
+
     // key:value,key2:value2}   (no delimiters, so split at known argument names only)
     private static Dictionary<string, object?>? ParseGemmaBareArgs(string text, int pos, int limit)
     {
@@ -206,7 +224,7 @@ public static class ToolCallTextParser
         {
             var valStart = keys[k].Index + keys[k].Length;
             var valEnd   = k + 1 < keys.Count ? keys[k + 1].Index : body.Length;
-            args[keys[k].Groups[1].Value] = body[valStart..valEnd].Trim();
+            args[keys[k].Groups[1].Value] = UnwrapQuotes(body[valStart..valEnd].Trim());
         }
         return args;
     }

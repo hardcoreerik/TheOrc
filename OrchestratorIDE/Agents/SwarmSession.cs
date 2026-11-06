@@ -461,12 +461,16 @@ public class SwarmSession
                     (  0,  > 0) => $"{testCount} planned tester worker(s)",
                     _           => $"{others.Count} worker(s)"
                 };
-                Activity($"Coder phase — {phaseDesc} running concurrently", "boss");
+                Activity($"Coder phase — {phaseDesc}" + (testCount > 0 ? "; testers run once the files exist" : " running concurrently"), "boss");
                 _trace?.WriteEvent("phase_start", $"Coder/UIDev/Tester phase: {others.Count} worker(s)");
+                // A planned Tester used to start together with the coders and "verify" files that
+                // did not exist yet (false FAIL, then a fix task that rewrote good code). It now
+                // runs after the implementation workers and their files are written.
+                var implTasks = others.Where(t => t.Role != SwarmWorkerRole.Tester).ToList();
                 if (_distributedQueue is not null)
-                    await Task.WhenAll(others.Select(t => DispatchToQueueAsync(t, findings, ct)));
+                    await Task.WhenAll(implTasks.Select(t => DispatchToQueueAsync(t, findings, ct)));
                 else
-                    await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
+                    await Task.WhenAll(implTasks.Select(t => RunWorkerAsync(t, findings, ct)));
 
                 var totalFiles = 0;
                 foreach (var t in others.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
@@ -535,6 +539,16 @@ public class SwarmSession
                 }
 
                 Activity($"Workers wrote {totalFiles} file(s) to workspace root", "boss");
+
+                var plannedTesters = others.Where(t => t.Role == SwarmWorkerRole.Tester).ToList();
+                if (plannedTesters.Count > 0 && !ct.IsCancellationRequested)
+                {
+                    Activity($"Planned tester phase — {plannedTesters.Count} worker(s)", "boss");
+                    if (_distributedQueue is not null)
+                        await Task.WhenAll(plannedTesters.Select(t => DispatchToQueueAsync(t, findings, ct)));
+                    else
+                        await Task.WhenAll(plannedTesters.Select(t => RunWorkerAsync(t, findings, ct)));
+                }
             }
 
             // ── Collect planned TESTER verdicts (boss-assigned, ran in Phase 2b) ──
@@ -584,7 +598,16 @@ public class SwarmSession
                     Activity($"🧪 Tester: {testerVerdict}", "boss");
 
                     // ── Boss spawns targeted fix task on FAIL ─────────────────
-                    if (TesterReportedFailure(testerTask.Result) && !ct.IsCancellationRequested)
+                    // A Tester that executed no tool call never ran the code: its "errors" are
+                    // invented (a Qwen run reported a syntax error in a file that was fine, and the
+                    // fix task then replaced the file with unrelated code).
+                    if (TesterReportedFailure(testerTask.Result) && testerTask.ToolCallsExecuted == 0)
+                    {
+                        Activity("⚠ Tester ran no commands — its verdict is unverified, no fix task started", "boss");
+                        _trace?.WriteEvent("tester_unverified", "Tester reported a failure without running any tool");
+                        testerVerdict += " (unverified: the Tester ran no commands)";
+                    }
+                    else if (TesterReportedFailure(testerTask.Result) && !ct.IsCancellationRequested)
                     {
                         fixTaskSpawned = true;
                         Activity("⚠ Tester found failures — Boss spawning targeted fix task", "boss");
@@ -614,6 +637,51 @@ public class SwarmSession
                 testerVerdict = testerVerdict is null
                     ? plannedTesterVerdict
                     : plannedTesterVerdict + "\n" + testerVerdict;
+
+            // ── Phase 3b: ground truth ───────────────────────────────────────────────
+            // A Tester model reports what it believes, and a small one says PASS over a failing
+            // suite (a run reported PASS while pytest failed). Run the tests ourselves.
+            if (!ct.IsCancellationRequested)
+            {
+                // A test file the plan promised but nobody wrote: pytest has nothing to run and
+                // would pass vacuously, as the Tester model did. Have it written first.
+                var missingTests = FindMissingPlannedTestFile(Tasks, OutputProjectDir);
+                if (missingTests is not null)
+                {
+                    Activity($"⚠ {missingTests} was never written — Boss spawning a task to write it", "boss");
+                    _trace?.WriteEvent("missing_test_file", missingTests);
+                    var writeTests = BuildWriteTestsTask(missingTests, userGoal, OutputProjectDir, _targetLanguage);
+                    Tasks.Add(writeTests);
+                    OnTasksPlanned?.Invoke(Tasks);
+                    await RunWorkerAsync(writeTests, findings, ct);
+                    if (!File.Exists(Path.Combine(OutputProjectDir, missingTests)))
+                        testerVerdict = $"STATUS: FAIL | {missingTests} was never written, so the tests were not run"
+                                        + (testerVerdict is null ? "" : "\n(Tester model said: " + testerVerdict + ")");
+                }
+
+                var truth = await RunGroundTruthTestsAsync(ct);
+                if (truth is { Ran: true, ExitCode: not 0 })
+                {
+                    Activity($"⚠ pytest fails (exit {truth.ExitCode}) — Boss spawning a fix task from the real output", "boss");
+                    _trace?.WriteEvent("ground_truth_failed", truth.Output);
+                    var gtFix = BuildGroundTruthFixTask(truth.Output, _targetLanguage);
+                    Tasks.Add(gtFix);
+                    OnTasksPlanned?.Invoke(Tasks);
+                    await RunWorkerAsync(gtFix, findings, ct);
+                    truth = await RunGroundTruthTestsAsync(ct);
+                }
+                if (truth is { Ran: true })
+                {
+                    var line = truth.ExitCode == 0
+                        ? "GROUND TRUTH: pytest passes."
+                        : $"STATUS: FAIL | GROUND TRUTH: pytest still fails (exit {truth.ExitCode}): {TailLines(truth.Output, 6)}";
+                    Activity($"🧪 {line}", "boss");
+                    _trace?.WriteEvent("ground_truth_result", line);
+                    testerVerdict = truth.ExitCode == 0
+                        ? (testerVerdict is null ? line : testerVerdict + "\n" + line)
+                        : line + (testerVerdict is null ? "" : "\n(Tester model said: " + testerVerdict + ")");
+                }
+            }
 
             // ── Phase 4: Boss merge → final_report.md ────────────────────────
             Activity("Boss merging results → writing final_report.md", "boss");
@@ -1181,6 +1249,7 @@ public class SwarmSession
         - If no research is needed, skip RESEARCHER and assign CODER/UIDEVELOPER/TESTER tasks directly
         - TESTER tasks verify code that already exists in the workspace — they do NOT receive output from CODER tasks in the same run
         - Descriptions must be self-contained — minions cannot ask follow-up questions
+        - Keep each description to 2-4 sentences (under 80 words): name the file and each function signature once. Do NOT list edge cases, return values or examples, and never repeat a phrase
         - Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER/TESTER
         - Prefer 3 priority-2 tasks when the goal has distinct implementation concerns
 
@@ -1203,7 +1272,7 @@ public class SwarmSession
               "role": "RESEARCHER",
               "priority": 1,
               "title": "Short descriptive title",
-              "description": "Detailed, self-contained instructions for this minion. Use \\n for line breaks inside this string."
+              "description": "Self-contained instructions for this minion, 2-4 sentences. Use \\n for line breaks inside this string."
             }
           ]
         }
@@ -1263,7 +1332,7 @@ You returned this plan, which is INVALID (an empty or catch-all task, or not val
 
 REQUIREMENTS YOU MUST FOLLOW NOW:
 1. You MUST output between 3 and 4 tasks. Never 1.
-2. Every "description" field MUST be at least 3 sentences describing exactly what to build.
+2. Every "description" field MUST be 2-4 sentences (under 80 words) saying exactly what to build. Never repeat a phrase.
 3. Task titles MUST name the output file (e.g. "Write csv_cleaner.py").
 4. Do NOT output title:"Execute goal" or description:"" — these are rejected.
 
@@ -1299,6 +1368,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         return nonEmpty == 0;
     }
 
+    internal const float BossRepeatPenalty = 1.08f;
+
     private async Task<string> StreamBossAsync(
         string sysPrompt, string goalWithLang, double temperature, CancellationToken ct)
     {
@@ -1313,6 +1384,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // truncated mid-string (or never started), presenting as json_invalid
         // collapse. max_tokens overrides the Modelfile's num_predict 2048.
         var tokens = 0;
+        // A mild repeat penalty for the plan only (Native Runtime; other backends ignore it):
+        // Gemma 4 26B's plans collapsed into "…is an[] empty list is an[] empty list…" twice in a row.
+        using var penalty = SamplingHints.WithRepeatPenalty(BossRepeatPenalty);
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: temperature, maxTokens: 8192, ct: ct))
         {
@@ -2036,6 +2110,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         const int MaxWorkerSteps = 16;
         var finalSb = new StringBuilder();
         var failedCalls = new Dictionary<string, int>();   // identical call -> times it errored
+        var sameCalls   = new Dictionary<string, int>();   // identical call -> times it ran at all
 
         // Convert ToolDefinition objects → serializable JsonObject schemas INLINE.
         // We build JsonObject nodes directly instead of going through SchemaGenerator
@@ -2184,6 +2259,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             // ── Execute each tool call ────────────────────────────────────
             foreach (var tc in pendingTcs)
             {
+                FillMissingWritePath(tc, task);
                 var argSummary = string.Join(", ", tc.Arguments
                     .Take(2).Select(kv =>
                     {
@@ -2202,6 +2278,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                         _runId, task, model, tc, tools, _workspaceRoot, DatasetStagingDir);
 
                 string result;
+                task.ToolCallsExecuted++;
 
                 // ── ask_user: pause worker and wait for user reply ────────
                 if (tc.Name == "ask_user")
@@ -2216,10 +2293,32 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                         : "[ERROR] No tool registry available";
                 }
 
+                // The same call again and again, failing or not (a Tester ran `ls -R` 40 times in a
+                // row), is a loop: it cannot change anything the model has not already seen.
+                var callKey = tc.Name + "|" + string.Join("|", tc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
+                sameCalls[callKey] = sameCalls.GetValueOrDefault(callKey) + 1;
+                if (sameCalls[callKey] >= MaxIdenticalToolCalls)
+                {
+                    var msg = $"Stopped: {tc.Name} was called {MaxIdenticalToolCalls} times with the same arguments, a loop. Last result: {result}";
+                    Activity($"⛔ {task.Title} — {msg[..Math.Min(300, msg.Length)]}", agentKey);
+                    finalSb.Append("\nSTATUS: FAIL\nERRORS: ").Append(msg);
+                    task.Result = StripGemma4Artifacts(finalSb.ToString());
+                    return;
+                }
+
                 // The same call failing over and over (a write the OS refuses, a command that
                 // does not exist) will not start working: stop the worker with the error.
                 if (IsToolFailure(result))
                 {
+                    if (result.StartsWith("[ERROR] write_file needs a", StringComparison.Ordinal))
+                    {
+                        // Diagnostic: what did the model actually write? (head and tail, one line)
+                        var raw = content.Replace('\n', ' ');
+                        var head = raw[..Math.Min(220, raw.Length)];
+                        var tail = raw.Length > 220 ? raw[^Math.Min(220, raw.Length - 220)..] : "";
+                        Activity($"🩺 raw write_file call — head: {head} … tail: {tail}", agentKey);
+                        _trace?.WriteEvent("write_file_no_path_raw", content);
+                    }
                     var key = tc.Name + "|" + string.Join("|", tc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
                     failedCalls[key] = failedCalls.GetValueOrDefault(key) + 1;
                     if (failedCalls[key] >= MaxIdenticalToolFailures)
@@ -2270,12 +2369,145 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     }
 
     private const int MaxIdenticalToolFailures = 3;
+    private const int MaxIdenticalToolCalls    = 5;
 
     // Budget for the non-system messages of one worker call, in characters (~3.5 chars per
     // token): with the system prompt and tool schemas this keeps a call inside an 8192-token
     // context with room left to generate.
     private const int PromptHistoryBudgetChars = 16_000;
     private const int PromptMessageCapChars    = 4_000;
+
+    private static readonly Regex _taskFileRegex =
+        new(@"[A-Za-z0-9_./\-]+\.[A-Za-z0-9]{1,5}\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Gemma 4 often writes `write_file{content:..., reason:...}` and leaves out the path. When the
+    /// task title names exactly one file ("Write textstats/stats.py"), that is the path.
+    /// </summary>
+    internal static void FillMissingWritePath(ToolCall tc, SwarmTask task)
+    {
+        if (tc.Name != "write_file") return;
+        if (tc.Arguments.TryGetValue("path", out var p) && !string.IsNullOrWhiteSpace(p?.ToString())) return;
+        var files = _taskFileRegex.Matches(task.Title ?? "").Select(m => m.Value).Distinct().ToList();
+        if (files.Count == 1) tc.Arguments["path"] = files[0];
+    }
+
+    internal sealed record GroundTruth(bool Ran, int ExitCode, string Output);
+
+    /// <summary>Runs the staged project's pytest suite (Python projects with a tests folder only).</summary>
+    private async Task<GroundTruth> RunGroundTruthTestsAsync(CancellationToken ct)
+    {
+        var dir = OutputProjectDir;
+        try
+        {
+            if (!Directory.Exists(dir)) return new(false, 0, "");
+            if (!string.IsNullOrWhiteSpace(_targetLanguage) && !_targetLanguage.Contains("python", StringComparison.OrdinalIgnoreCase))
+                return new(false, 0, "");
+            var hasTests = Directory.EnumerateFiles(dir, "test_*.py", SearchOption.AllDirectories).Any()
+                        || Directory.EnumerateFiles(dir, "*_test.py", SearchOption.AllDirectories).Any();
+            if (!hasTests) return new(false, 0, "");
+
+            var psi = new System.Diagnostics.ProcessStartInfo("/usr/bin/env")
+            {
+                WorkingDirectory = dir,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+            };
+            foreach (var a in new[] { "python3", "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider" })
+                psi.ArgumentList.Add(a);
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null) return new(false, 0, "");
+            var stdout = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderr = proc.StandardError.ReadToEndAsync(ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(90));
+            try { await proc.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { try { proc.Kill(true); } catch { } return new(false, 0, "pytest timed out"); }
+            var output = (await stdout + "\n" + await stderr).Trim();
+            // No pytest on this machine is "could not check", not a failure of the project.
+            if (output.Contains("No module named pytest", StringComparison.Ordinal)) return new(false, 0, output);
+            return new(true, proc.ExitCode, output);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new(false, 0, ex.Message);
+        }
+    }
+
+    private static string TailLines(string text, int n) =>
+        string.Join(" ", text.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)).TakeLast(n).Select(l => l.Trim()));
+
+    private static readonly Regex _pyLocationRegex = new(@"(?<![/\w])((?:[\w.-]+/)*[\w.-]+\.py):\d+", RegexOptions.Compiled);
+
+    /// <summary>A fix task built from the real pytest output. The first relative file in the
+    /// traceback names the task, so a write_file call that omits its path can be filled in.</summary>
+    internal static SwarmTask BuildGroundTruthFixTask(string pytestOutput, string targetLanguage)
+    {
+        var file = _pyLocationRegex.Matches(pytestOutput).Select(m => m.Groups[1].Value)
+            .FirstOrDefault(f => !f.StartsWith("/") && !f.Contains("site-packages"));
+        var tail = pytestOutput.Length > 2500 ? pytestOutput[^2500..] : pytestOutput;
+        return new SwarmTask
+        {
+            Role     = SwarmWorkerRole.Coder,
+            Priority = 4,
+            Title    = file is null ? "Fix failing tests" : $"Fix {file}",
+            Description = $"""
+                pytest was run on the project and FAILED. Fix the cause.
+
+                PYTEST OUTPUT:
+                {tail}
+
+                INSTRUCTIONS:
+                - read_file the file named in the failure, then write_file the corrected whole file. Always pass "path" and "content".
+                - Decide whether the test or the code is wrong; a test must call functions with the arguments they require.
+                - Keep every existing function; do not add new files.
+                - Afterwards run_shell "python3 -m pytest -q" once to check, then stop.
+                LANGUAGE: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
+                """,
+        };
+    }
+
+    private static readonly Regex _testPathRegex =
+        new(@"(?<![\w/.-])((?:[\w.-]+/)*(?:test_[\w.-]+|[\w.-]+_test)\.py)\b", RegexOptions.Compiled);
+
+    /// <summary>The first test file named in a task title that is not in the project folder.</summary>
+    internal static string? FindMissingPlannedTestFile(IEnumerable<SwarmTask> tasks, string projectDir)
+    {
+        foreach (var t in tasks)
+        {
+            var m = _testPathRegex.Match(t.Title ?? "");
+            if (m.Success && !File.Exists(Path.Combine(projectDir, m.Groups[1].Value)))
+                return m.Groups[1].Value;
+        }
+        return null;
+    }
+
+    private static SwarmTask BuildWriteTestsTask(string testFile, string goal, string projectDir, string language)
+    {
+        var sources = Directory.Exists(projectDir)
+            ? Directory.EnumerateFiles(projectDir, "*.py", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(projectDir, f))
+                .Where(f => !f.Contains("test", StringComparison.OrdinalIgnoreCase) && !f.StartsWith("."))
+                .Take(8)
+            : [];
+        return new SwarmTask
+        {
+            Role     = SwarmWorkerRole.Coder,
+            Priority = 4,
+            Title    = $"Write {testFile}",
+            Description = $"""
+                The project goal required tests, but {testFile} does not exist yet.
+
+                GOAL: {goal}
+
+                INSTRUCTIONS:
+                - read_file the source files ({string.Join(", ", sources)}) so every test calls a function with the arguments it really takes.
+                - write_file {testFile} with plain-assert tests (test_ functions), always passing "path" and "content".
+                - Afterwards run_shell "python3 -m pytest -q" once, then stop.
+                LANGUAGE: {(string.IsNullOrWhiteSpace(language) ? "Python" : language)}
+                """,
+        };
+    }
 
     internal static bool IsToolFailure(string result) =>
         result.StartsWith("[ERROR]", StringComparison.Ordinal)
@@ -2625,6 +2857,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 - Use read_file to read the current content of the broken file(s).
                 - Use write_file to patch only the lines causing the error.
                 - Do NOT rewrite files from scratch — minimal targeted fix only.
+                - Keep every existing function and the file's purpose; never replace a file with unrelated code.
+                - If read_file shows the reported error is not in the file, change nothing and say so.
                 - After writing, use run_shell to verify the fix (syntax check).
 
                 FILES TO INSPECT: {string.Join(", ", filesToFix)}

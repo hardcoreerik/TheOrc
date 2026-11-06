@@ -740,4 +740,17 @@ public sealed class NativeRuntimeTestSupportTests
 
         public RuntimeStats GetStats() => new(RuntimeName, ActiveModel: "mapped");
     }
+
+    [Test]
+    public void TailIsRepeating_CatchesAnImEndLoopButNotNormalCode()
+    {
+        var loop = new System.Text.StringBuilder("```" + string.Concat(Enumerable.Repeat("|im_end|>", 20)));
+        Assert.That(NativeRoleRuntime.TailIsRepeating(loop), Is.True);
+
+        var code = new System.Text.StringBuilder(string.Concat(Enumerable.Range(0, 40).Select(n => $"line_{n} = {n * 7}\n")));
+        Assert.That(NativeRoleRuntime.TailIsRepeating(code), Is.False);
+
+        var dashes = new System.Text.StringBuilder(new string('-', 200));   // one repeated character is a separator, not a loop
+        Assert.That(NativeRoleRuntime.TailIsRepeating(dashes), Is.False);
+    }
 }

@@ -71,4 +71,28 @@ public class GemmaToolCallParserTests
     {
         Assert.That(ToolCallTextParser.Parse("Please call: me later {ok}"), Is.Empty);
     }
+
+    [Test]
+    public void QuotedKeysAndValues_AreUnwrapped()
+    {
+        var calls = ToolCallTextParser.Parse("call:write_file{\"content\":\"x = 1\",\"path\":\"textstats/stats.py\"}");
+        Assert.That(calls, Has.Count.EqualTo(1));
+        Assert.That(calls[0].Arguments["path"], Is.EqualTo("textstats/stats.py"));
+        Assert.That(calls[0].Arguments["content"], Is.EqualTo("x = 1"));
+    }
+
+    [Test]
+    public void QuotedCommandValue_LosesQuotes()
+    {
+        var calls = ToolCallTextParser.Parse("call:run_shell{command:\"python3 -m py_compile a.py\"}");
+        Assert.That(calls[0].Arguments["command"], Is.EqualTo("python3 -m py_compile a.py"));
+    }
+
+    [Test]
+    public void FilePathAlias_BecomesPath()
+    {
+        var calls = ToolCallTextParser.Parse("call:write_file{file_path:textstats/stats.py,content:x = 1,reason:make it}");
+        Assert.That(calls[0].Arguments["path"], Is.EqualTo("textstats/stats.py"));
+        Assert.That(calls[0].Arguments["content"], Is.EqualTo("x = 1"));
+    }
 }

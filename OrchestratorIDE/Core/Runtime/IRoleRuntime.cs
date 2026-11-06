@@ -70,6 +70,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         "<|user|>",
         "<|end|>",
         "<|im_end|>",
+        "im_end|>",      // the same token with its "<|" lost to tokenisation: seen as "|im_end|>|im_end|>…"
         "[/INST]",
         "\nUser:",
         "\nHuman:",
@@ -377,6 +378,25 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         (vocab.EOS is { } eos && token.Equals(eos)) ||
         (vocab.EOT is { } eot && token.Equals(eot));
 
+    /// <summary>
+    /// True when the last 120 characters are one short unit (1-12 chars) repeated back to back,
+    /// e.g. "|im_end|>|im_end|>…": a degenerate loop that would otherwise run to the token limit.
+    /// </summary>
+    internal static bool TailIsRepeating(StringBuilder output)
+    {
+        const int window = 120;
+        if (output.Length < window) return false;
+        var tail = output.ToString(output.Length - window, window);
+        for (var unit = 1; unit <= 12; unit++)
+        {
+            var ok = true;
+            for (var i = unit; i < window; i++)
+                if (tail[i] != tail[i - unit]) { ok = false; break; }
+            if (ok && tail.Distinct().Count() > 1) return true;
+        }
+        return false;
+    }
+
     private static bool EndsWithAntiPrompt(StringBuilder output)
     {
         if (output.Length == 0)
@@ -422,9 +442,14 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+        // SamplingHints: a per-call repeat penalty (the Swarm Boss sets one). Off unless > 1.
+        var repeatPenalty = SamplingHints.RepeatPenalty is { } rp && rp > 1f ? rp : 1f;
         using var sampler = new DefaultSamplingPipeline
         {
-            Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
+            Temperature   = (float)Math.Clamp(temperature, 0.0, 2.0),
+            RepeatPenalty = repeatPenalty,
+            // Look back far enough to catch a phrase on repeat; the default window is shorter.
+            PenaltyCount  = repeatPenalty > 1f ? 128 : new DefaultSamplingPipeline().PenaltyCount,
         };
 
         var promptTokens = _runtime.TokenizePromptForLoadedModel(history, tools);
@@ -463,6 +488,8 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 yield return text;
 
                 if (EndsWithAntiPrompt(outputBuilder))
+                    break;
+                if (i % 8 == 0 && TailIsRepeating(outputBuilder))
                     break;
             }
 
