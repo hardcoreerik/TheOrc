@@ -32,7 +32,7 @@ public sealed class CudaRedistributableInstaller
 
     // Only the two NVIDIA redistributable components that contain the three DLLs we need.
     private static readonly string[] Components = ["cuda_cudart", "libcublas"];
-    private static readonly string[] NeededDlls  = ["cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll"];
+    private static readonly IReadOnlyList<string> NeededDlls = CudaRuntimeDlls.Names;
 
     private readonly DownloadService  _dl;
     private readonly ZipExtractService _zip;

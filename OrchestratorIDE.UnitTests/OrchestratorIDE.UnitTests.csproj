@@ -48,6 +48,7 @@
     <!-- Same reason: the installer's llama.cpp release resolver is self-contained (System.*
          only), and OrchestratorSetup is an exe with no test project of its own. -->
     <Compile Include="..\OrchestratorSetup\Services\LlamaCppResolver.cs" Link="Setup\LlamaCppResolver.cs" />
+    <Compile Include="..\OrchestratorSetup\Services\CudaRuntimeDlls.cs" Link="Setup\CudaRuntimeDlls.cs" />
   </ItemGroup>
 
   <!--
