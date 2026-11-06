@@ -350,6 +350,9 @@ public partial class MainWindow : Window
         _swarmPanel.StatusChanged += msg  => Dispatcher.UIThread.InvokeAsync(() => SetStatus(msg));
         _swarmPanel.OnActivity    += msg  => Dispatcher.UIThread.InvokeAsync(() =>
             AddActivity(new ActivityEvent(ActivityKind.Info, "Swarm", msg, DateTime.Now)));
+        _swarmPanel.OnRunError    += msg  => Dispatcher.UIThread.InvokeAsync(() =>
+            AddActivity(new ActivityEvent(msg == "Swarm stopped." ? ActivityKind.Info : ActivityKind.Error,
+                "Swarm", msg, DateTime.Now)));
         // Dialog delegates (Avalonia panel uses callbacks instead of WPF events)
         _swarmPanel.AlertAsync   = (title, msg) => DialogHelper.ShowInfoAsync(this, title, msg);
         _swarmPanel.ConfirmAsync = (title, msg) => DialogHelper.ShowYesNoAsync(this, title, msg);

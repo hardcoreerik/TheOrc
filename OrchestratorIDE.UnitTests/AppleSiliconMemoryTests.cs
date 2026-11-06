@@ -152,4 +152,37 @@ public sealed class AppleSiliconMemoryTests
         // itself is covered by the CombineMetalWithHost tests.)
         Assert.That(NativeVramProbe.TryQueryLiveGpuBudget(), Is.Not.Null);
     }
+
+    // ── Host available memory: the kernel's level, which counts reclaimable cache ──────────
+
+    [Test]
+    public void Memorystatus_level_converts_to_bytes_and_rejects_bad_reads()
+    {
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(89, 32 * Gb), Is.EqualTo(32 * Gb * 89 / 100));
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(100, 8 * Gb), Is.EqualTo(8 * Gb));
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(null, 32 * Gb), Is.Null);
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(89, null), Is.Null);
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(-1, 32 * Gb), Is.Null);
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(101, 32 * Gb), Is.Null);
+        Assert.That(NativeVramProbe.FromMemorystatusLevel(50, 0), Is.Null);
+    }
+
+    [Test]
+    public void Live_host_available_matches_the_kernels_memory_level()
+    {
+        if (!IsAppleSilicon)
+            Assert.Ignore("macOS only.");
+        static long Sysctl(string name)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("/usr/sbin/sysctl", ["-n", name]) { RedirectStandardOutput = true };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            return long.Parse(p.StandardOutput.ReadToEnd().Trim());
+        }
+        var memsize = Sysctl("hw.memsize");
+        var expected = memsize * Sysctl("kern.memorystatus_level") / 100;
+        var host = NativeVramProbe.TryQueryHostAvailableBytes();
+        Assert.That(host, Is.Not.Null.And.InRange(0, memsize));
+        // The level moves a little between the two reads; within 3 % of RAM is the same reading.
+        Assert.That(Math.Abs(host!.Value - expected), Is.LessThanOrEqualTo(memsize * 3 / 100));
+    }
 }

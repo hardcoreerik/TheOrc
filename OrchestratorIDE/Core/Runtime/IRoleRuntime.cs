@@ -387,6 +387,10 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             text.EndsWith(marker, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Per-executor gates for <see cref="StreamRoleCompletionCoreAsync"/> (see there).</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LLama.Batched.BatchedExecutor, SemaphoreSlim>
+        ExecutorGates = new();
+
     private async IAsyncEnumerable<string> StreamRoleCompletionCoreAsync(
         RuntimeRole role,
         RuntimeRoleBinding binding,
@@ -404,6 +408,20 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
 
         var conversation = tracked.Inner;
         var executor = conversation.Executor;
+
+        // One generation at a time per executor. Every role bound to the same loaded model
+        // shares one BatchedExecutor, which allows a single Infer() at a time ("Cannot start
+        // inference while it is already running"), and each token step samples logits that the
+        // previous Infer() left in the shared context -- another conversation's Infer() in
+        // between overwrites them. Swarm starts all coders + planned testers together, so two
+        // generations on one model used to interleave and fail ("inconsistent sequence
+        // positions" / "did not drain the pending prompt batch"; seen on Metal with
+        // Gemma-4-26B). Waiting here queues them, as Ollama does with one parallel slot.
+        // Different models (executors) still run in parallel.
+        var gate = ExecutorGates.GetValue(executor, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
         using var sampler = new DefaultSamplingPipeline
         {
             Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
@@ -488,6 +506,11 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         if (onToolCall is not null)
             foreach (var tc in ToolCallTextParser.Parse(outputText))
                 onToolCall(tc);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     internal static int GetCompletionTokenLimit(
