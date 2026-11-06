@@ -301,6 +301,16 @@ public class SwarmSession
             var bossRaw = await RunBossDecomposeAsync(userGoal, ct);
             Tasks = ParseBossPlan(bossRaw);
 
+            // Still no usable plan after the retry: run the user's goal as the single task.
+            // FallbackTask(raw) would hand the worker the Boss's broken output (seen on Metal:
+            // a repetition loop) as its instructions, so it ignored the requested names.
+            if (IsFallbackPlan(Tasks))
+            {
+                _trace.WriteEvent("boss_plan_unusable", "Boss plan unparseable after retry — running the goal as one task");
+                Activity("⚠ Boss plan unusable — running the goal as a single task", "boss");
+                Tasks = FallbackTask(userGoal);
+            }
+
             if (Tasks.Count == 0)
             {
                 OnError?.Invoke("Boss returned no tasks — try rephrasing your goal.");
@@ -1248,7 +1258,7 @@ public class SwarmSession
 
 ## ⚠ YOUR PREVIOUS OUTPUT WAS REJECTED
 
-You returned this plan, which is INVALID because the description is empty:
+You returned this plan, which is INVALID (an empty or catch-all task, or not valid JSON):
 {raw.Trim()[..Math.Min(400, raw.Trim().Length)]}
 
 REQUIREMENTS YOU MUST FOLLOW NOW:
@@ -1271,9 +1281,13 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     /// Returns true when the boss plan is underspecified:
     /// a single task, or all tasks have empty/trivial descriptions.
     /// </summary>
-    private static bool IsBossUnderPlanned(List<SwarmTask> tasks)
+    internal static bool IsBossUnderPlanned(List<SwarmTask> tasks)
     {
         if (tasks.Count == 0) return true;
+        // The parser's fallback: the plan wasn't valid JSON. Its description is the raw output,
+        // which can be long (a repetition loop ran 3 min to the token limit on Metal), so the
+        // length checks below never caught it and the retry never ran.
+        if (IsFallbackPlan(tasks)) return true;
         // 1 task with empty or very short description = classic gemma4:12b collapse pattern
         if (tasks.Count == 1)
         {
@@ -1298,11 +1312,21 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // reasoning tokens before the JSON plan. At 2048 the plan was routinely
         // truncated mid-string (or never started), presenting as json_invalid
         // collapse. max_tokens overrides the Modelfile's num_predict 2048.
+        var tokens = 0;
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: temperature, maxTokens: 8192, ct: ct))
         {
             sb.Append(token);
             OnBossToken?.Invoke(token);
+            // A repetition loop otherwise runs to the 8192-token limit (~3 min for Gemma-4 26B
+            // on Metal) and still yields no plan. Stop as soon as the tail is one phrase on repeat;
+            // the caller's retry (higher temperature) is the way out.
+            if (++tokens % 32 == 0 && IsRepetitionLoop(sb))
+            {
+                _trace?.WriteEvent("boss_repetition_loop", $"Stopped after {tokens} tokens");
+                Activity("⚠ Boss output is repeating itself — stopping early", "boss");
+                break;
+            }
         }
         // Strip Gemma4 special tokens that leak through Ollama's OpenAI-compat
         // /v1/chat/completions endpoint (Ollama issue #15798). Safe on all models —
@@ -1318,20 +1342,53 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     ///   <|channel|>thought\n...<channel|>  — embedded thinking blocks
     /// This is a no-op when none of these artifacts are present.
     /// </summary>
-    private static string StripGemma4Artifacts(string raw)
+    internal static string StripGemma4Artifacts(string raw)
     {
         // Fast path — avoid regex overhead on models that don't emit these tokens
         if (!raw.Contains("<|") && !raw.Contains("<channel|>")) return raw;
 
-        // Remove <|token|> control tokens (Gemma4 format, e.g. <|tool_call|>, <|turn|>)
-        var result = Regex.Replace(raw, @"<\|[^|>]{0,40}\|>", string.Empty);
+        // Full thinking blocks first, in both spellings: Ollama leaks <|channel|>…<channel|>,
+        // llama.cpp (Native Runtime) emits Gemma 4's own <|channel>thought…<channel|>.
+        var result = Regex.Replace(raw, @"<\|channel\|?>.*?<channel\|>",
+                         string.Empty, RegexOptions.Singleline);
+        // An unclosed thinking marker (seen on Metal in a Tester note: "<|channel>thought | …")
+        result     = Regex.Replace(result, @"<\|channel\|?>\s*thought\b", string.Empty);
+        // Remove <|token|> control tokens (Ollama's leak, e.g. <|tool_call|>, <|turn|>)
+        result     = Regex.Replace(result, @"<\|[^|>]{0,40}\|>", string.Empty);
+        // Remove <|token> openers (Gemma 4's native form, e.g. <|turn>, <|channel>)
+        result     = Regex.Replace(result, @"<\|[a-z_]{1,20}>", string.Empty);
         // Remove <token|> closing delimiters (e.g. <turn|>, <channel|>)
         result     = Regex.Replace(result, @"<[a-z_]{1,20}\|>", string.Empty);
-        // Remove full thinking blocks: <|channel|>thought\n...<channel|>
-        result     = Regex.Replace(result, @"<\|channel\|>.*?<channel\|>",
-                         string.Empty, RegexOptions.Singleline);
 
         return result.Trim();
+    }
+
+    /// <summary>
+    /// True when the end of <paramref name="text"/> is one phrase on repeat: a unit of 6–150
+    /// characters (with letters, and at least 3 different characters) repeated back to back over
+    /// the last 300+ characters (and at least 4 times). A degenerate "…to implement the ability
+    /// to implement…" loop qualifies; JSON with repeated keys (different values in between), a
+    /// "========" separator or a few repeated code lines does not.
+    /// </summary>
+    internal static bool IsRepetitionLoop(StringBuilder text)
+    {
+        const int MinSpan = 300, MinRepeats = 4, MinPeriod = 6, MaxPeriod = 150;
+        if (text.Length < MinSpan) return false;
+        var window = Math.Min(text.Length, MaxPeriod * MinRepeats);
+        var tail = text.ToString(text.Length - window, window);
+        for (var period = MinPeriod; period <= MaxPeriod; period++)
+        {
+            var span = Math.Max(MinSpan, period * MinRepeats);
+            if (span > tail.Length) break;
+            var repeating = true;
+            for (var i = tail.Length - span + period; i < tail.Length && repeating; i++)
+                repeating = tail[i] == tail[i - period];
+            if (!repeating) continue;
+            var unit = tail[^period..];
+            if (unit.Any(char.IsLetter) && unit.Distinct().Count() >= 3)
+                return true;
+        }
+        return false;
     }
 
     // ── Boss: Merge ───────────────────────────────────────────────────────────
@@ -1741,7 +1798,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 return;
             }
 
-            task.Result           = result.Result;
+            task.Result           = result.Result is { } r ? StripGemma4Artifacts(r) : null;
             task.ExecutedByNodeId = result.WorkerId;
             task.Status           = SwarmTaskStatus.Done;
             task.CompletedAt      = DateTime.UtcNow;
@@ -2183,7 +2240,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             }
         }
 
-        task.Result = finalSb.ToString();
+        // Same cleanup as the Boss's output: Gemma 4 control tokens leaked into worker results
+        // (e.g. a Tester note ending in "<|channel>thought") and from there into the log/report.
+        task.Result = StripGemma4Artifacts(finalSb.ToString());
     }
 
     /// <summary>
@@ -2326,32 +2385,16 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         string outputDir, string targetLanguage)
     {
         // Collect files actually on disk (workers may have written more than FILE: markers show)
-        var onDisk = Directory.Exists(outputDir)
-            ? string.Join(", ",
-                Directory.GetFiles(outputDir, "*.*", SearchOption.TopDirectoryOnly)
-                         .Select(Path.GetFileName)
-                         .Where(f => !string.IsNullOrWhiteSpace(f)))
-            : "(none yet)";
+        var files = Directory.Exists(outputDir)
+            ? Directory.GetFiles(outputDir, "*.*", SearchOption.TopDirectoryOnly)
+                       .Select(Path.GetFileName)
+                       .Where(f => !string.IsNullOrWhiteSpace(f))
+                       .Select(f => f!)
+                       .ToList()
+            : [];
+        var onDisk = files.Count > 0 ? string.Join(", ", files) : "(none yet)";
 
-        var entryPoint = targetLanguage switch
-        {
-            "Python"              => "main.py",
-            "JavaScript"          => "index.js",
-            "TypeScript"          => "index.ts",
-            "HTML/CSS/JavaScript" => "index.html",
-            "Ruby"                => "main.rb",
-            "Go"                  => "main.go",
-            "Rust"                => "main.rs",
-            _                     => "main.py",
-        };
-
-        var syntaxCmd = targetLanguage switch
-        {
-            "Python"     => $"python -m py_compile {entryPoint}",
-            "JavaScript" => $"node --check {entryPoint}",
-            "TypeScript" => $"npx tsc --noEmit",
-            _            => $"python -m py_compile {entryPoint}",
-        };
+        var (entryPoint, syntaxCmd) = TesterTarget(targetLanguage, files, TestTools.PythonCommand);
 
         return new SwarmTask
         {
@@ -2368,10 +2411,50 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
 
                 Step 1: list_files — confirm the files above exist.
                 Step 2: run_shell("{syntaxCmd}") — check for syntax errors.
-                Step 3: If Python, also run: run_shell("python -c \\"import importlib.util; spec=importlib.util.spec_from_file_location('m','{entryPoint}'); m=importlib.util.module_from_spec(spec)\\"")
+                Step 3: If Python, also run: run_shell("{TestTools.PythonCommand} -c \\"import importlib.util; spec=importlib.util.spec_from_file_location('m','{entryPoint}'); m=importlib.util.module_from_spec(spec)\\"")
                 Step 4: Report STATUS: PASS or STATUS: FAIL with the exact error text.
                 """,
         };
+    }
+
+    /// <summary>
+    /// What the Tester checks. The language's usual entry point (main.py, index.js, …) when it
+    /// was written; otherwise the first non-test source file actually on disk. It used to be the
+    /// usual name unconditionally, so a run that wrote text_stats.py had its Tester "Verify
+    /// main.py", a file that didn't exist. Python compiles every .py file written, with
+    /// <paramref name="python"/> (python3 off Windows: macOS has no "python").
+    /// </summary>
+    internal static (string EntryPoint, string SyntaxCommand) TesterTarget(
+        string targetLanguage, IReadOnlyList<string> files, string python)
+    {
+        var (usual, ext) = targetLanguage switch
+        {
+            "JavaScript"          => ("index.js",   ".js"),
+            "TypeScript"          => ("index.ts",   ".ts"),
+            "HTML/CSS/JavaScript" => ("index.html", ".html"),
+            "Ruby"                => ("main.rb",    ".rb"),
+            "Go"                  => ("main.go",    ".go"),
+            "Rust"                => ("main.rs",    ".rs"),
+            _                     => ("main.py",    ".py"),   // Python and unknown
+        };
+        var sources = files.Where(f => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)).ToList();
+        static bool IsTest(string f) =>
+            Path.GetFileNameWithoutExtension(f) is var n &&
+            (n.StartsWith("test_", StringComparison.OrdinalIgnoreCase) || n.EndsWith("_test", StringComparison.OrdinalIgnoreCase) ||
+             n.EndsWith(".test", StringComparison.OrdinalIgnoreCase) || n.EndsWith(".spec", StringComparison.OrdinalIgnoreCase));
+        var entry = sources.FirstOrDefault(f => f.Equals(usual, StringComparison.OrdinalIgnoreCase))
+                    ?? sources.FirstOrDefault(f => !IsTest(f))
+                    ?? sources.FirstOrDefault()
+                    ?? usual;
+
+        var syntax = targetLanguage switch
+        {
+            "JavaScript" => $"node --check \"{entry}\"",
+            "TypeScript" => "npx tsc --noEmit",
+            _            => $"{python} -m py_compile " +
+                            string.Join(" ", (sources.Count > 0 ? sources : [entry]).Select(f => $"\"{f}\"")),
+        };
+        return (entry, syntax);
     }
 
     /// <summary>
@@ -2571,13 +2654,19 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         catch { return FallbackTask(raw); }
     }
 
-    private static List<SwarmTask> FallbackTask(string context) =>
+    private const string FallbackTaskTitle = "Execute goal";
+
+    /// <summary>True when <paramref name="tasks"/> is <see cref="FallbackTask"/>'s single task.</summary>
+    internal static bool IsFallbackPlan(List<SwarmTask> tasks) =>
+        tasks is [{ Title: FallbackTaskTitle, Role: SwarmWorkerRole.Coder }];
+
+    internal static List<SwarmTask> FallbackTask(string context) =>
     [
         new SwarmTask
         {
             Role        = SwarmWorkerRole.Coder,
             Priority    = 1,
-            Title       = "Execute goal",
+            Title       = FallbackTaskTitle,
             Description = context.Length > 2000 ? context[..2000] : context,
         }
     ];
