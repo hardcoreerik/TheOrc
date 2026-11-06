@@ -137,4 +137,19 @@ public sealed class SwarmQualityTests
         Assert.That(entry, Is.EqualTo("textstats/stats.py"));
         Assert.That(cmd, Is.EqualTo("python3 -m py_compile \"textstats/__init__.py\" \"textstats/stats.py\""));
     }
+
+    [Test]
+    public void TesterRunsPythonTestsAsModulesFromRoot()
+    {
+        var cmds = SwarmSession.TesterTestCommands("Python",
+            ["tests/test_stats.py", "textstats/stats.py", "test_top.py", "my-tests/test_x.py"], "python3");
+        Assert.That(cmds, Is.EqualTo(new[] { "python3 -m tests.test_stats", "python3 -m test_top" }));
+    }
+
+    [Test]
+    public void TesterTestCommands_NonPythonOrNoTests_Empty()
+    {
+        Assert.That(SwarmSession.TesterTestCommands("JavaScript", ["tests/test_a.py"], "python3"), Is.Empty);
+        Assert.That(SwarmSession.TesterTestCommands("Python", ["textstats/stats.py"], "python3"), Is.Empty);
+    }
 }

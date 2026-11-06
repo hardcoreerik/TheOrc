@@ -1620,6 +1620,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                Python:     python -m py_compile main.py  (or the entry file from your task)
                JavaScript: node --check index.js
             3. Smoke run — run_shell to attempt a brief import/load with a short timeout.
+               Run Python tests as modules from the workspace root (python3 -m tests.test_x),
+               never as python3 tests/test_x.py: that cannot import the project's packages.
                Python:     python -c "import ast; [compile statements check]"
                or simply:  python main.py  with a 5-second timeout if safe.
             4. Report results using EXACTLY this format — no other text:
@@ -2415,9 +2417,46 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 Step 1: list_files — confirm the files above exist.
                 Step 2: run_shell("{syntaxCmd}") — check for syntax errors.
                 Step 3: If Python, also run: run_shell("{TestTools.PythonCommand} -c \\"import importlib.util; spec=importlib.util.spec_from_file_location('m','{entryPoint}'); m=importlib.util.module_from_spec(spec)\\"")
+                {TesterTestSteps(targetLanguage, files, TestTools.PythonCommand)}
                 Step 4: Report STATUS: PASS or STATUS: FAIL with the exact error text.
                 """,
         };
+    }
+
+    /// <summary>
+    /// Run commands for Python test files, as modules from the workspace root
+    /// (<c>python3 -m tests.test_stats</c>). Running <c>python3 tests/test_stats.py</c> puts
+    /// <c>tests/</c> on the import path, not the root, so <c>from textstats.stats import …</c>
+    /// failed with "No module named 'textstats'" and the Tester reported a false FAIL on good code.
+    /// </summary>
+    internal static List<string> TesterTestCommands(
+        string targetLanguage, IReadOnlyList<string> files, string python)
+    {
+        var commands = new List<string>();
+        if (!string.IsNullOrWhiteSpace(targetLanguage) && targetLanguage != "Python") return commands;
+        foreach (var f in files)
+        {
+            if (!f.EndsWith(".py", StringComparison.OrdinalIgnoreCase)) continue;
+            var name = Path.GetFileNameWithoutExtension(f);
+            if (!(name.StartsWith("test_", StringComparison.OrdinalIgnoreCase)
+                  || name.EndsWith("_test", StringComparison.OrdinalIgnoreCase))) continue;
+            var parts = f[..^3].Split('/');
+            // A folder or file that is not a valid module name (dots, dashes) cannot be run with -m.
+            if (parts.Any(p => p.Length == 0 || !(char.IsLetter(p[0]) || p[0] == '_')
+                               || !p.All(c => char.IsLetterOrDigit(c) || c == '_'))) continue;
+            commands.Add($"{python} -m {string.Join(".", parts)}");
+        }
+        return commands;
+    }
+
+    private static string TesterTestSteps(
+        string targetLanguage, IReadOnlyList<string> files, string python)
+    {
+        var cmds = TesterTestCommands(targetLanguage, files, python);
+        if (cmds.Count == 0) return "";
+        return "Step 3b: Run the test files from the workspace root, exactly like this (a script run by path " +
+               "cannot import the project's packages):\n    " +
+               string.Join("\n    ", cmds.Select(c => $"run_shell(\"{c}\")"));
     }
 
     /// <summary>
