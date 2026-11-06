@@ -125,7 +125,19 @@ public static class ToolCallTextParser
         "path", "content", "command", "reason", "query", "pattern", "directory", "old_string",
         "new_string", "url", "text", "selector", "file", "glob", "include", "max_results",
         "start_line", "end_line", "symbol", "depth", "timeout", "name", "id",
+        "file_path", "filepath", "filename", "file_name", "filePath", "relative_path", "target_file",
     ];
+
+    // Names models use for the file path; a tool that wants "path" gets it under that name.
+    private static readonly string[] _pathAliases =
+        ["file_path", "filepath", "filename", "file_name", "filePath", "relative_path", "target_file"];
+
+    private static void NormalizePathAlias(Dictionary<string, object?> args)
+    {
+        if (args.ContainsKey("path")) return;
+        foreach (var alias in _pathAliases)
+            if (args.Remove(alias, out var v)) { args["path"] = v; return; }
+    }
 
     private static readonly Regex _gemmaKeyRegex =
         new(@"(?:^|,)\s*[""']?(" + string.Join("|", _gemmaArgNames) + @")[""']?:", RegexOptions.Compiled);
@@ -147,6 +159,7 @@ public static class ToolCallTextParser
                 : ParseGemmaBareArgs(text, bodyStart, segEnd);
 
             if (args is null) continue;
+            NormalizePathAlias(args);
             calls.Add(new ToolCall
             {
                 Id           = Guid.NewGuid().ToString("N")[..8],

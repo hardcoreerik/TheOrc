@@ -87,4 +87,12 @@ public class GemmaToolCallParserTests
         var calls = ToolCallTextParser.Parse("call:run_shell{command:\"python3 -m py_compile a.py\"}");
         Assert.That(calls[0].Arguments["command"], Is.EqualTo("python3 -m py_compile a.py"));
     }
+
+    [Test]
+    public void FilePathAlias_BecomesPath()
+    {
+        var calls = ToolCallTextParser.Parse("call:write_file{file_path:textstats/stats.py,content:x = 1,reason:make it}");
+        Assert.That(calls[0].Arguments["path"], Is.EqualTo("textstats/stats.py"));
+        Assert.That(calls[0].Arguments["content"], Is.EqualTo("x = 1"));
+    }
 }
