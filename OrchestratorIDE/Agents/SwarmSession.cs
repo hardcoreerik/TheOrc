@@ -461,12 +461,16 @@ public class SwarmSession
                     (  0,  > 0) => $"{testCount} planned tester worker(s)",
                     _           => $"{others.Count} worker(s)"
                 };
-                Activity($"Coder phase — {phaseDesc} running concurrently", "boss");
+                Activity($"Coder phase — {phaseDesc}" + (testCount > 0 ? "; testers run once the files exist" : " running concurrently"), "boss");
                 _trace?.WriteEvent("phase_start", $"Coder/UIDev/Tester phase: {others.Count} worker(s)");
+                // A planned Tester used to start together with the coders and "verify" files that
+                // did not exist yet (false FAIL, then a fix task that rewrote good code). It now
+                // runs after the implementation workers and their files are written.
+                var implTasks = others.Where(t => t.Role != SwarmWorkerRole.Tester).ToList();
                 if (_distributedQueue is not null)
-                    await Task.WhenAll(others.Select(t => DispatchToQueueAsync(t, findings, ct)));
+                    await Task.WhenAll(implTasks.Select(t => DispatchToQueueAsync(t, findings, ct)));
                 else
-                    await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
+                    await Task.WhenAll(implTasks.Select(t => RunWorkerAsync(t, findings, ct)));
 
                 var totalFiles = 0;
                 foreach (var t in others.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
@@ -535,6 +539,16 @@ public class SwarmSession
                 }
 
                 Activity($"Workers wrote {totalFiles} file(s) to workspace root", "boss");
+
+                var plannedTesters = others.Where(t => t.Role == SwarmWorkerRole.Tester).ToList();
+                if (plannedTesters.Count > 0 && !ct.IsCancellationRequested)
+                {
+                    Activity($"Planned tester phase — {plannedTesters.Count} worker(s)", "boss");
+                    if (_distributedQueue is not null)
+                        await Task.WhenAll(plannedTesters.Select(t => DispatchToQueueAsync(t, findings, ct)));
+                    else
+                        await Task.WhenAll(plannedTesters.Select(t => RunWorkerAsync(t, findings, ct)));
+                }
             }
 
             // ── Collect planned TESTER verdicts (boss-assigned, ran in Phase 2b) ──
@@ -584,7 +598,16 @@ public class SwarmSession
                     Activity($"🧪 Tester: {testerVerdict}", "boss");
 
                     // ── Boss spawns targeted fix task on FAIL ─────────────────
-                    if (TesterReportedFailure(testerTask.Result) && !ct.IsCancellationRequested)
+                    // A Tester that executed no tool call never ran the code: its "errors" are
+                    // invented (a Qwen run reported a syntax error in a file that was fine, and the
+                    // fix task then replaced the file with unrelated code).
+                    if (TesterReportedFailure(testerTask.Result) && testerTask.ToolCallsExecuted == 0)
+                    {
+                        Activity("⚠ Tester ran no commands — its verdict is unverified, no fix task started", "boss");
+                        _trace?.WriteEvent("tester_unverified", "Tester reported a failure without running any tool");
+                        testerVerdict += " (unverified: the Tester ran no commands)";
+                    }
+                    else if (TesterReportedFailure(testerTask.Result) && !ct.IsCancellationRequested)
                     {
                         fixTaskSpawned = true;
                         Activity("⚠ Tester found failures — Boss spawning targeted fix task", "boss");
@@ -2202,6 +2225,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                         _runId, task, model, tc, tools, _workspaceRoot, DatasetStagingDir);
 
                 string result;
+                task.ToolCallsExecuted++;
 
                 // ── ask_user: pause worker and wait for user reply ────────
                 if (tc.Name == "ask_user")
@@ -2625,6 +2649,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 - Use read_file to read the current content of the broken file(s).
                 - Use write_file to patch only the lines causing the error.
                 - Do NOT rewrite files from scratch — minimal targeted fix only.
+                - Keep every existing function and the file's purpose; never replace a file with unrelated code.
+                - If read_file shows the reported error is not in the file, change nothing and say so.
                 - After writing, use run_shell to verify the fix (syntax check).
 
                 FILES TO INSPECT: {string.Join(", ", filesToFix)}

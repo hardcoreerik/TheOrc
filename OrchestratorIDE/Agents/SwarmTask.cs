@@ -75,6 +75,8 @@ public class SwarmTask : INotifyPropertyChanged
 
     /// <summary>Files written directly via write_file tool calls (vs ### FILE: markers).</summary>
     public int     ToolFilesWritten   { get; set; }
+    /// <summary>Tool calls this task actually executed (any tool). A Tester with zero did not run anything.</summary>
+    public int     ToolCallsExecuted  { get; set; }
     /// <summary>Files extracted from ### FILE: markers in the worker's text output (vs write_file calls).</summary>
     public int     MarkerFilesWritten { get; set; }
     public DateTime  CreatedAt   { get; init; } = DateTime.UtcNow;
