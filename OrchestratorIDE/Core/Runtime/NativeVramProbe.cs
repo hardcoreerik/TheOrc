@@ -141,6 +141,16 @@ public static class NativeVramProbe
     {
         if (!OperatingSystem.IsMacOS())
             return null;
+
+        // The kernel's own measure first: kern.memorystatus_level is the percentage of memory
+        // available (what memory_pressure prints as "System-wide memory free percentage"), and
+        // it counts reclaimable file-backed cache. free + inactive + purgeable below doesn't: on
+        // a 32 GB M1 Max with ~20 GB of cached files (largely the GGUF itself from a previous
+        // load) it reported 14.4 GB while the kernel reported 89% = 28.5 GB, so a 15.6 GB model
+        // was refused admission although it fit.
+        if (FromMemorystatusLevel(SysctlInt("kern.memorystatus_level"), SysctlLong("hw.memsize")) is { } kernel)
+            return kernel;
+
         try
         {
             // vm_statistics64 is 38 integer_t long (HOST_VM_INFO64_COUNT). Offsets in 32-bit
@@ -157,6 +167,39 @@ public static class NativeVramProbe
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Available bytes from kern.memorystatus_level (0–100 %) and hw.memsize; null when either
+    /// read failed or is out of range.
+    /// </summary>
+    internal static long? FromMemorystatusLevel(int? levelPercent, long? memsizeBytes) =>
+        levelPercent is >= 0 and <= 100 && memsizeBytes is > 0
+            ? memsizeBytes.Value * levelPercent.Value / 100
+            : null;
+
+    private static int? SysctlInt(string name)
+    {
+        try
+        {
+            var value = 0;
+            var size = (nint)sizeof(int);
+            return MachInterop.sysctlbyname(name, ref value, ref size, IntPtr.Zero, 0) == 0 && size == sizeof(int)
+                ? value : null;
+        }
+        catch { return null; }
+    }
+
+    private static long? SysctlLong(string name)
+    {
+        try
+        {
+            long value = 0;
+            var size = (nint)sizeof(long);
+            return MachInterop.sysctlbyname(name, ref value, ref size, IntPtr.Zero, 0) == 0 && size == sizeof(long)
+                ? value : null;
+        }
+        catch { return null; }
     }
 
     private static class MetalInterop
@@ -191,6 +234,12 @@ public static class NativeVramProbe
 
         [System.Runtime.InteropServices.DllImport(LibSystem)]
         public static extern int host_statistics64(uint host, int flavor, [System.Runtime.InteropServices.Out] int[] info, ref int count);
+
+        [System.Runtime.InteropServices.DllImport(LibSystem)]
+        public static extern int sysctlbyname(string name, ref int oldp, ref nint oldlenp, IntPtr newp, nint newlen);
+
+        [System.Runtime.InteropServices.DllImport(LibSystem)]
+        public static extern int sysctlbyname(string name, ref long oldp, ref nint oldlenp, IntPtr newp, nint newlen);
     }
 
     /// <summary>

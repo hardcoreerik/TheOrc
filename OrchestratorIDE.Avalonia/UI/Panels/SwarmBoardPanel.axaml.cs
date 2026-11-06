@@ -49,6 +49,9 @@ public partial class SwarmBoardPanel : UserControl
     public event Action<string>? StatusChanged;
     public event Action<string>? OnActivity;
 
+    /// <summary>A run ended with an error (or was stopped): logged by MainWindow, not only shown here.</summary>
+    public event Action<string>? OnRunError;
+
     // ── Swarm session ─────────────────────────────────────────────────────────
     private SwarmSession? _session;
     private string _runOnUrl  = "";
@@ -491,6 +494,9 @@ public partial class SwarmBoardPanel : UserControl
 
     private void OnError(string message)
     {
+        // The Results tab shows it, but nothing reached the Activity log or app log: a run
+        // refused by admission 20 ms in looked like a 10-minute stall from there.
+        OnRunError?.Invoke(message);
         Dispatcher.UIThread.InvokeAsync(() =>
         {
             SwitchTab("results");
