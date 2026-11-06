@@ -152,7 +152,23 @@ if (( STANDALONE )); then
   while IFS= read -r -d '' f; do
     if file -b "$f" | grep -q 'Mach-O'; then sign "$f"; fi
   done < <(find "$APP" -type f -print0)
-  sign --identifier "$BUNDLE_ID" "$OUT"
+  if [[ "$SIGN_ID" == "-" ]]; then
+    sign --identifier "$BUNDLE_ID" "$OUT"
+  else
+    # Like Xcode's Debug builds: get-task-allow lets debugging tools (dotnet-dump, lldb) attach.
+    # Without it, a certificate-signed app refuses task_for_pid, so a hung app can't be
+    # inspected. Development builds only; a release would be signed without it.
+    ENT="$(mktemp)"
+    cat > "$ENT" <<'ENTITLEMENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>com.apple.security.get-task-allow</key><true/>
+</dict></plist>
+ENTITLEMENTS
+    sign --identifier "$BUNDLE_ID" --entitlements "$ENT" "$OUT"
+    rm -f "$ENT"
+  fi
   codesign --verify --deep --strict "$OUT"
 else
   # exec keeps the bundle's process, so the Dock tile stays TheOrc's. The app writes its own log
