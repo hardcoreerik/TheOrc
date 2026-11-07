@@ -160,6 +160,13 @@ public static class ToolCallTextParser
 
             if (args is null) continue;
             NormalizePathAlias(args);
+            // The model sometimes repeats the same file writes several times in one reply
+            // (three rounds of the same three files, ~36k characters); once is enough.
+            var name = m.Groups[1].Value;
+            if (name == "write_file" && calls.Any(c => c.Name == name
+                    && c.Arguments.Count == args.Count
+                    && args.All(kv => c.Arguments.TryGetValue(kv.Key, out var o) && Equals(o, kv.Value))))
+                continue;
             calls.Add(new ToolCall
             {
                 Id           = Guid.NewGuid().ToString("N")[..8],
@@ -206,8 +213,21 @@ public static class ToolCallTextParser
 
     // Models often wrap bare values in plain quotes ("a.py"); a shell would then run the whole
     // quoted string as one command name, and a path would contain literal quote characters.
-    private static string UnwrapQuotes(string v) =>
-        v.Length >= 2 && (v[0] == '"' || v[0] == '\'') && v[^1] == v[0] ? v[1..^1] : v;
+    private static string UnwrapQuotes(string v)
+    {
+        // Gemma closes a bare value with `"""`; when the code itself holds no matching opener the
+        // lone `"""` would end up in the file as an unterminated string (SyntaxError in pytest).
+        if (v.EndsWith("\"\"\"") && CountOf(v, "\"\"\"") % 2 == 1) v = v[..^3].TrimEnd();
+        else if (v.StartsWith("\"\"\"") && CountOf(v, "\"\"\"") % 2 == 1) v = v[3..].TrimStart();
+        return v.Length >= 2 && (v[0] == '"' || v[0] == '\'') && v[^1] == v[0] ? v[1..^1] : v;
+    }
+
+    private static int CountOf(string text, string needle)
+    {
+        var n = 0;
+        for (var i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = text.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
 
     // key:value,key2:value2}   (no delimiters, so split at known argument names only)
     private static Dictionary<string, object?>? ParseGemmaBareArgs(string text, int pos, int limit)

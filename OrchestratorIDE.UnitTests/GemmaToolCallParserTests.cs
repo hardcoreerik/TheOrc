@@ -95,4 +95,17 @@ public class GemmaToolCallParserTests
         Assert.That(calls[0].Arguments["path"], Is.EqualTo("textstats/stats.py"));
         Assert.That(calls[0].Arguments["content"], Is.EqualTo("x = 1"));
     }
+
+    [Test]
+    public void Gemma_StrayClosingTripleQuote_IsDropped_AndRepeatedWritesCollapse()
+    {
+        var one = "call:write_file{content:def f():\n    return 1\n\nprint(f())\n\"\"\",reason:Create it,path:a.py}";
+        var calls = ToolCallTextParser.Parse(one + one + one);
+        Assert.That(calls, Has.Count.EqualTo(1));
+        Assert.That(calls[0].Arguments["content"], Is.EqualTo("def f():\n    return 1\n\nprint(f())"));
+        Assert.That(calls[0].Arguments["path"], Is.EqualTo("a.py"));
+
+        var balanced = "call:write_file{content:def f():\n    \"\"\"doc\"\"\"\n    return 1,path:a.py}";
+        Assert.That(ToolCallTextParser.Parse(balanced)[0].Arguments["content"], Does.Contain("\"\"\"doc\"\"\""));
+    }
 }
