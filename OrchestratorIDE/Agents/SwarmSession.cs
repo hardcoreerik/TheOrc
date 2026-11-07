@@ -828,6 +828,43 @@ public class SwarmSession
 
     private void Activity(string msg, string agentKey = "boss") => OnActivity?.Invoke(agentKey, msg);
 
+    /// <summary>
+    /// Posts "still working" lines while a model call runs. A local model can spend minutes reading
+    /// a prompt before its first token, and a long generation looks the same as a hung run.
+    /// </summary>
+    private sealed class Heartbeat : IDisposable
+    {
+        private readonly CancellationTokenSource _cts = new();
+
+        public Heartbeat(Action<string> post, string what, Func<int> charsSoFar, TimeSpan? interval = null)
+        {
+            var every = interval ?? TimeSpan.FromSeconds(20);
+            var started = DateTime.UtcNow;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        await Task.Delay(every, _cts.Token);
+                        post(FormatBeat(what, (int)(DateTime.UtcNow - started).TotalSeconds, charsSoFar()));
+                    }
+                }
+                catch (OperationCanceledException) { }
+            });
+        }
+
+        public void Dispose() { _cts.Cancel(); _cts.Dispose(); }
+    }
+
+    internal static string FormatBeat(string what, int seconds, int chars) =>
+        chars == 0
+            ? $"⏳ {what}: {seconds}s, reading the prompt (no output yet)"
+            : $"⏳ {what}: {seconds}s, {chars:N0} characters written";
+
+    private Heartbeat Beat(string what, string agentKey, Func<int> charsSoFar) =>
+        new(m => Activity(m, agentKey), what, charsSoFar);
+
     private static string AgentKey(SwarmWorkerRole role) => role switch
     {
         SwarmWorkerRole.Researcher  => "researcher",
@@ -1250,6 +1287,7 @@ public class SwarmSession
         - TESTER tasks verify code that already exists in the workspace — they do NOT receive output from CODER tasks in the same run
         - Descriptions must be self-contained — minions cannot ask follow-up questions
         - Keep each description to 2-4 sentences (under 80 words): name the file and each function signature once. Do NOT list edge cases, return values or examples, and never repeat a phrase
+        - If the goal asks for tests, plan a separate CODER task titled "Write tests/test_<name>.py" that names the test file and the functions to test. TESTER tasks only run tests; they never write the test file
         - Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER/TESTER
         - Prefer 3 priority-2 tasks when the goal has distinct implementation concerns
 
@@ -1387,6 +1425,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // A mild repeat penalty for the plan only (Native Runtime; other backends ignore it):
         // Gemma 4 26B's plans collapsed into "…is an[] empty list is an[] empty list…" twice in a row.
         using var penalty = SamplingHints.WithRepeatPenalty(BossRepeatPenalty);
+        using var planBeat = Beat("Boss is planning", "boss", () => sb.Length);
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: temperature, maxTokens: 8192, ct: ct))
         {
@@ -1395,6 +1434,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             // A repetition loop otherwise runs to the 8192-token limit (~3 min for Gemma-4 26B
             // on Metal) and still yields no plan. Stop as soon as the tail is one phrase on repeat;
             // the caller's retry (higher temperature) is the way out.
+            // The plan is one JSON object. Gemma 4 sometimes follows it with chatter or the whole
+            // plan again, which cost minutes; the first complete object is all that is used.
+            if (tokens % 8 == 7 && JsonObjectComplete(sb)) break;
             if (++tokens % 32 == 0 && IsRepetitionLoop(sb))
             {
                 _trace?.WriteEvent("boss_repetition_loop", $"Stopped after {tokens} tokens");
@@ -1444,6 +1486,28 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     /// to implement…" loop qualifies; JSON with repeated keys (different values in between), a
     /// "========" separator or a few repeated code lines does not.
     /// </summary>
+    /// <summary>True once a top-level {...} in the text has closed (string-aware).</summary>
+    internal static bool JsonObjectComplete(StringBuilder text)
+    {
+        var depth = 0; var inString = false; var escaped = false; var start = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"' && depth > 0) inString = true;
+            else if (c == '{') { if (depth++ == 0) start = i; }
+            else if (c == '}' && depth > 0 && --depth == 0
+                     && text.ToString(start, i - start + 1).Contains("\"tasks\"")) return true;
+        }
+        return false;
+    }
+
     internal static bool IsRepetitionLoop(StringBuilder text)
     {
         const int MinSpan = 300, MinRepeats = 4, MinPeriod = 6, MaxPeriod = 150;
@@ -1547,6 +1611,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         OnBossToken?.Invoke("\n\n──── ⬡ TheOrc is merging results ────\n\n");
 
         var result = new StringBuilder();
+        using var mergeBeat = Beat("Boss is merging results", "boss", () => result.Length);
         await foreach (var token in _ollama.StreamCompletionAsync(
             _bossModel, history, temperature: 0.2, maxTokens: 3072, ct: ct))
         {
@@ -1578,6 +1643,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         - Use fetch_url to look up documentation or source material when needed
         - Use run_shell to install dependencies or verify the project builds
 
+        ⚠ BE BRIEF: Do not explain, plan aloud or restate the task. Your first output must be the
+        tool call itself; add at most one sentence afterwards. Long reasoning slows every step.
+
         ⚠ FILENAME DISCIPLINE: Use the EXACT filename(s) specified in your task title or description.
         NEVER substitute generic names like README.md, output.py, FileMap.txt, or main.txt.
         If the task says write "ARCHITECTURE.md" → the file MUST be named "ARCHITECTURE.md".
@@ -1585,6 +1653,10 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         The filename in the task description IS the filename. Do not invent alternatives.
         Do NOT write files named ".agent.md", "_agentlog.txt", "output.txt", or "debug.txt".
         """;
+
+    // A worker step is one tool call plus a sentence. The old 8192 cap was the whole context
+    // window, so a rambling step could run for minutes before anything useful happened.
+    internal const int WorkerMaxTokens = 4096;
 
     private static string WorkerSystemPrompt(SwarmWorkerRole role) => role switch
     {
@@ -2188,17 +2260,18 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                     model, view,
                     tools:       toolsPayload,
                     temperature: 0.25,
-                    maxTokens:   8192,
+                    maxTokens:   WorkerMaxTokens,
                     onToolCall:  tc => pendingTcs.Add(tc),
                     ct:          ct)
                 : _ollama.StreamCompletionAsync(
                     model, view,
                     tools:       toolsPayload,
                     temperature: 0.25,
-                    maxTokens:   8192,
+                    maxTokens:   WorkerMaxTokens,
                     onToolCall:  tc => pendingTcs.Add(tc),
                     ct:          ct);
 
+            using var workerBeat = Beat($"{task.Title} (step {step + 1})", agentKey, () => contentSb.Length);
             await foreach (var token in stream)
             {
                 contentSb.Append(token);

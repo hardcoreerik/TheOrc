@@ -48,6 +48,14 @@ public sealed class SwarmQualityTests
         """);
 
     [Test]
+    public void JsonObjectComplete_StopsAfterPlan_IgnoresOtherObjects()
+    {
+        Assert.That(SwarmSession.JsonObjectComplete(new StringBuilder("{\"plan\":\"a { b\",\"tasks\":[{\"x\":1}")), Is.False);
+        Assert.That(SwarmSession.JsonObjectComplete(new StringBuilder("{\"plan\":\"a { b\",\"tasks\":[{\"x\":1}]}")), Is.True);
+        Assert.That(SwarmSession.JsonObjectComplete(new StringBuilder("think {role} then {\"a\":1}")), Is.False);
+    }
+
+    [Test]
     public void A_phrase_on_repeat_is_detected_as_a_loop() =>
         Assert.That(SwarmSession.IsRepetitionLoop(LoopingPlan()), Is.True);
 
@@ -266,5 +274,12 @@ public sealed class SwarmQualityTests
             Assert.That(SwarmSession.FindMissingPlannedTestFile(tasks, dir), Is.Null);
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void FormatBeat_SaysReadingThePromptUntilOutputArrives()
+    {
+        Assert.That(SwarmSession.FormatBeat("Write a.py (step 2)", 40, 0), Does.Contain("reading the prompt"));
+        Assert.That(SwarmSession.FormatBeat("Write a.py (step 2)", 60, 1500), Does.Contain("1,500 characters"));
     }
 }
