@@ -3327,10 +3327,18 @@ public partial class MainWindow : Window
     /// still hardcoded to Ollama when the other two flipped to native-by-default 2026-07-29; this
     /// closes that gap. Only when the toggle is off does this return the plain Ollama runtime.
     /// </summary>
+    // One native swarm runtime for the whole session. Each run used to build a new one while the
+    // previous run's model stayed loaded, so the second run asked for another ~16 GB, was denied
+    // by the memory check and died before the Boss started.
+    private IModelRuntime? _swarmNativeRuntime;
+
     private IModelRuntime BuildSwarmRuntime()
     {
         if (!_activeRuntimeSettings.ExperimentalNativeSwarmEnabled)
             return new OllamaRuntime(_ollama);
+
+        if (_swarmNativeRuntime is not null)
+            return _swarmNativeRuntime;
 
         var native = BuildExperimentalNativeSwarmRuntime();
         if (native is null)
@@ -3346,6 +3354,7 @@ public partial class MainWindow : Window
                 $"Ollama fallback is disabled by policy, surfacing as an error instead: {reason}", DateTime.Now)),
             onNativeModelChanged: activeModel => AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
                 $"Native model resolved: {activeModel}", DateTime.Now)));
+        _swarmNativeRuntime = runtime;
         return runtime;
     }
 

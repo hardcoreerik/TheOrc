@@ -48,6 +48,22 @@ public sealed class SwarmQualityTests
         """);
 
     [Test]
+    public void FindSignatureMismatches_FlagsWrongAndMissing_AcceptsDefaults()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        Directory.CreateDirectory(Path.Combine(dir, "pkg"));
+        File.WriteAllText(Path.Combine(dir, "pkg", "cli.py"), "def main():\n    pass\n");
+        File.WriteAllText(Path.Combine(dir, "pkg", "stats.py"),
+            "def word_count(text):\n    return 1\n\ndef top_words(text, n=5):\n    return []\n");
+        var goal = "add word_count(text) and top_words(text, n) and cli.main(sys.argv[1:]); main(argv) reads a file; helper(x) too";
+        var bad = SwarmSession.FindSignatureMismatches(goal, dir);
+        Assert.That(bad, Has.Count.EqualTo(2));
+        Assert.That(bad[0], Does.Contain("main(argv)").And.Contain("pkg/cli.py"));
+        Assert.That(bad[1], Does.Contain("helper(x) is not defined"));
+        Assert.That(SwarmSession.BuildSignatureFixTask(bad, goal, "Python").Title, Is.EqualTo("Fix pkg/cli.py"));
+    }
+
+    [Test]
     public void JsonObjectComplete_StopsAfterPlan_IgnoresOtherObjects()
     {
         Assert.That(SwarmSession.JsonObjectComplete(new StringBuilder("{\"plan\":\"a { b\",\"tasks\":[{\"x\":1}")), Is.False);
