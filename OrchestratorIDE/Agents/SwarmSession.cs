@@ -683,6 +683,34 @@ public class SwarmSession
                 }
             }
 
+            // ── Phase 3c: the goal's named signatures ────────────────────────────────
+            // Passing tests prove the code and its tests agree, not that either matches the goal:
+            // a run "passed" with main() taking no argv and top_words called without n.
+            if (!ct.IsCancellationRequested)
+            {
+                var mismatches = FindSignatureMismatches(userGoal, OutputProjectDir);
+                if (mismatches.Count > 0)
+                {
+                    Activity($"⚠ {mismatches.Count} function(s) differ from the goal — Boss spawning a fix task", "boss");
+                    _trace?.WriteEvent("signature_mismatch", string.Join("; ", mismatches));
+                    var sigFix = BuildSignatureFixTask(mismatches, userGoal, _targetLanguage);
+                    Tasks.Add(sigFix);
+                    OnTasksPlanned?.Invoke(Tasks);
+                    await RunWorkerAsync(sigFix, findings, ct);
+                    mismatches = FindSignatureMismatches(userGoal, OutputProjectDir);
+                    var again = await RunGroundTruthTestsAsync(ct);
+                    if (again is { Ran: true, ExitCode: not 0 })
+                        testerVerdict = $"STATUS: FAIL | GROUND TRUTH: pytest fails after the signature fix: {TailLines(again.Output, 6)}";
+                }
+                if (mismatches.Count > 0)
+                {
+                    var line = "STATUS: FAIL | The goal names functions the code does not match: " + string.Join("; ", mismatches);
+                    Activity($"🧪 {line}", "boss");
+                    _trace?.WriteEvent("signature_result", line);
+                    testerVerdict = testerVerdict is null ? line : line + "\n" + testerVerdict;
+                }
+            }
+
             // ── Phase 4: Boss merge → final_report.md ────────────────────────
             Activity("Boss merging results → writing final_report.md", "boss");
             _trace?.WriteEvent("phase_start", "Boss merge");
@@ -2534,6 +2562,86 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 - read_file the file named in the failure, then write_file the corrected whole file. Always pass "path" and "content".
                 - Decide whether the test or the code is wrong; a test must call functions with the arguments they require.
                 - Keep every existing function; do not add new files.
+                - Afterwards run_shell "python3 -m pytest -q" once to check, then stop.
+                LANGUAGE: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
+                """,
+        };
+    }
+
+    // `name(a, b)` as the goal writes a function it wants: plain identifiers only, and not a call
+    // on something else (`cli.main(sys.argv[1:])`).
+    private static readonly Regex _goalSignatureRegex =
+        new(@"(?<![\w.])([A-Za-z_]\w*)\(\s*((?:[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)?)\s*\)", RegexOptions.Compiled);
+
+    private static readonly Regex _pyDefRegex =
+        new(@"^[ \t]*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", RegexOptions.Compiled | RegexOptions.Multiline);
+
+    /// <summary>
+    /// Functions the goal spells out as `name(params)` that the project's Python code does not define
+    /// with those parameters (extra parameters are fine if they have defaults).
+    /// </summary>
+    internal static List<string> FindSignatureMismatches(string goal, string projectDir)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(goal) || !Directory.Exists(projectDir)) return result;
+
+        var defs = new List<(string Name, string[] Params, bool[] HasDefault, string File)>();
+        foreach (var f in Directory.EnumerateFiles(projectDir, "*.py", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(projectDir, f).Replace('\\', '/');
+            if (rel.StartsWith('.') || rel.Contains("/.") || rel.StartsWith("tests/") || Path.GetFileName(f).StartsWith("test_")) continue;
+            foreach (Match m in _pyDefRegex.Matches(File.ReadAllText(f)))
+            {
+                var parts = m.Groups[2].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(p => p is not ("self" or "cls" or "/" or "*")).ToList();
+                var names = parts.Select(p => Regex.Match(p.TrimStart('*'), @"^\w+").Value).ToArray();
+                defs.Add((m.Groups[1].Value, names, parts.Select(p => p.Contains('=')).ToArray(), rel));
+            }
+        }
+        if (defs.Count == 0) return result;
+
+        var seen = new HashSet<string>();
+        foreach (Match m in _goalSignatureRegex.Matches(goal))
+        {
+            var name = m.Groups[1].Value;
+            var want = m.Groups[2].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (!seen.Add(name + "(" + string.Join(",", want) + ")")) continue;
+
+            var candidates = defs.Where(d => d.Name == name).ToList();
+            var label = $"{name}({string.Join(", ", want)})";
+            if (candidates.Count == 0) { result.Add($"{label} is not defined"); continue; }
+            var ok = candidates.Any(d =>
+                d.Params.Length >= want.Length
+                && want.Select((w, i) => d.Params[i] == w).All(b => b)
+                && d.HasDefault.Skip(want.Length).All(b => b));
+            if (!ok)
+            {
+                var d = candidates[0];
+                result.Add($"{label} wanted, but {d.File} defines {name}({string.Join(", ", d.Params)})");
+            }
+        }
+        return result;
+    }
+
+    internal static SwarmTask BuildSignatureFixTask(IReadOnlyList<string> mismatches, string goal, string targetLanguage)
+    {
+        var file = mismatches.Select(x => Regex.Match(x, @"but (\S+\.py) defines").Groups[1].Value)
+            .FirstOrDefault(f => f.Length > 0);
+        return new SwarmTask
+        {
+            Role     = SwarmWorkerRole.Coder,
+            Priority = 4,
+            Title    = file is null ? "Fix function signatures" : $"Fix {file}",
+            Description = $"""
+                The project goal names functions with exact parameters, and the code does not match:
+                {string.Join("\n", mismatches.Select(x => "- " + x))}
+
+                GOAL: {goal}
+
+                INSTRUCTIONS:
+                - read_file the file, then write_file the corrected whole file. Always pass "path" and "content".
+                - Use exactly the parameters the goal names, and do what the goal says the function does.
+                - Update the callers and the tests to the new signature; do not add new files.
                 - Afterwards run_shell "python3 -m pytest -q" once to check, then stop.
                 LANGUAGE: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
                 """,
