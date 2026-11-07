@@ -1617,6 +1617,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         - Use fetch_url to look up documentation or source material when needed
         - Use run_shell to install dependencies or verify the project builds
 
+        ⚠ BE BRIEF: Do not explain, plan aloud or restate the task. Your first output must be the
+        tool call itself; add at most one sentence afterwards. Long reasoning slows every step.
+
         ⚠ FILENAME DISCIPLINE: Use the EXACT filename(s) specified in your task title or description.
         NEVER substitute generic names like README.md, output.py, FileMap.txt, or main.txt.
         If the task says write "ARCHITECTURE.md" → the file MUST be named "ARCHITECTURE.md".
@@ -1624,6 +1627,10 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         The filename in the task description IS the filename. Do not invent alternatives.
         Do NOT write files named ".agent.md", "_agentlog.txt", "output.txt", or "debug.txt".
         """;
+
+    // A worker step is one tool call plus a sentence. The old 8192 cap was the whole context
+    // window, so a rambling step could run for minutes before anything useful happened.
+    internal const int WorkerMaxTokens = 4096;
 
     private static string WorkerSystemPrompt(SwarmWorkerRole role) => role switch
     {
@@ -2227,14 +2234,14 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                     model, view,
                     tools:       toolsPayload,
                     temperature: 0.25,
-                    maxTokens:   8192,
+                    maxTokens:   WorkerMaxTokens,
                     onToolCall:  tc => pendingTcs.Add(tc),
                     ct:          ct)
                 : _ollama.StreamCompletionAsync(
                     model, view,
                     tools:       toolsPayload,
                     temperature: 0.25,
-                    maxTokens:   8192,
+                    maxTokens:   WorkerMaxTokens,
                     onToolCall:  tc => pendingTcs.Add(tc),
                     ct:          ct);
 
