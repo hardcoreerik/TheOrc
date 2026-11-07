@@ -1287,6 +1287,7 @@ public class SwarmSession
         - TESTER tasks verify code that already exists in the workspace — they do NOT receive output from CODER tasks in the same run
         - Descriptions must be self-contained — minions cannot ask follow-up questions
         - Keep each description to 2-4 sentences (under 80 words): name the file and each function signature once. Do NOT list edge cases, return values or examples, and never repeat a phrase
+        - If the goal asks for tests, plan a separate CODER task titled "Write tests/test_<name>.py" that names the test file and the functions to test. TESTER tasks only run tests; they never write the test file
         - Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER/TESTER
         - Prefer 3 priority-2 tasks when the goal has distinct implementation concerns
 
