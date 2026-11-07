@@ -732,7 +732,10 @@ public class SwarmSession
                     }
                     else
                     {
-                        Activity("🔍 Gate skipped — Codex CLI not available (npm i -g @openai/codex to enable)", "boss");
+                        // RunAsync returns null for both: say which.
+                        Activity(Services.Swarm.ReviewGateService.HasGateScript(_workspaceRoot)
+                            ? "🔍 Gate skipped — Codex CLI not available (npm i -g @openai/codex to enable)"
+                            : "🔍 Gate skipped — this workspace has no Tools/gate-review.ps1", "boss");
                     }
                 }
                 catch (OperationCanceledException) { throw; }

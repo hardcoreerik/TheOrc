@@ -371,6 +371,25 @@ public sealed class InstallOrchestrator : IDisposable
                         // survive" as a variable if llama-server still won't run.
                         EnsureExecutable(serverExe);
                         Log($"  ✓ Found: {serverExe}");
+
+                        // llama.cpp's CUDA zip has no CUDA runtime DLLs (they're a separate
+                        // cudart-*.zip); the step above already put them in
+                        // StableCudaRedistDir for the in-process backend. Without a copy next
+                        // to llama-server.exe its CUDA backend can't load and it runs on CPU.
+                        if (NeedsCudaRedistributables)
+                        {
+                            try
+                            {
+                                var n = CudaRuntimeDlls.CopyInto(StableCudaRedistDir,
+                                    Path.GetDirectoryName(serverExe)!);
+                                if (n > 0)
+                                    Log($"  ✓ Copied {n} CUDA runtime DLL(s) next to llama-server");
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"  ⚠ Couldn't copy CUDA runtime DLLs next to llama-server ({ex.Message}) — it will run on CPU.");
+                            }
+                        }
                     }
 
                     try { File.Delete(runtimeZip); } catch { }

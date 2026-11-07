@@ -27,6 +27,8 @@ namespace OrchestratorIDE.Core;
 /// </summary>
 public sealed class ScreenRecorder : IDisposable
 {
+    public static bool IsSupported => true;
+
     // ── Config ────────────────────────────────────────────────────────────────
 
     private const int    Fps         = 10;
@@ -230,6 +232,9 @@ public sealed class ScreenRecorder : IDisposable
     private string                 _file = "";
     private Task<string>?          _stderr;
     private DateTime               _startedUtc;
+
+    /// <summary>Whether Start actually records here (macOS only in this build).</summary>
+    public static bool IsSupported => OperatingSystem.IsMacOS();
 
     public static string RecordingsDirectory => DirectoryOverride ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OrchestratorIDE", FolderName);
