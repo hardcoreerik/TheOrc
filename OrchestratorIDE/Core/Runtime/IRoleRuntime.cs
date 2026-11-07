@@ -70,6 +70,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         "<|user|>",
         "<|end|>",
         "<|im_end|>",
+        "im_start|>",    // a plan followed by "://im_start|>assistant" and the plan again, seen from Gemma 4
         "im_end|>",      // the same token with its "<|" lost to tokenisation: seen as "|im_end|>|im_end|>…"
         "[/INST]",
         "\nUser:",

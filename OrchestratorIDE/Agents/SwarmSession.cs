@@ -1434,6 +1434,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             // A repetition loop otherwise runs to the 8192-token limit (~3 min for Gemma-4 26B
             // on Metal) and still yields no plan. Stop as soon as the tail is one phrase on repeat;
             // the caller's retry (higher temperature) is the way out.
+            // The plan is one JSON object. Gemma 4 sometimes follows it with chatter or the whole
+            // plan again, which cost minutes; the first complete object is all that is used.
+            if (tokens % 8 == 7 && JsonObjectComplete(sb)) break;
             if (++tokens % 32 == 0 && IsRepetitionLoop(sb))
             {
                 _trace?.WriteEvent("boss_repetition_loop", $"Stopped after {tokens} tokens");
@@ -1483,6 +1486,28 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     /// to implement…" loop qualifies; JSON with repeated keys (different values in between), a
     /// "========" separator or a few repeated code lines does not.
     /// </summary>
+    /// <summary>True once a top-level {...} in the text has closed (string-aware).</summary>
+    internal static bool JsonObjectComplete(StringBuilder text)
+    {
+        var depth = 0; var inString = false; var escaped = false; var start = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"' && depth > 0) inString = true;
+            else if (c == '{') { if (depth++ == 0) start = i; }
+            else if (c == '}' && depth > 0 && --depth == 0
+                     && text.ToString(start, i - start + 1).Contains("\"tasks\"")) return true;
+        }
+        return false;
+    }
+
     internal static bool IsRepetitionLoop(StringBuilder text)
     {
         const int MinSpan = 300, MinRepeats = 4, MinPeriod = 6, MaxPeriod = 150;
