@@ -32,7 +32,7 @@
 
     <!-- Override System.Drawing.Common to a version without the critical CVE
          (NU1904 — GHSA-rxg9-xrhp-64gj) pulled in transitively by FlaUI -->
-    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.22" />
 
     <!-- Test framework -->
     <PackageReference Include="NUnit"                   Version="4.2.0"  />
