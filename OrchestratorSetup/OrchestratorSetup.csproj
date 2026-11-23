@@ -44,10 +44,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+    <PackageReference Include="Avalonia" Version="12.2.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.2.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.2.0" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.2.0" />
     <!-- System.Text.Json is inbox in .NET 10 but kept explicit for IDE Intellisense -->
     <PackageReference Include="System.Text.Json"  Version="10.0.8" NoWarn="NU1510" />
     <!-- WMI managed API (Windows-only at runtime) — required for Win32_VideoController and
